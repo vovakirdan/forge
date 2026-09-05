@@ -1,0 +1,25 @@
+[package]
+name = "forge-supervisor"
+edition.workspace = true
+rust-version.workspace = true
+version.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+clap.workspace = true
+forge-protocol = { path = "../forge-protocol" }
+hyper-util = { version = "0.1", features = ["tokio"] }
+nix = { version = "0.30", default-features = false, features = ["user"] }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-stream.workspace = true
+tonic.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+tower = "0.5"
+uuid.workspace = true

@@ -1,0 +1,31 @@
+# Rust build outputs and rustfmt backups. Cargo.lock is intentionally tracked.
+/target/
+*.rs.bk
+
+# Generated local Forge development state. This includes synthetic development
+# credentials created by `just dev-init` and must never be committed.
+/var/
+/logs/
+*.log
+*.sock
+*.pid
+*.pid.lock
+
+# Local editor and code-navigation state.
+/.codebase-memory/
+/.serena/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Local environment overrides. Commit an explicitly named example file instead.
+.env
+.env.*
+*.env
+*.env.*
+!.env.example
+!*.env.example
+!.env.template
+!*.env.template

@@ -1,0 +1,235 @@
+// Forge's local Core-to-Supervisor control protocol.
+//
+// The Supervisor is the client: it opens this bidirectional stream over an
+// authenticated Unix domain socket. It reports observations and executor
+// submissions; Core remains the only authority that changes canonical state.
+syntax = "proto3";
+
+package forge.supervisor.v1;
+
+// A single, long-lived control stream for one Supervisor process.
+service SupervisorControl {
+  // Supervisor must send SupervisorHello before any run-scoped message. Core
+  // sends a CoreAcknowledgement for every accepted, rejected, or stale inbound
+  // message. Provision and stop requests flow in the opposite direction.
+  rpc SupervisorSession(stream SupervisorToCore) returns (stream CoreToSupervisor);
+}
+
+// An envelope sent by a Supervisor to Core.
+message SupervisorToCore {
+  oneof message {
+    SupervisorHello hello = 1;
+    ObservedRunEvent observed_run_event = 2;
+    ExecutorSubmission executor_submission = 3;
+  }
+}
+
+// An envelope sent by Core to a connected Supervisor.
+message CoreToSupervisor {
+  oneof message {
+    ProvisionRun provision_run = 1;
+    StopRun stop_run = 2;
+    CoreAcknowledgement acknowledgement = 3;
+  }
+}
+
+// Identifies a newly connected Supervisor process and its host boot.
+message SupervisorHello {
+  // Stable id for this transport message. UUIDv7 is expected.
+  string message_id = 1;
+  // Fresh id for this Supervisor process instance. UUIDv7 is expected.
+  string supervisor_instance_id = 2;
+  // Stable id of the execution host known to Core.
+  string host_id = 3;
+  // Host boot identifier used during recovery reconciliation.
+  string boot_id = 4;
+  // The highest protocol major version supported by this Supervisor.
+  uint32 protocol_major = 5;
+  // Unix epoch milliseconds when the Supervisor process started.
+  int64 started_at_unix_ms = 6;
+}
+
+// An observed, non-authoritative runtime event for one provisioned Run.
+message ObservedRunEvent {
+  // Stable id for this transport message. UUIDv7 is expected.
+  string message_id = 1;
+  // The Run observed by the Supervisor.
+  string run_id = 2;
+  // The active Lease fencing token. Core rejects stale write scopes.
+  uint64 lease_fencing_token = 3;
+  // Increases each time Core asks the Supervisor to provision a new environment
+  // for this Run.
+  uint64 environment_epoch = 4;
+  // Strictly increases across all run-scoped SupervisorToCore messages for this
+  // (run_id, environment_epoch) pair.
+  uint64 sequence = 5;
+  // When the observation occurred, expressed as Unix epoch milliseconds.
+  int64 occurred_at_unix_ms = 6;
+  // The observed runtime state or incident class.
+  RunEventKind kind = 7;
+  // Valid UTF-8 JSON object with event-specific, non-secret technical details.
+  string details_json = 8;
+}
+
+// Runtime observations emitted by the Supervisor. A stage result is not a
+// RunEvent; it is sent as an ExecutorSubmission.
+enum RunEventKind {
+  RUN_EVENT_KIND_UNSPECIFIED = 0;
+  RUN_EVENT_KIND_PROVISIONING = 1;
+  RUN_EVENT_KIND_RUNNING = 2;
+  RUN_EVENT_KIND_HEARTBEAT = 3;
+  RUN_EVENT_KIND_STOPPING = 4;
+  RUN_EVENT_KIND_STOPPED = 5;
+  RUN_EVENT_KIND_START_FAILED = 6;
+  RUN_EVENT_KIND_PROVIDER_FAILED = 7;
+  RUN_EVENT_KIND_BUDGET_EXHAUSTED = 8;
+  RUN_EVENT_KIND_ENVIRONMENT_LOST = 9;
+  RUN_EVENT_KIND_POLICY_DENIED = 10;
+}
+
+// A typed, fenced submission emitted by an executor running under Supervisor.
+// Core validates the Run, Lease, epoch, sequence, capability, and Pipeline
+// contract before turning this into a canonical command.
+message ExecutorSubmission {
+  // Stable id for this transport message. UUIDv7 is expected.
+  string message_id = 1;
+  // The Run on whose behalf the executor is submitting.
+  string run_id = 2;
+  // The active Lease fencing token.
+  uint64 lease_fencing_token = 3;
+  // The currently provisioned environment epoch.
+  uint64 environment_epoch = 4;
+  // Strictly increasing run-scoped sequence shared with ObservedRunEvent.
+  uint64 sequence = 5;
+  // When the executor made the submission, as Unix epoch milliseconds.
+  int64 submitted_at_unix_ms = 6;
+
+  oneof payload {
+    ArtifactSubmission artifact = 7;
+    StageOutcomeSubmission stage_outcome = 8;
+  }
+}
+
+// Requests attachment of a structured Task Artifact. The textual JSON fields
+// are parsed and structurally checked by Core; Supervisor never writes an
+// Artifact directly.
+message ArtifactSubmission {
+  // Project-defined Artifact kind, such as analysis_result or review_report.
+  // It must be a stable key: 1..=64 lowercase ASCII characters, beginning
+  // with a letter and otherwise containing only letters, digits, or underscores.
+  string artifact_kind = 1;
+  // Valid UTF-8 JSON object with Artifact metadata.
+  string metadata_json = 2;
+  // Valid UTF-8 JSON value containing the inline Artifact body for M0. Its
+  // UTF-8 encoded JSON document, including syntax, must not exceed 262144
+  // bytes. Core owns the authoritative size check.
+  string body_json = 3;
+  // Non-blank human-readable Artifact title, at most 240 Unicode characters.
+  string title = 4;
+}
+
+// Requests a Pipeline-defined outcome for the active stage.
+message StageOutcomeSubmission {
+  // Pinned PipelineVersion stage identifier. It is a stable key with the same
+  // 1..=64 lowercase ASCII rule as Artifact kinds.
+  string stage_id = 1;
+  // Pipeline-defined named outcome, such as passed or changes_requested. It is
+  // a stable key with the same 1..=64 lowercase ASCII rule as stage ids.
+  string outcome = 2;
+  // Existing canonical Artifact IDs already linked to the Task that this
+  // outcome explicitly cites as permitted TaskHistory evidence. These are not
+  // identities for ArtifactSubmission envelopes emitted by this Run. Core
+  // rejects duplicates and never infers citations from the Task's other
+  // Artifacts.
+  repeated string artifact_ids = 3;
+  // Optional human-readable note. It is evidence, never an implicit command.
+  string note = 4;
+  // Required when the Pipeline transition selected by `outcome` terminates the
+  // Task as cancelled. This is a stable Project cancellation-reason key, not a
+  // mutable numeric catalog position.
+  string cancellation_reason_key = 5;
+  // ExecutorSubmission.message_id values for ArtifactSubmission envelopes this
+  // outcome explicitly cites from the current Run. Core resolves every value
+  // atomically only if it belongs to this exact (run_id, lease_fencing_token,
+  // environment_epoch) scope, then attaches the resulting canonical Artifact
+  // IDs to the outcome. Core rejects duplicates; omission never cites every
+  // ArtifactSubmission from the Run.
+  repeated string artifact_submission_message_ids = 6;
+}
+
+// Core's desired provision request. RunSpec JSON is opaque and explicitly
+// versioned; Supervisor must reject an unsupported version rather than infer a
+// different profile.
+message ProvisionRun {
+  // Stable id for this Core command. UUIDv7 is expected.
+  string command_id = 1;
+  // Run to provision.
+  string run_id = 2;
+  // Task that owns the Run.
+  string task_id = 3;
+  // Employee selected by Core.
+  string employee_id = 4;
+  // Pinned PipelineVersion stage to execute. It is a stable key with the same
+  // 1..=64 lowercase ASCII rule as Artifact kinds.
+  string stage_id = 5;
+  // Monotonic attempt number for this stage.
+  uint32 attempt = 6;
+  // Lease fencing token required for any executor submission.
+  uint64 lease_fencing_token = 7;
+  // Desired environment epoch.
+  uint64 environment_epoch = 8;
+  // Immutable ContextSnapshot identity.
+  string context_snapshot_id = 9;
+  // Valid UTF-8 JSON object holding the opaque RunSpec transport view.
+  string run_spec_json = 10;
+  // Non-zero schema version of `run_spec_json`. M0 uses version 1.
+  uint32 run_spec_version = 11;
+}
+
+// Requests that the Supervisor stop a provisioned Run. Completion is reported
+// by a subsequent ObservedRunEvent rather than assumed from this request.
+message StopRun {
+  // Stable id for this Core command. UUIDv7 is expected.
+  string command_id = 1;
+  // Run to stop.
+  string run_id = 2;
+  // Current Lease fencing token.
+  uint64 lease_fencing_token = 3;
+  // Current environment epoch.
+  uint64 environment_epoch = 4;
+  // Graceful or forceful stop behavior selected by Core policy.
+  StopMode mode = 5;
+  // Stable, non-secret reason code for audit and runtime diagnostics.
+  string reason_code = 6;
+  // Grace period before force escalation when mode is graceful.
+  uint64 grace_period_ms = 7;
+}
+
+// The allowed stop modes for a Core stop request.
+enum StopMode {
+  STOP_MODE_UNSPECIFIED = 0;
+  STOP_MODE_GRACEFUL = 1;
+  STOP_MODE_FORCE = 2;
+}
+
+// Core's durable response to one inbound Supervisor message.
+message CoreAcknowledgement {
+  // Stable id for this response. UUIDv7 is expected.
+  string message_id = 1;
+  // The Supervisor message id that this response addresses.
+  string acknowledged_message_id = 2;
+  // Whether Core accepted, rejected, or recorded the message as stale.
+  AcknowledgementDisposition disposition = 3;
+  // Stable machine-readable refusal/staleness reason. Empty when accepted.
+  string reason_code = 4;
+  // Safe operator-facing detail; it must not include credentials or raw logs.
+  string message = 5;
+}
+
+// How Core handled an inbound Supervisor message.
+enum AcknowledgementDisposition {
+  ACKNOWLEDGEMENT_DISPOSITION_UNSPECIFIED = 0;
+  ACKNOWLEDGEMENT_DISPOSITION_ACCEPTED = 1;
+  ACKNOWLEDGEMENT_DISPOSITION_REJECTED = 2;
+  ACKNOWLEDGEMENT_DISPOSITION_IGNORED_STALE = 3;
+}

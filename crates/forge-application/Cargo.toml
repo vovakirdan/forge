@@ -1,0 +1,17 @@
+[package]
+name = "forge-application"
+edition.workspace = true
+rust-version.workspace = true
+version.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+forge-domain = { path = "../forge-domain" }
+forge-protocol = { path = "../forge-protocol" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+uuid.workspace = true

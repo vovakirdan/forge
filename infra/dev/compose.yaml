@@ -1,0 +1,68 @@
+services:
+  postgres:
+    image: docker.io/library/postgres@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73
+    environment:
+      POSTGRES_DB: ${FORGE_POSTGRES_DATABASE}
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+      POSTGRES_PASSWORD: ${FORGE_POSTGRES_PASSWORD}
+      POSTGRES_USER: ${FORGE_POSTGRES_USER}
+    healthcheck:
+      interval: 2s
+      retries: 30
+      start_period: 5s
+      test: ["CMD-SHELL", "pg_isready -q -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      timeout: 2s
+    ports:
+      - 127.0.0.1:${FORGE_POSTGRES_PORT}:5432
+    volumes:
+      - postgres-data:/var/lib/postgresql/data:Z
+
+  nats:
+    image: docker.io/library/nats@sha256:b83efabe3e7def1e0a4a31ec6e078999bb17c80363f881df35edc70fcb6bb927
+    command: ["-c", "/etc/nats/nats-server.conf"]
+    environment:
+      NATS_AUTH_TOKEN: ${FORGE_NATS_AUTH_TOKEN}
+    ports:
+      - 127.0.0.1:${FORGE_NATS_PORT}:4222
+      - 127.0.0.1:${FORGE_NATS_MONITOR_PORT}:8222
+    volumes:
+      - ./nats-server.conf:/etc/nats/nats-server.conf:ro,Z
+      - nats-data:/data:Z
+
+  redis:
+    image: docker.io/library/redis@sha256:ff02b58f971e7d7d156a1267e283fcbbeee91773b6aa36c49dac28ecfe28eadf
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${FORGE_REDIS_PASSWORD}"]
+    environment:
+      REDIS_PASSWORD: ${FORGE_REDIS_PASSWORD}
+    healthcheck:
+      interval: 2s
+      retries: 30
+      start_period: 3s
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$REDIS_PASSWORD\" redis-cli --no-auth-warning ping | grep -qx PONG"]
+      timeout: 2s
+    ports:
+      - 127.0.0.1:${FORGE_REDIS_PORT}:6379
+    volumes:
+      - redis-data:/data:Z
+
+  minio:
+    image: docker.io/minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${FORGE_MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${FORGE_MINIO_ROOT_PASSWORD}
+    ports:
+      - 127.0.0.1:${FORGE_MINIO_PORT}:9000
+      - 127.0.0.1:${FORGE_MINIO_CONSOLE_PORT}:9001
+    volumes:
+      - minio-data:/data:Z
+
+volumes:
+  nats-data:
+    name: ${FORGE_COMPOSE_PROJECT_NAME}_nats-data
+  postgres-data:
+    name: ${FORGE_COMPOSE_PROJECT_NAME}_postgres-data
+  redis-data:
+    name: ${FORGE_COMPOSE_PROJECT_NAME}_redis-data
+  minio-data:
+    name: ${FORGE_COMPOSE_PROJECT_NAME}_minio-data

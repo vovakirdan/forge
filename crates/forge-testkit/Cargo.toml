@@ -1,0 +1,31 @@
+[package]
+name = "forge-testkit"
+edition.workspace = true
+rust-version.workspace = true
+version.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow.workspace = true
+async-nats.workspace = true
+axum.workspace = true
+forge-application = { path = "../forge-application" }
+forge-core = { path = "../forge-core", features = ["test-support"] }
+forge-domain = { path = "../forge-domain" }
+forge-protocol = { path = "../forge-protocol" }
+forge-storage = { path = "../forge-storage" }
+forge-supervisor = { path = "../forge-supervisor" }
+hyper-util = { version = "0.1", features = ["tokio"] }
+serde_json.workspace = true
+sqlx.workspace = true
+tokio.workspace = true
+tokio-stream.workspace = true
+tonic.workspace = true
+tower = "0.5"
+uuid.workspace = true
+
+[dev-dependencies]
+forge-cli = { path = "../forge-cli" }

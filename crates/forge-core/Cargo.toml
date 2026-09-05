@@ -1,0 +1,37 @@
+[package]
+name = "forge-core"
+edition.workspace = true
+rust-version.workspace = true
+version.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[features]
+# Narrow test-only seam for proving recovery after broker acknowledgement and
+# before the canonical outbox mark. It is never enabled by the daemon build.
+test-support = []
+
+[dependencies]
+anyhow.workspace = true
+async-nats.workspace = true
+axum.workspace = true
+clap.workspace = true
+forge-application = { path = "../forge-application" }
+forge-domain = { path = "../forge-domain" }
+forge-protocol = { path = "../forge-protocol" }
+forge-storage = { path = "../forge-storage" }
+futures-util.workspace = true
+nix = { version = "0.30", default-features = false, features = ["user"] }
+serde.workspace = true
+serde_json.workspace = true
+sha2 = "0.10"
+thiserror.workspace = true
+time.workspace = true
+tokio.workspace = true
+tokio-stream.workspace = true
+tonic.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+uuid.workspace = true

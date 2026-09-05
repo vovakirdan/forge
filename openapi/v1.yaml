@@ -1,0 +1,1615 @@
+openapi: 3.1.0
+info:
+  title: Forge local control API
+  version: 1.0.0
+  license:
+    name: MIT
+    identifier: MIT
+  description: |
+    Local-only HTTP/JSON and SSE control contract for Forge M0.
+
+    This API is served over an owner-only Unix domain socket, not a TCP
+    listener. The nominal server URL only supplies an HTTP authority to generic
+    OpenAPI clients. M0 has no application-level authentication: the local
+    process is the sole operator. Every mutation is a named command, committed
+    by Core, and requires an `Idempotency-Key` header plus an expected Project
+    revision. The operator is recorded in canonical Events as a `human` actor;
+    M0 defines no separate local-administrator actor kind.
+servers:
+  - url: http://forge.local
+    description: Nominal HTTP authority carried over the local Unix socket.
+x-forge-transport:
+  kind: http-over-unix-domain-socket
+  default_socket: "$XDG_RUNTIME_DIR/forge/api.sock"
+  socket_resolution_order:
+    - "$XDG_RUNTIME_DIR/forge/api.sock when XDG_RUNTIME_DIR is absolute"
+    - "$XDG_STATE_HOME/forge/run/api.sock when XDG_STATE_HOME is absolute"
+    - "$HOME/.local/state/forge/run/api.sock when HOME is absolute"
+    - "/tmp/forge/api.sock"
+  cwd_independent: true
+  description: |
+    Unset or relative environment directories are skipped. The same resolution
+    applies to the local client default, so a caller never derives a socket
+    path from its current working directory.
+  tcp_listener: false
+x-forge-authentication:
+  kind: owner-only-unix-socket
+  description: |
+    M0 relies on a mode-0600 Unix socket owned by the local operator. It has no
+    HTTP bearer token, API key, or caller identity; multi-user authentication is
+    deliberately deferred. Core-to-Supervisor gRPC independently verifies peer
+    credentials on its separate socket.
+# OpenAPI security schemes describe HTTP headers/TLS, neither of which represents
+# the local owner-only socket boundary. An explicit empty array avoids inventing
+# a credential that clients must not send; the extension above is authoritative.
+security: []
+tags:
+  - name: system
+    description: Local Core readiness.
+  - name: commands
+    description: Audited named mutations applied only by Core.
+  - name: projects
+    description: Project control-state projections.
+  - name: tasks
+    description: Task projections and canonical Artifacts.
+  - name: pipelines
+    description: Immutable PipelineVersion projections.
+  - name: runs
+    description: Desired and observed execution-attempt projections.
+  - name: events
+    description: Replayable canonical Event stream.
+paths:
+  /v1/health:
+    get:
+      tags: [system]
+      operationId: getHealth
+      summary: Return local Core readiness without exposing credentials.
+      responses:
+        '200':
+          description: Core is ready to accept local requests.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+
+  /v1/commands/{name}:
+    parameters:
+      - $ref: '#/components/parameters/CommandName'
+      - $ref: '#/components/parameters/IdempotencyKey'
+    post:
+      tags: [commands]
+      operationId: executeNamedCommand
+      summary: Commit one named management command through Core.
+      description: |
+        `name` selects the corresponding typed `payload` schema. Core rejects a
+        valid payload sent to the wrong path, a replay with a different body,
+        and a stale `expected_revision`. The `human` actor is server-derived in
+        M0; callers cannot supply an actor id.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CommandRequest'
+      responses:
+        '200':
+          description: The command was committed or an idempotent result was replayed.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommandReceipt'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+
+  /v1/projects/{projectId}:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    get:
+      tags: [projects]
+      operationId: getProject
+      summary: Read the Project control state.
+      responses:
+        '200':
+          description: Current canonical Project projection.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectView'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/projects/{projectId}/tasks:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+      - $ref: '#/components/parameters/PageCursor'
+      - $ref: '#/components/parameters/PageLimit'
+    get:
+      tags: [tasks]
+      operationId: listTasks
+      summary: List Task projections in a Project.
+      responses:
+        '200':
+          description: A stable page of current Task projections.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskListResponse'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/projects/{projectId}/tasks/{taskId}:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+      - $ref: '#/components/parameters/TaskId'
+    get:
+      tags: [tasks]
+      operationId: getTask
+      summary: Read one Task with its canonical Artifacts and wait conditions.
+      responses:
+        '200':
+          description: Current Task detail projection.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskDetailView'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/projects/{projectId}/pipelines:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+      - $ref: '#/components/parameters/PageCursor'
+      - $ref: '#/components/parameters/PageLimit'
+    get:
+      tags: [pipelines]
+      operationId: listPipelineVersions
+      summary: List immutable PipelineVersion projections in a Project.
+      responses:
+        '200':
+          description: A stable page of PipelineVersion projections.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PipelineListResponse'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/projects/{projectId}/pipelines/{pipelineVersionId}:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+      - $ref: '#/components/parameters/PipelineVersionId'
+    get:
+      tags: [pipelines]
+      operationId: getPipelineVersion
+      summary: Read a pinned immutable PipelineVersion.
+      responses:
+        '200':
+          description: Pipeline graph and stage contract projection.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PipelineVersionView'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/projects/{projectId}/runs:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+      - $ref: '#/components/parameters/PageCursor'
+      - $ref: '#/components/parameters/PageLimit'
+    get:
+      tags: [runs]
+      operationId: listRuns
+      summary: List observed and desired Run state without raw runtime logs.
+      responses:
+        '200':
+          description: A stable page of Run projections.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RunListResponse'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/projects/{projectId}/runs/{runId}:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+      - $ref: '#/components/parameters/RunId'
+    get:
+      tags: [runs]
+      operationId: getRun
+      summary: Read one Run's desired and observed state.
+      responses:
+        '200':
+          description: Current Run projection.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RunView'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/projects/{projectId}/events:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+      - $ref: '#/components/parameters/EventAfter'
+      - $ref: '#/components/parameters/LastEventId'
+    get:
+      tags: [events]
+      operationId: streamProjectEvents
+      summary: Replay and follow canonical Project Events with SSE.
+      description: |
+        The SSE `id` is the canonical monotonically increasing
+        `project_sequence`. `Last-Event-ID` takes precedence over `after`.
+        Core emits a bounded retained replay with a sequence greater than the
+        resolved cursor. Clients must de-duplicate by `id` because reconnect is
+        at-least-once; the server closes the finite M0 stream, then clients
+        reconnect with the last successfully processed `id` and re-read
+        authoritative state as needed. `audit_reason` is a distinct nullable
+        field, never a convention inside `payload`.
+      responses:
+        '200':
+          description: An SSE stream of EventEnvelope JSON documents.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+              examples:
+                taskCreated:
+                  summary: One SSE record
+                  value: |
+                    id: 42
+                    event: forge.event
+                    data: {"schema_version":1,"event_id":"019...","project_id":"019...","project_sequence":42,"event_type":"task_created","aggregate":{"kind":"task","id":"019...","revision":1},"occurred_at":"2026-09-04T12:00:00Z","actor":{"kind":"human","id":"019..."},"command_id":"019...","audit_reason":null,"payload":{"task_key":"TASK-001"}}
+              x-forge-sse-event:
+                name: forge.event
+                id: project_sequence
+                data_schema:
+                  $ref: '#/components/schemas/EventEnvelope'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/CursorInvalid'
+
+components:
+  parameters:
+    CommandName:
+      name: name
+      in: path
+      required: true
+      description: The M0 command selected by this request path.
+      schema:
+        $ref: '#/components/schemas/CommandName'
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: |
+        Caller-generated stable key for one logical command. Reusing it with an
+        identical request returns the original receipt; changing the command or
+        payload returns `idempotency_conflict`.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+    ProjectId:
+      name: projectId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/UuidV7'
+    TaskId:
+      name: taskId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/UuidV7'
+    PipelineVersionId:
+      name: pipelineVersionId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/UuidV7'
+    RunId:
+      name: runId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/UuidV7'
+    PageCursor:
+      name: cursor
+      in: query
+      required: false
+      description: Opaque cursor returned by the previous list response.
+      schema:
+        type: string
+        minLength: 1
+    PageLimit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 50
+    EventAfter:
+      name: after
+      in: query
+      required: false
+      description: Replay events strictly after this canonical Project sequence.
+      schema:
+        type: integer
+        minimum: 0
+        format: int64
+    LastEventId:
+      name: Last-Event-ID
+      in: header
+      required: false
+      description: SSE reconnect cursor. Takes precedence over `after`.
+      schema:
+        type: integer
+        minimum: 0
+        format: int64
+
+  headers:
+    RequestId:
+      description: Server-generated correlation id for local diagnostics.
+      schema:
+        $ref: '#/components/schemas/UuidV7'
+
+  responses:
+    InvalidRequest:
+      description: The request cannot be parsed or violates a transport contract.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Forbidden:
+      description: The server-derived actor lacks the required capability.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: The requested resource does not exist in the Project scope.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Conflict:
+      description: Current state, revision, or idempotency use conflicts with the request.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    ValidationFailed:
+      description: The command is structurally valid but violates domain preconditions.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    CursorInvalid:
+      description: The requested SSE cursor cannot be replayed.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Unavailable:
+      description: A required local Forge dependency is temporarily unavailable.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+  schemas:
+    UuidV7:
+      type: string
+      format: uuid
+      pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-7[0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$'
+      description: A UUIDv7 identifier generated by Forge unless stated otherwise.
+
+    Rfc3339Timestamp:
+      type: string
+      format: date-time
+      description: UTC timestamp serialized in RFC 3339 format.
+
+    JsonObject:
+      type: object
+      additionalProperties: true
+      description: A JSON object interpreted only by the selected domain contract.
+
+    ArtifactMetadata:
+      type: object
+      additionalProperties: true
+      maxProperties: 64
+      description: >
+        Non-authoritative structured Artifact context. Across the complete
+        object tree, Core permits at most 64 object members or array elements,
+        a maximum object/array depth of 8 counting this root object as depth
+        one, and at most 16384 serialized UTF-8 bytes. Metadata is not a bulk
+        evidence channel; put substantive evidence in `body`.
+      x-forge-max-total-entries: 64
+      x-forge-max-container-depth: 8
+      x-forge-max-serialized-utf8-bytes: 16384
+
+    TaskProperties:
+      type: object
+      additionalProperties:
+        $ref: '#/components/schemas/TaskPropertyValue'
+      description: >
+        Project-keyed Task values. Every value uses Forge's tagged
+        `{ "type": ..., "value": ... }` representation; arbitrary JSON
+        values are not accepted.
+
+    TaskPropertyValue:
+      oneOf:
+        - $ref: '#/components/schemas/BooleanPropertyValue'
+        - $ref: '#/components/schemas/TextPropertyValue'
+        - $ref: '#/components/schemas/NumberPropertyValue'
+        - $ref: '#/components/schemas/DatePropertyValue'
+        - $ref: '#/components/schemas/EnumPropertyValue'
+        - $ref: '#/components/schemas/MultiEnumPropertyValue'
+        - $ref: '#/components/schemas/ReferencePropertyValue'
+      discriminator:
+        propertyName: type
+        mapping:
+          boolean: '#/components/schemas/BooleanPropertyValue'
+          text: '#/components/schemas/TextPropertyValue'
+          number: '#/components/schemas/NumberPropertyValue'
+          date: '#/components/schemas/DatePropertyValue'
+          enum: '#/components/schemas/EnumPropertyValue'
+          multi_enum: '#/components/schemas/MultiEnumPropertyValue'
+          reference: '#/components/schemas/ReferencePropertyValue'
+
+    BooleanPropertyValue:
+      type: object
+      required: [type, value]
+      properties:
+        type:
+          const: boolean
+        value:
+          type: boolean
+
+    TextPropertyValue:
+      type: object
+      required: [type, value]
+      properties:
+        type:
+          const: text
+        value:
+          type: string
+
+    NumberPropertyValue:
+      type: object
+      required: [type, value]
+      properties:
+        type:
+          const: number
+        value:
+          type: number
+
+    DatePropertyValue:
+      type: object
+      required: [type, value]
+      properties:
+        type:
+          const: date
+        value:
+          type: array
+          minItems: 2
+          maxItems: 2
+          prefixItems:
+            - type: integer
+              description: Proleptic Gregorian calendar year.
+            - type: integer
+              minimum: 1
+              maximum: 366
+              description: One-based day of year.
+          items: false
+          description: >
+            Current tagged `time::Date` JSON representation: `[year,
+            ordinal_day]`, for example `[2026, 247]`. This is deliberately not
+            an ISO-8601 string so it round-trips through the existing domain
+            representation unchanged.
+
+    PropertyChoice:
+      type: string
+      minLength: 1
+      maxLength: 128
+      description: A non-blank Project-defined property choice.
+
+    EnumPropertyValue:
+      type: object
+      required: [type, value]
+      properties:
+        type:
+          const: enum
+        value:
+          $ref: '#/components/schemas/PropertyChoice'
+
+    MultiEnumPropertyValue:
+      type: object
+      required: [type, value]
+      properties:
+        type:
+          const: multi_enum
+        value:
+          type: array
+          items:
+            $ref: '#/components/schemas/PropertyChoice'
+
+    ForgeReference:
+      type: object
+      required: [reference_type, reference_id]
+      properties:
+        reference_type:
+          type: string
+          enum: [project, task, artifact, employee]
+        reference_id:
+          $ref: '#/components/schemas/UuidV7'
+
+    ReferencePropertyValue:
+      type: object
+      required: [type, value]
+      properties:
+        type:
+          const: reference
+        value:
+          $ref: '#/components/schemas/ForgeReference'
+
+    StableKey:
+      type: string
+      minLength: 1
+      maxLength: 64
+      pattern: '^[a-z][a-z0-9_]{0,63}$'
+      description: >
+        A durable Project-defined key: lowercase ASCII, beginning with a letter,
+        then lowercase ASCII letters, digits, or underscores. Display names are
+        separate fields and must not be used where this schema is required.
+
+    TaskTitle:
+      type: string
+      minLength: 1
+      maxLength: 240
+      description: A non-blank human-readable Task title.
+
+    ArtifactTitle:
+      type: string
+      minLength: 1
+      maxLength: 240
+      description: A non-blank human-readable Artifact title.
+
+    DefinitionOfDone:
+      type: string
+      minLength: 1
+      maxLength: 20000
+      description: >
+        Explicit success criteria. It may be absent while a Task is a draft but
+        is required before `approve_task` can succeed.
+
+    CommandAuditDetail:
+      type: string
+      maxLength: 10000
+      description: >
+        Optional operator-supplied audit detail. Core measures Unicode
+        scalar-value characters and rejects a longer value at command parsing.
+
+    TaskRevision:
+      type: integer
+      minimum: 1
+      format: int64
+      description: A Task aggregate revision; Task revisions begin at one.
+
+    TaskKind:
+      type: string
+      enum: [delivery, analysis]
+
+    ExecutorKind:
+      type: string
+      enum: [employee, system, human, external]
+      description: >
+        `human` and `external` stages enter a typed Task wait until their
+        Pipeline-defined outcome is submitted through Core.
+
+    InlineArtifactBody:
+      description: >
+        Inline M0 Artifact JSON. The UTF-8 encoded serialized JSON document,
+        including JSON syntax, must not exceed 262144 bytes (256 KiB). The
+        boundary is measured by Core after serialization, not by JSON character
+        count. Larger or binary evidence requires an object reference after M0.
+      x-forge-max-utf8-bytes: 262144
+
+    CommandName:
+      type: string
+      enum:
+        - create_project
+        - create_pipeline
+        - create_employee
+        - create_task
+        - amend_draft
+        - approve_task
+        - cancel_task
+        - resume_task
+        - set_task_priority
+        - create_dependency
+        - remove_dependency
+        - start_project_execution
+        - stop_project_execution
+        - submit_external_stage_outcome
+
+    CommandRequest:
+      type: object
+      additionalProperties: false
+      required: [project_id, expected_revision, payload]
+      properties:
+        project_id:
+          $ref: '#/components/schemas/UuidV7'
+        expected_revision:
+          type: integer
+          minimum: 0
+          format: int64
+          description: >
+            Expected current Project revision at the command boundary. For
+            `create_project`, this must be zero and `project_id` is the
+            caller-reserved UUIDv7 for the new Project.
+        payload:
+          anyOf:
+            - $ref: '#/components/schemas/CreateProjectPayload'
+            - $ref: '#/components/schemas/CreatePipelinePayload'
+            - $ref: '#/components/schemas/CreateEmployeePayload'
+            - $ref: '#/components/schemas/CreateTaskPayload'
+            - $ref: '#/components/schemas/AmendDraftPayload'
+            - $ref: '#/components/schemas/ApproveTaskPayload'
+            - $ref: '#/components/schemas/CancelTaskPayload'
+            - $ref: '#/components/schemas/ResumeTaskPayload'
+            - $ref: '#/components/schemas/SetTaskPriorityPayload'
+            - $ref: '#/components/schemas/CreateDependencyPayload'
+            - $ref: '#/components/schemas/RemoveDependencyPayload'
+            - $ref: '#/components/schemas/StartProjectExecutionPayload'
+            - $ref: '#/components/schemas/StopProjectExecutionPayload'
+            - $ref: '#/components/schemas/SubmitExternalStageOutcomePayload'
+          description: |
+            The schema must match the `{name}` path parameter. `anyOf` is used
+            because empty start/stop payloads intentionally overlap; Core still
+            enforces the path-to-payload pairing.
+
+    CreateProjectPayload:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 240
+      x-forge-command: create_project
+
+    CreatePipelinePayload:
+      type: object
+      additionalProperties: false
+      required: [name, task_kinds, entry_stage_id, stages, transitions]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 128
+        task_kinds:
+          type: array
+          minItems: 1
+          maxItems: 2
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/TaskKind'
+        entry_stage_id:
+          $ref: '#/components/schemas/StableKey'
+        max_stage_visits:
+          type: [integer, 'null']
+          minimum: 1
+          maximum: 1000000
+          description: >
+            Finite total stage-entry budget for one Task. Required when the
+            directed graph contains a retry/rework cycle; Core puts the Task
+            into retry-exhausted waiting instead of entering another stage
+            once the budget is consumed.
+        stages:
+          type: array
+          minItems: 1
+          maxItems: 128
+          items:
+            $ref: '#/components/schemas/PipelineStageInput'
+        transitions:
+          type: array
+          maxItems: 1024
+          items:
+            $ref: '#/components/schemas/PipelineTransitionView'
+      x-forge-command: create_pipeline
+
+    CreateEmployeePayload:
+      type: object
+      additionalProperties: false
+      required: [name, role, stage_eligibility]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        role:
+          type: string
+          minLength: 1
+          maxLength: 128
+        stage_eligibility:
+          $ref: '#/components/schemas/StageEligibilityInput'
+      x-forge-command: create_employee
+
+    CreateTaskPayload:
+      type: object
+      additionalProperties: false
+      required: [title, kind, pipeline_version_id, priority]
+      properties:
+        title:
+          $ref: '#/components/schemas/TaskTitle'
+        description:
+          type: string
+          maxLength: 50000
+        definition_of_done:
+          $ref: '#/components/schemas/DefinitionOfDone'
+        kind:
+          $ref: '#/components/schemas/TaskKind'
+        pipeline_version_id:
+          $ref: '#/components/schemas/UuidV7'
+        priority:
+          $ref: '#/components/schemas/StableKey'
+          description: A value defined by the Project priority scheme.
+        properties:
+          $ref: '#/components/schemas/TaskProperties'
+      x-forge-command: create_task
+
+    AmendDraftPayload:
+      type: object
+      additionalProperties: false
+      required: [task_id, expected_task_revision, patch]
+      properties:
+        task_id:
+          $ref: '#/components/schemas/UuidV7'
+        expected_task_revision:
+          $ref: '#/components/schemas/TaskRevision'
+        patch:
+          $ref: '#/components/schemas/DraftTaskPatch'
+      x-forge-command: amend_draft
+
+    DraftTaskPatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        title:
+          $ref: '#/components/schemas/TaskTitle'
+        description:
+          type: string
+          maxLength: 50000
+        definition_of_done:
+          type: [string, 'null']
+          minLength: 1
+          maxLength: 20000
+          description: >
+            Replaces the draft Definition of Done; `null` clears it. Core will
+            reject a later approval until it is present again.
+        priority:
+          $ref: '#/components/schemas/StableKey'
+        properties:
+          $ref: '#/components/schemas/TaskProperties'
+
+    ApproveTaskPayload:
+      type: object
+      additionalProperties: false
+      required: [task_id, expected_task_revision]
+      properties:
+        task_id:
+          $ref: '#/components/schemas/UuidV7'
+        expected_task_revision:
+          $ref: '#/components/schemas/TaskRevision'
+      x-forge-command: approve_task
+
+    CancelTaskPayload:
+      type: object
+      additionalProperties: false
+      required: [task_id, expected_task_revision, cancellation_reason_key]
+      properties:
+        task_id:
+          $ref: '#/components/schemas/UuidV7'
+        expected_task_revision:
+          $ref: '#/components/schemas/TaskRevision'
+        cancellation_reason_key:
+          allOf:
+            - $ref: '#/components/schemas/StableKey'
+          description: >
+            Existing immutable Project cancellation-reason key. Keys are stable
+            across catalog reordering and expansion; numeric catalog positions
+            are deliberately not part of the transport contract.
+        note:
+          $ref: '#/components/schemas/CommandAuditDetail'
+      x-forge-command: cancel_task
+
+    ResumeTaskPayload:
+      type: object
+      additionalProperties: false
+      required: [task_id, expected_task_revision, wait_condition_id]
+      properties:
+        task_id:
+          $ref: '#/components/schemas/UuidV7'
+        expected_task_revision:
+          $ref: '#/components/schemas/TaskRevision'
+        wait_condition_id:
+          $ref: '#/components/schemas/UuidV7'
+          description: The one active typed wait condition resolved by this command.
+      x-forge-command: resume_task
+
+    SetTaskPriorityPayload:
+      type: object
+      additionalProperties: false
+      required: [task_id, expected_task_revision, priority]
+      properties:
+        task_id:
+          $ref: '#/components/schemas/UuidV7'
+        expected_task_revision:
+          $ref: '#/components/schemas/TaskRevision'
+        priority:
+          $ref: '#/components/schemas/StableKey'
+      x-forge-command: set_task_priority
+
+    CreateDependencyPayload:
+      type: object
+      additionalProperties: false
+      required: [blocker_task_id, blocked_task_id, required_condition]
+      properties:
+        blocker_task_id:
+          $ref: '#/components/schemas/UuidV7'
+        blocked_task_id:
+          $ref: '#/components/schemas/UuidV7'
+        required_condition:
+          type: string
+          enum: [task_done]
+          description: M0 supports only a completed blocker Task as a dependency gate.
+      x-forge-command: create_dependency
+
+    RemoveDependencyPayload:
+      type: object
+      additionalProperties: false
+      required: [blocker_task_id, blocked_task_id]
+      properties:
+        blocker_task_id:
+          $ref: '#/components/schemas/UuidV7'
+        blocked_task_id:
+          $ref: '#/components/schemas/UuidV7'
+      x-forge-command: remove_dependency
+
+    StartProjectExecutionPayload:
+      type: object
+      additionalProperties: false
+      properties:
+        reason:
+          $ref: '#/components/schemas/CommandAuditDetail'
+      x-forge-command: start_project_execution
+
+    StopProjectExecutionPayload:
+      type: object
+      additionalProperties: false
+      properties:
+        reason:
+          allOf:
+            - $ref: '#/components/schemas/CommandAuditDetail'
+          description: Optional operator explanation retained in the audit Event.
+      x-forge-command: stop_project_execution
+
+    SubmitExternalStageOutcomePayload:
+      type: object
+      additionalProperties: false
+      required: [task_id, expected_task_revision, wait_condition_id, stage_id, outcome]
+      properties:
+        task_id:
+          $ref: '#/components/schemas/UuidV7'
+        expected_task_revision:
+          $ref: '#/components/schemas/TaskRevision'
+        wait_condition_id:
+          $ref: '#/components/schemas/UuidV7'
+          description: >
+            The one active, stage-owned decision wait created when this human
+            or external stage was entered. Core requires it to belong to this
+            Task and to name the exact current `stage_id` before accepting the
+            outcome.
+        stage_id:
+          $ref: '#/components/schemas/StableKey'
+          description: The exact current stage in the Task's pinned PipelineVersion.
+        outcome:
+          $ref: '#/components/schemas/StableKey'
+          description: A named outcome allowed by the pinned PipelineVersion stage.
+        cancellation_reason_key:
+          allOf:
+            - $ref: '#/components/schemas/StableKey'
+          description: >
+            Required by Core when this outcome's Pipeline transition terminates
+            the Task as cancelled; ignored for all other transition targets.
+        artifacts:
+          type: array
+          maxItems: 32
+          description: >
+            New evidence to create and attach during the exact current stage
+            visit. Core includes successfully created Artifact IDs in this
+            outcome; it never infers any other Task Artifact as cited evidence.
+          items:
+            $ref: '#/components/schemas/ArtifactInput'
+        outcome_artifact_ids:
+          type: array
+          maxItems: 128
+          uniqueItems: true
+          description: >
+            Existing Artifact IDs already linked to this Task that this outcome
+            explicitly cites. Use this for prior-stage evidence permitted by a
+            `task_history` requirement. Omitting an ID never implicitly cites
+            it, even when the Artifact is already attached to the Task.
+          items:
+            $ref: '#/components/schemas/UuidV7'
+      x-forge-command: submit_external_stage_outcome
+
+    ArtifactInput:
+      type: object
+      additionalProperties: false
+      required: [kind, title, body]
+      properties:
+        kind:
+          $ref: '#/components/schemas/StableKey'
+          description: Project/Pipeline-defined Artifact kind.
+        title:
+          $ref: '#/components/schemas/ArtifactTitle'
+        metadata:
+          $ref: '#/components/schemas/ArtifactMetadata'
+        body:
+          $ref: '#/components/schemas/InlineArtifactBody'
+      example:
+        kind: decision_record
+        title: Decision to accept the proposed migration path
+        metadata:
+          source: human
+        body:
+          verdict: accept
+          rationale: Evidence supports the selected migration path.
+
+    CommandReceipt:
+      type: object
+      additionalProperties: false
+      required: [command_id, status, project_revision, event_ids]
+      properties:
+        command_id:
+          $ref: '#/components/schemas/UuidV7'
+        status:
+          type: string
+          enum: [applied, replayed]
+        project_revision:
+          type: integer
+          minimum: 0
+          format: int64
+        event_ids:
+          type: array
+          items:
+            $ref: '#/components/schemas/UuidV7'
+        resource:
+          $ref: '#/components/schemas/ResourceReference'
+
+    ResourceReference:
+      type: object
+      additionalProperties: false
+      required: [kind, id]
+      properties:
+        kind:
+          type: string
+          minLength: 1
+        id:
+          $ref: '#/components/schemas/UuidV7'
+
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          $ref: '#/components/schemas/ApiError'
+
+    ApiError:
+      type: object
+      additionalProperties: false
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          enum:
+            - invalid_request
+            - validation_failed
+            - not_found
+            - conflict
+            - stale_revision
+            - idempotency_conflict
+            - forbidden
+            - execution_stopped
+            - cursor_invalid
+            - unavailable
+            - internal
+        message:
+          type: string
+        details:
+          $ref: '#/components/schemas/JsonObject'
+        request_id:
+          $ref: '#/components/schemas/UuidV7'
+
+    HealthResponse:
+      type: object
+      additionalProperties: false
+      required: [status, api_version]
+      properties:
+        status:
+          type: string
+          enum: [ready]
+        api_version:
+          type: string
+          const: v1
+
+    ProjectView:
+      type: object
+      additionalProperties: false
+      required: [id, revision, name, execution_gate]
+      properties:
+        id:
+          $ref: '#/components/schemas/UuidV7'
+        revision:
+          type: integer
+          minimum: 0
+          format: int64
+        name:
+          type: string
+        execution_gate:
+          type: string
+          enum: [open, stopped]
+
+    TaskSummaryView:
+      type: object
+      additionalProperties: false
+      required: [id, key, revision, title, kind, lifecycle, priority, pipeline_version_id]
+      properties:
+        id:
+          $ref: '#/components/schemas/UuidV7'
+        key:
+          type: string
+          pattern: '^TASK-[1-9][0-9]*$'
+        revision:
+          $ref: '#/components/schemas/TaskRevision'
+        title:
+          $ref: '#/components/schemas/TaskTitle'
+        kind:
+          $ref: '#/components/schemas/TaskKind'
+        lifecycle:
+          type: string
+          enum: [draft, ready, in_progress, waiting, done, cancelled]
+        current_stage_id:
+          anyOf:
+            - $ref: '#/components/schemas/StableKey'
+            - type: 'null'
+        priority:
+          $ref: '#/components/schemas/StableKey'
+        pipeline_version_id:
+          $ref: '#/components/schemas/UuidV7'
+        updated_at:
+          $ref: '#/components/schemas/Rfc3339Timestamp'
+
+    TaskDetailView:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - key
+        - revision
+        - title
+        - kind
+        - lifecycle
+        - priority
+        - pipeline_version_id
+        - description
+        - definition_of_done
+        - properties
+        - artifacts
+        - wait_conditions
+      properties:
+        id:
+          $ref: '#/components/schemas/UuidV7'
+        key:
+          type: string
+          pattern: '^TASK-[1-9][0-9]*$'
+        revision:
+          $ref: '#/components/schemas/TaskRevision'
+        title:
+          $ref: '#/components/schemas/TaskTitle'
+        kind:
+          $ref: '#/components/schemas/TaskKind'
+        lifecycle:
+          type: string
+          enum: [draft, ready, in_progress, waiting, done, cancelled]
+        current_stage_id:
+          anyOf:
+            - $ref: '#/components/schemas/StableKey'
+            - type: 'null'
+        priority:
+          $ref: '#/components/schemas/StableKey'
+        pipeline_version_id:
+          $ref: '#/components/schemas/UuidV7'
+        updated_at:
+          $ref: '#/components/schemas/Rfc3339Timestamp'
+        description:
+          type: string
+          maxLength: 50000
+        definition_of_done:
+          type: [string, 'null']
+          minLength: 1
+          maxLength: 20000
+          description: >
+            Draft Tasks may omit this value; every approved or later Task has
+            a non-null Definition of Done.
+        properties:
+          $ref: '#/components/schemas/TaskProperties'
+        artifacts:
+          type: array
+          items:
+            $ref: '#/components/schemas/ArtifactView'
+        wait_conditions:
+          type: array
+          items:
+            $ref: '#/components/schemas/WaitConditionView'
+
+    ArtifactView:
+      type: object
+      additionalProperties: false
+      required: [id, kind, title, metadata, body, created_at]
+      properties:
+        id:
+          $ref: '#/components/schemas/UuidV7'
+        kind:
+          $ref: '#/components/schemas/StableKey'
+        title:
+          $ref: '#/components/schemas/ArtifactTitle'
+        metadata:
+          $ref: '#/components/schemas/ArtifactMetadata'
+        body:
+          $ref: '#/components/schemas/InlineArtifactBody'
+        created_at:
+          $ref: '#/components/schemas/Rfc3339Timestamp'
+
+    WaitConditionView:
+      type: object
+      additionalProperties: false
+      required: [id, kind, created_by, created_at]
+      properties:
+        id:
+          $ref: '#/components/schemas/UuidV7'
+        kind:
+          $ref: '#/components/schemas/StableKey'
+          description: >
+            Canonical wait category such as `dependency`, `decision_required`,
+            `manual_pause`, `escalation_pending`, `retry_exhausted`,
+            `interrupted`, or a Project-defined stable key.
+        detail:
+          type: [string, 'null']
+          description: Optional non-blank context attached when the wait was created.
+        source_stage_id:
+          anyOf:
+            - $ref: '#/components/schemas/StableKey'
+            - type: 'null'
+          description: >
+            The stage that owns this wait, present only for the
+            `decision_required` wait Core creates when a human or external
+            stage is entered. A stage outcome may resolve only this exact
+            stage-owned wait; generic waits cannot advance a Pipeline stage.
+        created_by:
+          $ref: '#/components/schemas/ActorReference'
+        created_at:
+          $ref: '#/components/schemas/Rfc3339Timestamp'
+
+    TaskListResponse:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/TaskSummaryView'
+        next_cursor:
+          type: [string, 'null']
+
+    PipelineVersionView:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - pipeline_id
+        - version
+        - name
+        - task_kinds
+        - entry_stage_id
+        - max_stage_visits
+        - stages
+        - transitions
+      properties:
+        id:
+          $ref: '#/components/schemas/UuidV7'
+        pipeline_id:
+          $ref: '#/components/schemas/UuidV7'
+        version:
+          type: integer
+          minimum: 1
+          format: int32
+        name:
+          type: string
+          minLength: 1
+          maxLength: 128
+        task_kinds:
+          type: array
+          minItems: 1
+          maxItems: 2
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/TaskKind'
+        entry_stage_id:
+          $ref: '#/components/schemas/StableKey'
+        max_stage_visits:
+          type: [integer, 'null']
+          minimum: 1
+          maximum: 1000000
+        stages:
+          type: array
+          minItems: 1
+          maxItems: 128
+          items:
+            $ref: '#/components/schemas/PipelineStageView'
+        transitions:
+          type: array
+          maxItems: 1024
+          description: >
+            Complete immutable graph edges. Core validates that every source,
+            outcome, and target is valid for this pinned version.
+          items:
+            $ref: '#/components/schemas/PipelineTransitionView'
+
+    PipelineStageInput:
+      type: object
+      additionalProperties: false
+      required: [id, name, executor_kind, outcomes]
+      properties:
+        id:
+          $ref: '#/components/schemas/StableKey'
+        name:
+          type: string
+          minLength: 1
+          maxLength: 128
+        executor_kind:
+          $ref: '#/components/schemas/ExecutorKind'
+        outcomes:
+          type: array
+          minItems: 1
+          maxItems: 64
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/StableKey'
+
+    PipelineStageView:
+      type: object
+      additionalProperties: false
+      required: [id, name, executor_kind, outcomes]
+      properties:
+        id:
+          $ref: '#/components/schemas/StableKey'
+        name:
+          type: string
+          minLength: 1
+          maxLength: 128
+        executor_kind:
+          $ref: '#/components/schemas/ExecutorKind'
+        outcomes:
+          type: array
+          minItems: 1
+          maxItems: 64
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/StableKey'
+
+    PipelineTransitionView:
+      type: object
+      additionalProperties: false
+      required: [from_stage_id, outcome, target]
+      properties:
+        from_stage_id:
+          $ref: '#/components/schemas/StableKey'
+        outcome:
+          $ref: '#/components/schemas/StableKey'
+        target:
+          $ref: '#/components/schemas/PipelineTransitionTarget'
+        artifact_requirements:
+          type: array
+          default: []
+          maxItems: 32
+          description: >
+            Mechanically required Artifact kinds for this outcome. An omitted
+            value is an empty requirement set. Core checks only an explicitly
+            cited Artifact's kind, scope, and count; it never verifies an
+            Artifact body's semantic truth.
+          items:
+            $ref: '#/components/schemas/PipelineArtifactRequirement'
+
+    PipelineArtifactRequirement:
+      type: object
+      additionalProperties: false
+      required: [kind, minimum_count]
+      properties:
+        kind:
+          $ref: '#/components/schemas/StableKey'
+        minimum_count:
+          type: integer
+          minimum: 1
+          maximum: 65535
+          format: int32
+        scope:
+          type: string
+          enum: [current_stage, task_history]
+          default: current_stage
+          description: >
+            `current_stage` counts only explicitly cited Artifacts attached
+            during the exact current stage visit. Returning to the same stage
+            creates a new visit, so evidence from an earlier visit does not
+            qualify. `task_history` deliberately permits explicitly cited
+            Artifacts already linked to this Task, regardless of stage visit.
+
+    PipelineTransitionTarget:
+      oneOf:
+        - $ref: '#/components/schemas/NextStageTarget'
+        - $ref: '#/components/schemas/DoneTarget'
+        - $ref: '#/components/schemas/CancelledTarget'
+
+    NextStageTarget:
+      type: object
+      additionalProperties: false
+      required: [kind, stage_id]
+      properties:
+        kind:
+          const: stage
+        stage_id:
+          $ref: '#/components/schemas/StableKey'
+
+    DoneTarget:
+      type: object
+      additionalProperties: false
+      required: [kind]
+      properties:
+        kind:
+          const: done
+
+    CancelledTarget:
+      type: object
+      additionalProperties: false
+      required: [kind]
+      properties:
+        kind:
+          const: cancelled
+
+    StageEligibilityInput:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [mode]
+          properties:
+            mode:
+              const: any
+        - type: object
+          additionalProperties: false
+          required: [mode, stages]
+          properties:
+            mode:
+              const: only
+            stages:
+              type: array
+              minItems: 1
+              maxItems: 128
+              uniqueItems: true
+              items:
+                $ref: '#/components/schemas/StageEligibilityTarget'
+
+    StageEligibilityTarget:
+      type: object
+      additionalProperties: false
+      required: [pipeline_version_id, stage_id]
+      description: >
+        One immutable Pipeline-version-scoped selector. A bare stage key is
+        not stable across versions, so Core matches both fields when deciding
+        whether an Employee may be scheduled.
+      properties:
+        pipeline_version_id:
+          $ref: '#/components/schemas/UuidV7'
+        stage_id:
+          $ref: '#/components/schemas/StableKey'
+
+    PipelineListResponse:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PipelineVersionView'
+        next_cursor:
+          type: [string, 'null']
+
+    RunView:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - task_id
+        - employee_id
+        - stage_id
+        - attempt
+        - desired_state
+        - observed_state
+        - lease_fencing_token
+        - environment_epoch
+        - last_observed_sequence
+        - run_spec_version
+      properties:
+        id:
+          $ref: '#/components/schemas/UuidV7'
+        task_id:
+          $ref: '#/components/schemas/UuidV7'
+        employee_id:
+          $ref: '#/components/schemas/UuidV7'
+        stage_id:
+          $ref: '#/components/schemas/StableKey'
+        attempt:
+          type: integer
+          minimum: 1
+        desired_state:
+          type: string
+          enum: [provision_requested, running, stop_requested, force_stop_requested, stopped, failed]
+        observed_state:
+          type: string
+          enum: [unknown, provisioning, running, stopping, stopped, failed, lost]
+        lease_fencing_token:
+          type: integer
+          minimum: 0
+          format: int64
+        environment_epoch:
+          type: integer
+          minimum: 0
+          format: int64
+        last_observed_sequence:
+          type: integer
+          minimum: 0
+          format: int64
+        run_spec_version:
+          type: integer
+          minimum: 1
+          format: int32
+          description: >
+            Schema version of the opaque RunSpec supplied to Supervisor. M0
+            uses version 1; raw RunSpec contents are intentionally not exposed.
+        created_at:
+          $ref: '#/components/schemas/Rfc3339Timestamp'
+        updated_at:
+          $ref: '#/components/schemas/Rfc3339Timestamp'
+
+    RunListResponse:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/RunView'
+        next_cursor:
+          type: [string, 'null']
+
+    EventEnvelope:
+      type: object
+      additionalProperties: false
+      required:
+        - schema_version
+        - event_id
+        - project_id
+        - project_sequence
+        - event_type
+        - aggregate
+        - occurred_at
+        - actor
+        - command_id
+        - audit_reason
+        - payload
+      properties:
+        schema_version:
+          type: integer
+          const: 1
+        event_id:
+          $ref: '#/components/schemas/UuidV7'
+        project_id:
+          $ref: '#/components/schemas/UuidV7'
+        project_sequence:
+          type: integer
+          minimum: 1
+          format: int64
+        event_type:
+          type: string
+          description: Stable snake_case canonical Event kind, such as task_created.
+        aggregate:
+          $ref: '#/components/schemas/AggregateReference'
+        occurred_at:
+          $ref: '#/components/schemas/Rfc3339Timestamp'
+        actor:
+          $ref: '#/components/schemas/ActorReference'
+        command_id:
+          oneOf:
+            - $ref: '#/components/schemas/UuidV7'
+            - type: 'null'
+          description: >
+            Accepted command that committed the Event. Canonical Core Events
+            provide a UUIDv7; null preserves a historical durable Event that
+            predates command attribution.
+        audit_reason:
+          type: [string, 'null']
+          description: >
+            Optional human-readable audit reason from canonical Event history.
+            It is distinct from the event-type-specific payload.
+        payload:
+          $ref: '#/components/schemas/JsonObject'
+
+    AggregateReference:
+      type: object
+      additionalProperties: false
+      required: [kind, id]
+      properties:
+        kind:
+          type: string
+        id:
+          $ref: '#/components/schemas/UuidV7'
+        revision:
+          type: integer
+          minimum: 0
+          format: int64
+
+    ActorReference:
+      type: object
+      additionalProperties: false
+      required: [kind, id]
+      properties:
+        kind:
+          type: string
+          enum: [human, employee, system_manager, core, supervisor]
+        id:
+          $ref: '#/components/schemas/UuidV7'
