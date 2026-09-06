@@ -7,12 +7,19 @@
 
 mod artifact_submission;
 mod command;
+pub mod engine;
 mod error;
 mod payload;
 mod pipeline_input;
 
 pub use artifact_submission::{ArtifactInput, ExternalStageOutcomeCommand};
 pub use command::{CommandEnvelope, CommandPayload, IdempotencyKey};
+pub use engine::ports;
+pub use engine::{
+    Clock, CommandContext, CommandError, CommandTransaction, PreparedCommand, PreparedCommandState,
+    RepositoryError, SystemClock, command_fingerprint, execute_in_transaction,
+    execute_prepared_in_transaction, finish_command, prepare_command,
+};
 pub use error::ApplicationError;
 pub use payload::{
     CreateEmployeeCommand, CreateProjectCommand, CreateTaskCommand, DraftTaskPatch,

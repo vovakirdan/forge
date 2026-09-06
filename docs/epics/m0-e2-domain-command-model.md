@@ -3,16 +3,18 @@
 **Milestone:** M0 — Deterministic Core Simulator
 **Источник:** ../IMPLEMENTATION_PLAN.md, TASK-03–05
 
-**Сверка, 6 сентября 2026:** функциональный M0 acceptance пройден на PostgreSQL.
-Отдельный in-memory reference engine и fake-clock command harness из TASK-05
-не реализованы в текущем checkout. Это открытое отклонение от плана, а не
-согласованное исключение; подробности и требуемое решение отмечены в TASK-05.
+**Сверка, 6 сентября 2026:** TASK-03–05 реализованы. Общий application engine
+исполняет 14 команд M0 через PostgreSQL и in-memory adapters; conformance-suite
+проверяет общие handlers с `ManualClock` и fault injection. Reference backend
+добавлен после PostgreSQL; это изменение порядка реализации, а не исключение
+из scope. Границы и команды проверки — в
+[COMMAND_CONFORMANCE.md](../COMMAND_CONFORMANCE.md).
 
 ## Цель
 
 Сделать утверждённые Task, Pipeline, dependency и escalation contracts
 исполняемыми pure rules, а все мутации провести через один именованный command
-boundary до появления SQL и HTTP.
+boundary независимо от SQL и HTTP.
 
 ## В границах
 
@@ -28,7 +30,7 @@ boundary до появления SQL и HTTP.
 SQLx, Axum, NATS, provider payloads, board columns, semantic LLM verdict и
 direct repository mutation как альтернативный путь.
 
-## Состав будущих Task
+## Состав Task
 
 | Task | Результат |
 |---|---|
@@ -39,7 +41,8 @@ direct repository mutation как альтернативный путь.
 ## Exit gate
 
 Tests отклоняют invalid lifecycle transition, cancellation без reason, dependency
-cycle, resolver outcome вне Pipeline и duplicate command. Domain crate не
+cycle и resolver outcome вне Pipeline. Идентичная повторная команда возвращает
+прежний receipt; другой запрос с тем же ключом отклоняется. Domain crate не
 импортирует storage, HTTP, Podman или provider SDK.
 
 ## Риски

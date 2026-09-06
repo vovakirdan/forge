@@ -35,7 +35,7 @@ impl IdempotencyKey {
 }
 
 /// Typed intent selected by one named HTTP command path.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum CommandPayload {
     /// Explicit Project reboot behavior.
     ConfigureBootRecoveryPolicy {
@@ -160,6 +160,24 @@ pub struct CommandEnvelope {
 }
 
 impl CommandEnvelope {
+    /// Rejects mutations to the public typed intent that would evade its original JSON hash.
+    pub(crate) fn validate_integrity(&self) -> Result<(), ApplicationError> {
+        let expected = CommandPayload::parse(self.name, self.canonical_payload.clone())?;
+        if self.payload != expected {
+            return Err(ApplicationError::InvalidPayload {
+                command: self.name,
+                reason: "typed payload does not match the parsed request".to_owned(),
+            });
+        }
+        if self.name == CommandName::CreateProject && self.expected_project_revision != 0 {
+            return Err(ApplicationError::InvalidPayload {
+                command: self.name,
+                reason: "create_project requires expected_revision to be zero".to_owned(),
+            });
+        }
+        Ok(())
+    }
+
     /// Parses a public wire request using the command selected by the path.
     ///
     /// # Errors

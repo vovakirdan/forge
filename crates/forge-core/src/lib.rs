@@ -18,14 +18,12 @@ mod error;
 mod event;
 mod event_projection;
 mod evidence_collection;
-mod external_outcome;
 mod gateway;
 mod handoff;
 mod http;
 mod inference;
 pub mod observability;
 mod outbox;
-mod pipeline_access;
 mod preparation_failure;
 mod proxy_credentials;
 mod recovery;
@@ -36,8 +34,6 @@ mod scheduler;
 mod secret_cleanup;
 mod secret_guard;
 mod supervisor;
-mod task_commands;
-mod task_control;
 mod task_support;
 mod watchdog;
 
@@ -87,6 +83,7 @@ pub struct CoreService {
     pub(crate) inference: Option<Arc<proxy_credentials::InferenceProxy>>,
     pub(crate) evidence: Option<Arc<evidence_collection::EvidenceRuntime>>,
     pub(crate) observability: Arc<observability::Observability>,
+    pub(crate) command_clock: Arc<dyn forge_application::Clock>,
 }
 
 impl CoreService {
@@ -103,6 +100,7 @@ impl CoreService {
             inference: None,
             evidence: None,
             observability: Arc::new(observability::Observability::default()),
+            command_clock: Arc::new(forge_application::SystemClock),
         }
     }
 
@@ -110,6 +108,14 @@ impl CoreService {
     #[must_use]
     pub fn with_fake_runtime(mut self) -> Self {
         self.fake_runtime_enabled = true;
+        self
+    }
+
+    /// Uses a controlled clock at the command boundary for adapter conformance tests.
+    #[cfg(any(test, feature = "test-support"))]
+    #[must_use]
+    pub fn with_command_clock(mut self, clock: Arc<dyn forge_application::Clock>) -> Self {
+        self.command_clock = clock;
         self
     }
 

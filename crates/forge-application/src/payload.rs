@@ -15,7 +15,7 @@ use crate::{ApplicationError, command::parse_uuid_v7};
 const MAX_STAGE_ELIGIBILITY_TARGETS: usize = 128;
 
 /// Intent for a new Project using the envelope's caller-reserved identity.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct CreateProjectCommand {
     /// Human-readable Project name.
@@ -23,7 +23,7 @@ pub struct CreateProjectCommand {
 }
 
 /// Intent for a new enabled Employee identity.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct CreateEmployeeCommand {
     /// Employee display name.
@@ -57,7 +57,7 @@ impl CreateEmployeeCommand {
 }
 
 /// Public input for Employee stage eligibility.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(tag = "mode", rename_all = "snake_case", deny_unknown_fields)]
 pub enum StageEligibilityInput {
     /// Eligible for every stage subject to later policy.
@@ -98,7 +98,7 @@ impl StageEligibilityInput {
 }
 
 /// One public selector for a Pipeline-version-scoped Employee stage allow-list.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct StageEligibilityTargetInput {
     /// Immutable Pipeline version that scopes the stage key.
@@ -120,7 +120,7 @@ impl StageEligibilityTargetInput {
 }
 
 /// Intent for one draft Task.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct CreateTaskCommand {
     /// Concise title.
@@ -219,7 +219,7 @@ pub struct TaskDraftContext<'a> {
 }
 
 /// Mutable draft fields selected by an amend command.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct DraftTaskPatch {
     /// Replacement title.

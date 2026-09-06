@@ -72,6 +72,34 @@ runtime reports и interrupted handoffs, Task остались в `waiting`. Н�
 diagnostics. Это снимает live acceptance blocker M1, но не доказывает все
 варианты OAuth refresh races или поведение других моделей.
 
+### Повтор после TASK-05 — 6 сентября 2026
+
+M0–M1 закрыты после выделения общего command engine. Новый reference backend —
+это in-memory persistence для command tests, не память Employee. Контракт и
+проверки описаны в [COMMAND_CONFORMANCE.md](COMMAND_CONFORMANCE.md).
+
+На рабочем дереве поверх `b685480` прошли workspace tests, strict Clippy/fmt,
+16 services-free и 17 PostgreSQL conformance tests, полный `just test-integration`
+и CLI smoke (`done`, один Artifact). Shell launcher regressions также прошли.
+Отдельный provider gate проверил реальные CLI, LiteLLM, OpenCode и Core API lane
+с локальным upstream stub. Финальное независимое RO-review не выявило P0/P1/P2.
+
+Один явно разрешённый повтор `just test-codex-live` завершился с
+`1 passed; 0 failed` за **32.72 секунды**. Profile и image digest — те же, что
+указаны выше. Private evidence root:
+`/tmp/fc-01a0773d-191d-74d1-a8a3-dbf221c339ed` (owner-only, mode 0700).
+Run IDs: `01a0773d-1d73-7723-b40d-16e7996e5c9e` и
+`01a0773d-1dfd-78c2-894f-394a38b032e3`. Оба выполнили marker commands в отдельных
+surfaces/homes и работали одновременно. Named stop оставил Task в `waiting`
+и собрал runtime reports/interrupted handoffs. Source auth не изменился;
+проверенные diagnostics не содержат выданных tokens.
+
+После теста отдельно проверены точные контейнеры
+`forge-run-01a0773d-1d73-7723-b40d-16e7996e5c9e-1-1` и
+`forge-run-01a0773d-1dfd-78c2-894f-394a38b032e3-2-1`: оба имеют
+`running=false`, `status=exited`, `exit=0`. Работающих `forge.managed` containers
+не осталось. Evidence, exited containers и служебные данные сохранены.
+
 ## Быстрый ручной запуск
 
 Для одной собственной задачи на текущем Linux dev-host:

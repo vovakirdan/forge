@@ -1,17 +1,17 @@
 //! Resume, priority, and dependency mutations outside draft/approval flow.
 
-use forge_application::CommandEnvelope;
+use super::CommandTransaction;
+use crate::CommandEnvelope;
 use forge_domain::{
     AggregateRef, CommandId, DomainEvent, DomainEventKind, LifecycleStatus, Project,
     TaskDependency, TaskDependencyGraph, TaskId, Timestamp, WaitConditionId,
 };
-use forge_storage::StorageTransaction;
 use serde_json::json;
 
-use crate::{
-    CoreError, CoreService,
-    command::{finish_command, resource},
+use super::{
+    CommandError, Engine,
     event::{event, event_payload},
+    receipt::{finish_command, resource},
     scheduler::enqueue_if_employee,
     task_support::{
         current_stage_executor, load_scoped_task, persist_task_and_project,
@@ -20,11 +20,11 @@ use crate::{
     },
 };
 
-impl CoreService {
+impl Engine<'_> {
     #[allow(clippy::too_many_arguments)]
-    pub(crate) async fn resume_task(
+    pub async fn resume_task(
         &self,
-        transaction: &mut StorageTransaction<'_>,
+        transaction: &mut impl CommandTransaction,
         mut project: Project,
         envelope: &CommandEnvelope,
         request_hash: &str,
@@ -33,7 +33,7 @@ impl CoreService {
         task_id: TaskId,
         expected_task_revision: u64,
         wait_condition_id: WaitConditionId,
-    ) -> Result<forge_protocol::wire::CommandReceipt, CoreError> {
+    ) -> Result<forge_protocol::wire::CommandReceipt, CommandError> {
         let stored = load_scoped_task(transaction, &project, task_id).await?;
         require_task_revision(&stored.task, expected_task_revision)?;
         let previous_revision = stored.task.revision().get();
@@ -59,7 +59,7 @@ impl CoreService {
                 &task,
                 &persistence,
                 executor_kind,
-                Timestamp::now_utc(),
+                self.clock.now(),
             )
             .await?;
         }
@@ -90,9 +90,9 @@ impl CoreService {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub(crate) async fn set_task_priority(
+    pub async fn set_task_priority(
         &self,
-        transaction: &mut StorageTransaction<'_>,
+        transaction: &mut impl CommandTransaction,
         mut project: Project,
         envelope: &CommandEnvelope,
         request_hash: &str,
@@ -101,7 +101,7 @@ impl CoreService {
         task_id: TaskId,
         expected_task_revision: u64,
         priority_level_id: forge_domain::PriorityLevelId,
-    ) -> Result<forge_protocol::wire::CommandReceipt, CoreError> {
+    ) -> Result<forge_protocol::wire::CommandReceipt, CommandError> {
         let stored = load_scoped_task(transaction, &project, task_id).await?;
         require_task_revision(&stored.task, expected_task_revision)?;
         // `execute_command` already holds the Project gate, so no dispatcher
@@ -139,7 +139,7 @@ impl CoreService {
                 &task,
                 &persistence,
                 current_stage_executor(&version, &task)?,
-                Timestamp::now_utc(),
+                self.clock.now(),
             )
             .await?;
         }
@@ -166,9 +166,9 @@ impl CoreService {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub(crate) async fn change_dependency(
+    pub async fn change_dependency(
         &self,
-        transaction: &mut StorageTransaction<'_>,
+        transaction: &mut impl CommandTransaction,
         mut project: Project,
         envelope: &CommandEnvelope,
         request_hash: &str,
@@ -177,7 +177,7 @@ impl CoreService {
         blocker_task_id: TaskId,
         blocked_task_id: TaskId,
         adding: bool,
-    ) -> Result<forge_protocol::wire::CommandReceipt, CoreError> {
+    ) -> Result<forge_protocol::wire::CommandReceipt, CommandError> {
         let _ = load_scoped_task(transaction, &project, blocker_task_id).await?;
         let _ = load_scoped_task(transaction, &project, blocked_task_id).await?;
         let changed = if adding {

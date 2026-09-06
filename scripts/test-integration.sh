@@ -19,6 +19,7 @@ wait_for_minio
 "$SCRIPT_DIR/test-minio-bucket.sh" --evidence
 
 printf 'Running common dev integration with the synthetic runtime fixture.\n'
+printf 'Included: shared application command conformance on isolated PostgreSQL schemas.\n'
 printf 'NOT RUN here: actual CLI image probes and real LiteLLM/OpenCode/API gates; use just test-provider-integration.\n'
 printf 'NOT RUN here: real Codex subscription smoke; requires separate explicit just test-codex-live approval.\n'
 

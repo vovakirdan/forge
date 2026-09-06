@@ -1075,6 +1075,7 @@ dependencies = [
  "forge-protocol",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "thiserror 2.0.20",
  "uuid",
 ]
@@ -1227,6 +1228,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "forge-application",
  "forge-domain",
  "nix 0.31.3",
  "object_store",
@@ -1290,6 +1292,7 @@ dependencies = [
  "reqwest 0.13.4",
  "serde_json",
  "sqlx",
+ "time",
  "tokio",
  "tokio-stream",
  "tonic",

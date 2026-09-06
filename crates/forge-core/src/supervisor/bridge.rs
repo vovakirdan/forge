@@ -407,7 +407,7 @@ fn core_error_acknowledgement(message_id: &str, error: CoreError) -> CoreToSuper
             "canonical_resource_not_found",
             "Referenced canonical resource was not found",
         ),
-        CoreError::Storage(_) => (
+        CoreError::Storage(_) | CoreError::Repository(_) => (
             "canonical_storage_unavailable",
             "Core could not persist the Supervisor message",
         ),
@@ -415,7 +415,10 @@ fn core_error_acknowledgement(message_id: &str, error: CoreError) -> CoreToSuper
             "supervisor_channel_unavailable",
             "Core control channel is unavailable",
         ),
-        CoreError::Application(_) | CoreError::Domain(_) | CoreError::InvalidTransport { .. } => (
+        CoreError::Application(_)
+        | CoreError::Domain(_)
+        | CoreError::InvalidTransport { .. }
+        | CoreError::Forbidden => (
             "canonical_validation_failed",
             "Core rejected the Supervisor message",
         ),

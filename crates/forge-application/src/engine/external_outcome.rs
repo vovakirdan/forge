@@ -2,19 +2,19 @@
 
 use std::collections::BTreeSet;
 
-use forge_application::{CommandEnvelope, ExternalStageOutcomeCommand};
+use super::{ArtifactLocation, CommandTransaction};
+use crate::{CommandEnvelope, ExternalStageOutcomeCommand};
 use forge_domain::{
     AggregateRef, Artifact, ArtifactId, ArtifactProducer, CommandId, DomainError, DomainEvent,
     DomainEventKind, ExecutorKind, PipelineTransitionTarget, Project, StageOutcomeSubmission,
     StageTransitionEffect, TaskWaitCondition, TaskWaitKind, Timestamp,
 };
-use forge_storage::{ArtifactLocation, StorageTransaction};
 use serde_json::json;
 
-use crate::{
-    CoreError, CoreService,
-    command::{finish_command, resource},
+use super::{
+    CommandError, Engine,
     event::{event, event_payload},
+    receipt::{finish_command, resource},
     scheduler::enqueue_if_employee,
     task_support::{
         current_stage_executor, load_scoped_task, persist_task_and_project,
@@ -23,18 +23,18 @@ use crate::{
     },
 };
 
-impl CoreService {
+impl Engine<'_> {
     #[allow(clippy::too_many_arguments)]
-    pub(crate) async fn apply_external_outcome_command(
+    pub async fn apply_external_outcome_command(
         &self,
-        transaction: &mut StorageTransaction<'_>,
+        transaction: &mut impl CommandTransaction,
         mut project: Project,
         envelope: &CommandEnvelope,
         request_hash: &str,
         command_id: CommandId,
         now: Timestamp,
         input: &ExternalStageOutcomeCommand,
-    ) -> Result<forge_protocol::wire::CommandReceipt, CoreError> {
+    ) -> Result<forge_protocol::wire::CommandReceipt, CommandError> {
         let (task_id, wait_condition_id) = input.identifiers()?;
         let expected_stage_id = input.stage_id()?;
         let outcome = input.outcome()?;
@@ -47,13 +47,13 @@ impl CoreService {
             .wait_conditions()
             .any(|condition| matches!(condition.kind(), TaskWaitKind::RetryExhausted))
         {
-            return Err(CoreError::InvalidTransport {
+            return Err(CommandError::InvalidTransport {
                 field: "stage_id",
                 reason: "retry-exhausted task accepts only cancellation in M0".to_owned(),
             });
         }
         if stored.task.current_stage_id() != Some(&expected_stage_id) {
-            return Err(CoreError::InvalidTransport {
+            return Err(CommandError::InvalidTransport {
                 field: "stage_id",
                 reason: "does not match the task current stage".to_owned(),
             });
@@ -61,7 +61,7 @@ impl CoreService {
         let version = pinned_pipeline_version(transaction, &project, &stored.task).await?;
         let current_executor = current_stage_executor(&version, &stored.task)?;
         if !current_executor.requires_wait() {
-            return Err(CoreError::InvalidTransport {
+            return Err(CommandError::InvalidTransport {
                 field: "stage_id",
                 reason: "does not accept a human/external outcome".to_owned(),
             });
@@ -196,7 +196,7 @@ impl CoreService {
                 &task,
                 &persistence,
                 executor_kind,
-                Timestamp::now_utc(),
+                self.clock.now(),
             )
             .await?;
         }
@@ -258,20 +258,22 @@ fn next_stage_wait(
     outcome: &forge_domain::OutcomeKey,
     actor: forge_domain::Actor,
     now: Timestamp,
-) -> Result<Option<TaskWaitCondition>, CoreError> {
-    let current_stage_id = task.current_stage_id().ok_or(CoreError::InvalidTransport {
-        field: "task.current_stage_id",
-        reason: "is absent for the submitted outcome".to_owned(),
-    })?;
+) -> Result<Option<TaskWaitCondition>, CommandError> {
+    let current_stage_id = task
+        .current_stage_id()
+        .ok_or(CommandError::InvalidTransport {
+            field: "task.current_stage_id",
+            reason: "is absent for the submitted outcome".to_owned(),
+        })?;
     let current_stage = version
         .stage(current_stage_id)
-        .ok_or(CoreError::InvalidTransport {
+        .ok_or(CommandError::InvalidTransport {
             field: "task.current_stage_id",
             reason: "is absent from the pinned pipeline version".to_owned(),
         })?;
     let transition = current_stage
         .transition(outcome)
-        .ok_or(CoreError::InvalidTransport {
+        .ok_or(CommandError::InvalidTransport {
             field: "outcome",
             reason: "is not declared by the current pipeline stage".to_owned(),
         })?;
@@ -280,12 +282,12 @@ fn next_stage_wait(
     };
     let next_stage = version
         .stage(next_stage_id)
-        .ok_or(CoreError::InvalidTransport {
+        .ok_or(CommandError::InvalidTransport {
             field: "pipeline.transition.target",
             reason: "is absent from the pinned pipeline version".to_owned(),
         })?;
     if next_stage.executor_kind() == ExecutorKind::System {
-        return Err(CoreError::InvalidTransport {
+        return Err(CommandError::InvalidTransport {
             field: "pipeline.transition.target",
             reason: "system stages are not implemented in M0".to_owned(),
         });
@@ -295,7 +297,7 @@ fn next_stage_wait(
     }
     let next_visit = task
         .current_stage_visit()
-        .ok_or(CoreError::InvalidTransport {
+        .ok_or(CommandError::InvalidTransport {
             field: "task.current_stage_visit",
             reason: "is absent for the submitted outcome".to_owned(),
         })?
@@ -311,22 +313,23 @@ fn next_stage_wait(
 }
 
 async fn verify_existing_artifacts(
-    transaction: &mut StorageTransaction<'_>,
+    transaction: &mut impl CommandTransaction,
     project: &Project,
     task: &forge_domain::Task,
     artifact_ids: &BTreeSet<ArtifactId>,
-) -> Result<(), CoreError> {
+) -> Result<(), CommandError> {
     for artifact_id in artifact_ids {
-        let stored = transaction
-            .lock_artifact(*artifact_id)
-            .await?
-            .ok_or(CoreError::NotFound {
-                aggregate: "outcome artifact",
-            })?;
+        let stored =
+            transaction
+                .lock_artifact(*artifact_id)
+                .await?
+                .ok_or(CommandError::NotFound {
+                    aggregate: "outcome artifact",
+                })?;
         if stored.artifact.project_id() != project.id()
             || stored.location.task_id != Some(task.id())
         {
-            return Err(CoreError::InvalidTransport {
+            return Err(CommandError::InvalidTransport {
                 field: "outcome_artifact_ids",
                 reason: "must reference an artifact already linked to this task".to_owned(),
             });

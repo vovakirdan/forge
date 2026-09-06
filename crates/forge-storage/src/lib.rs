@@ -5,6 +5,7 @@
 
 #![forbid(unsafe_code)]
 
+mod command_adapter;
 mod credentials;
 mod error;
 pub mod evidence;

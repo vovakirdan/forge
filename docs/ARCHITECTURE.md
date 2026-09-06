@@ -92,6 +92,37 @@ transactional command semantics; `forge-core` supplies adapters for its ports.
 Supervisor imports `forge-protocol` and execution value types, but never storage
 repositories.
 
+### Command engine и reference persistence
+
+`forge-application` исполняет 14 команд M0 через заимствованный
+`CommandTransaction`. PostgreSQL adapter находится в `forge-storage`, а
+in-memory adapter и `ManualClock` — в `forge-testkit`. Оба adapter используют
+одни обработчики; reference backend не содержит второго command dispatch или
+альтернативной Task state machine.
+
+Core остаётся владельцем production transaction: prepare, применение команды
+и receipt выполняются до единственного commit; dispatch и доставка stop — после
+него, включая replay. Четыре runtime-команды M1 остаются расширениями Core с
+общими prepare/idempotency/finalization. Scheduler и Supervisor не переносятся
+в in-memory backend, нового режима deployment без PostgreSQL нет.
+
+`CommandContext` приходит только от доверенного composition boundary: actor,
+Project scope, Core actor и явно разрешённые именованные команды. Эти данные
+не читаются из HTTP JSON. Полномочия проверяются до replay; типизированный
+payload должен совпадать с исходным canonical request. Подготовленная команда
+сохраняет привязку к запросу и actor и используется в той же транзакции.
+
+Fingerprint сохраняет прежний формат и не включает набор capabilities. Replay
+предшествует expected-revision check. Время мутации вычисляется после Project
+lock как максимум wall clock и сохранённого Project timestamp; доступность
+очереди использует raw wall clock. Runtime deadlines остаются отдельными.
+
+Reference transaction сериализует writers и публикует изолированный снимок
+только при commit. Общая conformance-suite сравнивает доменные эффекты,
+упорядоченные Event/outbox и receipts, включая rollback и конкурирующие команды.
+Runtime state для command-тестов задаётся явно как fixture; это не доказательство
+физического исполнения. Память Employee и retrieval projections сюда не относятся.
+
 ## 5. Component responsibilities
 
 ### Forge Core

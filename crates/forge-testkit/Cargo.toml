@@ -35,3 +35,4 @@ forge-provider-codex = { path = "../forge-provider-codex" }
 forge-provider-common = { path = "../forge-provider-common" }
 reqwest = { version = "0.13.4", default-features = false, features = ["json", "stream"] }
 forge-provider-opencode = { path = "../forge-provider-opencode" }
+time.workspace = true

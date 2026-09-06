@@ -1,17 +1,17 @@
 //! Task, dependency, and waiting-state command handlers.
 
-use forge_application::{CommandEnvelope, CommandPayload, DraftTaskPatch};
+use super::CommandTransaction;
+use crate::{CommandEnvelope, CommandPayload, DraftTaskPatch};
 use forge_domain::{
     AggregateRef, CancellationRequest, CommandId, DomainEventKind, Project, TaskId, Timestamp,
 };
-use forge_storage::StorageTransaction;
 use serde_json::json;
 
-use crate::{
-    CoreError, CoreService,
-    command::{finish_command, resource},
+use super::{
+    CommandError, Engine,
     dependency_waits::add_unsatisfied_dependency_waits,
     event::{event, event_payload},
+    receipt::{finish_command, resource},
     run_control::run_stop_event,
     scheduler::enqueue_if_employee,
     task_support::{
@@ -21,16 +21,16 @@ use crate::{
     },
 };
 
-impl CoreService {
-    pub(crate) async fn apply_task_or_dependency_command(
+impl Engine<'_> {
+    pub async fn apply_task_or_dependency_command(
         &self,
-        transaction: &mut StorageTransaction<'_>,
+        transaction: &mut impl CommandTransaction,
         project: Project,
         envelope: &CommandEnvelope,
         request_hash: &str,
         command_id: CommandId,
         now: Timestamp,
-    ) -> Result<forge_protocol::wire::CommandReceipt, CoreError> {
+    ) -> Result<forge_protocol::wire::CommandReceipt, CommandError> {
         match &envelope.payload {
             CommandPayload::AmendDraft {
                 task_id,
@@ -168,7 +168,7 @@ impl CoreService {
                 )
                 .await
             }
-            _ => Err(CoreError::InvalidTransport {
+            _ => Err(CommandError::InvalidTransport {
                 field: "command",
                 reason: "is not a Task or dependency command".to_owned(),
             }),
@@ -178,7 +178,7 @@ impl CoreService {
     #[allow(clippy::too_many_arguments)]
     async fn amend_draft(
         &self,
-        transaction: &mut StorageTransaction<'_>,
+        transaction: &mut impl CommandTransaction,
         mut project: Project,
         envelope: &CommandEnvelope,
         request_hash: &str,
@@ -187,7 +187,7 @@ impl CoreService {
         task_id: TaskId,
         expected_task_revision: u64,
         patch: &DraftTaskPatch,
-    ) -> Result<forge_protocol::wire::CommandReceipt, CoreError> {
+    ) -> Result<forge_protocol::wire::CommandReceipt, CommandError> {
         let stored = load_scoped_task(transaction, &project, task_id).await?;
         require_task_revision(&stored.task, expected_task_revision)?;
         let previous_revision = stored.task.revision().get();
@@ -235,7 +235,7 @@ impl CoreService {
     #[allow(clippy::too_many_arguments)]
     async fn approve_task(
         &self,
-        transaction: &mut StorageTransaction<'_>,
+        transaction: &mut impl CommandTransaction,
         mut project: Project,
         envelope: &CommandEnvelope,
         request_hash: &str,
@@ -243,13 +243,13 @@ impl CoreService {
         now: Timestamp,
         task_id: TaskId,
         expected_task_revision: u64,
-    ) -> Result<forge_protocol::wire::CommandReceipt, CoreError> {
+    ) -> Result<forge_protocol::wire::CommandReceipt, CommandError> {
         let stored = load_scoped_task(transaction, &project, task_id).await?;
         require_task_revision(&stored.task, expected_task_revision)?;
         let version = pinned_pipeline_version(transaction, &project, &stored.task).await?;
         let entry_executor = version
             .stage(version.entry_stage_id())
-            .ok_or(CoreError::InvalidTransport {
+            .ok_or(CommandError::InvalidTransport {
                 field: "pipeline.entry_stage_id",
                 reason: "is absent from the pinned pipeline version".to_owned(),
             })?
@@ -286,7 +286,7 @@ impl CoreService {
             &task,
             &persistence,
             executor_kind,
-            Timestamp::now_utc(),
+            self.clock.now(),
         )
         .await?;
         let approved = event(
@@ -328,7 +328,7 @@ impl CoreService {
     #[allow(clippy::too_many_arguments)]
     async fn cancel_task(
         &self,
-        transaction: &mut StorageTransaction<'_>,
+        transaction: &mut impl CommandTransaction,
         mut project: Project,
         envelope: &CommandEnvelope,
         request_hash: &str,
@@ -338,7 +338,7 @@ impl CoreService {
         expected_task_revision: u64,
         reason_id: forge_domain::CancellationReasonId,
         note: Option<String>,
-    ) -> Result<forge_protocol::wire::CommandReceipt, CoreError> {
+    ) -> Result<forge_protocol::wire::CommandReceipt, CommandError> {
         let stored = load_scoped_task(transaction, &project, task_id).await?;
         require_task_revision(&stored.task, expected_task_revision)?;
         // A cancellation is terminal at the task boundary, but an already

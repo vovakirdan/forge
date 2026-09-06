@@ -19,7 +19,7 @@ use crate::{
 const MAX_EXTERNAL_ARTIFACTS: usize = 32;
 
 /// Structured evidence supplied by a human/external outcome command.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ArtifactInput {
     /// Stable Artifact kind.
@@ -90,7 +90,7 @@ impl ArtifactInput {
 }
 
 /// Human/external resolution of one waiting Pipeline stage.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ExternalStageOutcomeCommand {
     /// Target Task.

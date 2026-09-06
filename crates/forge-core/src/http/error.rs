@@ -5,6 +5,7 @@ use axum::{
     http::{HeaderName, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
 };
+use forge_application::RepositoryError;
 use forge_domain::DomainError;
 use forge_protocol::wire::{ApiError, ApiErrorCode, ErrorResponse};
 use forge_storage::StorageError;
@@ -46,6 +47,7 @@ impl HttpError {
                 message,
             ),
             CoreError::Domain(DomainError::StaleProjectRevision { .. })
+            | CoreError::Repository(RepositoryError::StaleRevision { .. })
             | CoreError::Storage(StorageError::StaleRevision { .. }) => Self::new(
                 StatusCode::CONFLICT,
                 ApiErrorCode::StaleRevision,
@@ -58,14 +60,14 @@ impl HttpError {
                 request_id,
                 message,
             ),
-            CoreError::NotFound { .. } | CoreError::Storage(StorageError::NotFound { .. }) => {
-                Self::new(
-                    StatusCode::NOT_FOUND,
-                    ApiErrorCode::NotFound,
-                    request_id,
-                    message,
-                )
-            }
+            CoreError::NotFound { .. }
+            | CoreError::Repository(RepositoryError::NotFound { .. })
+            | CoreError::Storage(StorageError::NotFound { .. }) => Self::new(
+                StatusCode::NOT_FOUND,
+                ApiErrorCode::NotFound,
+                request_id,
+                message,
+            ),
             CoreError::IdempotencyConflict => Self::new(
                 StatusCode::CONFLICT,
                 ApiErrorCode::IdempotencyConflict,
@@ -84,7 +86,13 @@ impl HttpError {
                 request_id,
                 message,
             ),
-            CoreError::Storage(_) => Self::new(
+            CoreError::Forbidden => Self::new(
+                StatusCode::FORBIDDEN,
+                ApiErrorCode::Forbidden,
+                request_id,
+                message,
+            ),
+            CoreError::Storage(_) | CoreError::Repository(_) => Self::new(
                 StatusCode::SERVICE_UNAVAILABLE,
                 ApiErrorCode::Unavailable,
                 request_id,
@@ -153,5 +161,109 @@ mod tests {
 
         assert_eq!(error.status, StatusCode::CONFLICT);
         assert_eq!(error.body.error.code, ApiErrorCode::StaleRevision);
+    }
+
+    #[test]
+    fn stale_task_revision_keeps_the_existing_invalid_request_contract() {
+        let error = HttpError::from_core(
+            "request".to_owned(),
+            CoreError::InvalidTransport {
+                field: "expected_task_revision",
+                reason: "does not match the current task revision".to_owned(),
+            },
+        );
+        assert_eq!(
+            (error.status, error.body.error.code),
+            (StatusCode::BAD_REQUEST, ApiErrorCode::InvalidRequest)
+        );
+    }
+
+    #[test]
+    fn reused_idempotency_key_is_a_conflict() {
+        let error = HttpError::from_core("request".to_owned(), CoreError::IdempotencyConflict);
+        assert_eq!(
+            (error.status, error.body.error.code),
+            (StatusCode::CONFLICT, ApiErrorCode::IdempotencyConflict)
+        );
+    }
+
+    #[test]
+    fn storage_unavailability_never_exposes_adapter_diagnostics() {
+        let error = HttpError::from_core(
+            "request".to_owned(),
+            forge_storage::StorageError::InvalidInput {
+                reason: "synthetic-private-database-diagnostic".to_owned(),
+            }
+            .into(),
+        );
+        assert_eq!(
+            (
+                error.status,
+                error.body.error.code,
+                error.body.error.message.as_str()
+            ),
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                ApiErrorCode::Unavailable,
+                "canonical storage is temporarily unavailable",
+            )
+        );
+    }
+
+    #[test]
+    fn application_authorization_refusal_maps_to_forbidden() {
+        let error = HttpError::from_core(
+            "request".to_owned(),
+            forge_application::CommandError::Forbidden.into(),
+        );
+        assert_eq!(
+            (error.status, error.body.error.code),
+            (StatusCode::FORBIDDEN, ApiErrorCode::Forbidden)
+        );
+    }
+
+    #[test]
+    fn command_repository_failures_keep_the_transport_classification() {
+        use forge_application::{CommandError, RepositoryError};
+        let cases = [
+            (
+                RepositoryError::NotFound { aggregate: "task" },
+                StatusCode::NOT_FOUND,
+                ApiErrorCode::NotFound,
+            ),
+            (
+                RepositoryError::StaleRevision {
+                    aggregate: "project",
+                },
+                StatusCode::CONFLICT,
+                ApiErrorCode::StaleRevision,
+            ),
+            (
+                RepositoryError::Unavailable,
+                StatusCode::SERVICE_UNAVAILABLE,
+                ApiErrorCode::Unavailable,
+            ),
+            (
+                RepositoryError::InvalidInput {
+                    reason: "private adapter diagnostic".into(),
+                },
+                StatusCode::SERVICE_UNAVAILABLE,
+                ApiErrorCode::Unavailable,
+            ),
+        ];
+        for (repository, status, code) in cases {
+            let error = HttpError::from_core(
+                "request".to_owned(),
+                CommandError::Repository(repository).into(),
+            );
+            assert_eq!((error.status, error.body.error.code), (status, code));
+            assert!(
+                !error
+                    .body
+                    .error
+                    .message
+                    .contains("private adapter diagnostic")
+            );
+        }
     }
 }

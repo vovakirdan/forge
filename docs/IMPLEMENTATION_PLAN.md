@@ -1,6 +1,6 @@
 # Forge: Implementation Plan
 
-**Статус:** приёмочные сценарии M0 и M1 пройдены, включая live Codex; отклонение TASK-05 требует отдельного решения
+**Статус:** M0 и M1 закрыты, включая TASK-05 и повторный live Codex gate; M2–M4 остаются roadmap
 **Дата обновления:** 6 сентября 2026
 **Граница:** local Linux-first MVP. План покрывает control plane, execution
 runtime, provider boundary, local install и knowledge loop. Existing `frontend/`
@@ -183,18 +183,19 @@ Git, Podman или UI.
 
 ##### TASK-05 — Application command boundary и in-memory reference engine
 
-**Сверка реализации, 6 сентября 2026:** named commands, revision/idempotency и
-атомарная запись state/Event/outbox реализованы через PostgreSQL. Отдельного
-in-memory reference engine с repository ports и fake-clock conformance harness
-в текущем checkout нет: `forge-application` разбирает typed commands, а
-`M0Harness` использует `PostgresStore`, PostgreSQL и NATS. Функциональный M0
-acceptance пройден, но эта часть TASK-05 не выполнена буквально. Требуется
-отдельно согласовать изменение подхода либо реализацию reference engine;
-приведённый ниже scope пока не отменён.
+**Сверка реализации, 6 сентября 2026:** общий engine в `forge-application`
+исполняет 14 команд M0 через borrowed `CommandTransaction`. PostgreSQL adapter
+и in-memory reference adapter используют те же handlers. Shared conformance
+проверяет authority, revision/idempotency, atomic state/Event/outbox/receipt,
+rollback и `ManualClock`. Core сохраняет production transaction и post-commit
+effects; четыре runtime-команды M1 остаются его расширениями. `M0Harness`
+по-прежнему проверяет durable simulator через PostgreSQL/NATS; standalone
+memory simulator не добавляется. Детали — [COMMAND_CONFORMANCE.md](COMMAND_CONFORMANCE.md).
+Reference backend реализован после PostgreSQL: порядок изменился, scope выполнен.
 
 - **Type / priority:** capability / P0.
-- **Goal:** implement named command handling before real persistence so all
-  mutations have one testable semantic path.
+- **Goal:** give named M0 commands one testable semantic path independent of
+  the persistence adapter.
 - **Scope:** application ports, actor/capability checks, expected revision,
   idempotency record, command result/error shape; commands for Project, Task,
   Pipeline, dependency and basic Manager actions against in-memory repositories.
@@ -762,28 +763,29 @@ Core task; it is not papered over in Supervisor or adapter code.
 
 ### Current execution focus
 
-Функциональный M0 acceptance пройден; отличие TASK-05 от первоначального
-in-memory подхода отмечено в самой задаче и требует решения. Для M1 / TASK-11–19
-завершены реализация, независимое review с исправлением findings, общий integration
-target и отдельные проверки
-реальных CLI/API-компонентов с локальным upstream stub. Результаты и ограничения
-зафиксированы в [M1_RUNTIME.md](M1_RUNTIME.md).
+M0 и M1 закрыты. TASK-05 теперь включает общий engine, reference persistence и
+fake-clock conformance: 16 services-free и 17 PostgreSQL-тестов прошли.
+Workspace tests, strict Clippy, общий integration target и CLI smoke также
+прошли; независимое финальное review не выявило P0/P1/P2. Контракт и границы —
+в [COMMAND_CONFORMANCE.md](COMMAND_CONFORMANCE.md).
 
-6 сентября 2026 прошли одиночный Codex Run с принятым Artifact/outcome и
+6 сентября 2026 после переноса command engine повторно прошёл
 `just test-codex-live`: два одновременных Run через выбранную подписку,
-раздельные surfaces/homes, named stop и сбор interrupted evidence. Тест завершился
-с `1 passed; 0 failed` за 28.61 секунды; оба контейнера остановлены с exit 0,
-исходный auth не изменился. Live acceptance blocker M1 снят. Это проверка
-конкретного Codex profile, а не всех моделей и provider lanes.
+раздельные surfaces/homes, named stop и interrupted evidence. Результат:
+`1 passed; 0 failed` за 32.72 секунды. Оба контейнера остановлены с exit 0,
+исходный auth не изменился. Это проверка конкретного Codex profile, а не всех
+моделей и provider lanes. Одиночный Run с принятым Artifact/outcome и API lane
+с локальным upstream stub проверены отдельно. Evidence и ограничения —
+в [M1_RUNTIME.md](M1_RUNTIME.md).
 TASK-20–29 остаются roadmap; наличие их описаний не означает реализацию.
 
 ## 8. Task readiness notes
 
 ### Ready now
 
-M1 runtime прошёл operator-approved live acceptance на проверенных M0 contracts.
-Следующий продуктовый этап — M2. Отклонение TASK-05 остаётся явным вопросом
-сверки плана; выбор стека не переоткрывается.
+M0–M1 прошли acceptance, включая завершённую TASK-05 и operator-approved live
+проверку после refactoring. Следующий продуктовый этап — M2; выбор стека
+не переоткрывается. Память Employee и knowledge loop относятся к M3.
 
 ### Explicit configuration work, not architecture blockers
 
@@ -802,7 +804,7 @@ the PRD. They do not block the deterministic Core or execution boundary.
 
 | Risk | Control in plan |
 |---|---|
-| State model is duplicated between fake and SQL implementations | TASK-05 command conformance suite precedes TASK-06 |
+| State model is duplicated between fake and SQL implementations | One application engine; shared memory/PostgreSQL command conformance |
 | Provider work hides a Core bug | TASK-10 is a hard gate before Phase B/C |
 | Sandbox silently degrades to host execution | TASK-12 requires typed failure and integration proof |
 | CLI differences create false common abstraction | TASK-19 conformance harness before TASK-20–23 |

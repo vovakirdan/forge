@@ -20,7 +20,7 @@ const MAX_ARTIFACT_REQUIREMENTS: usize = 32;
 const MAX_STAGE_VISITS: u32 = 1_000_000;
 
 /// Input graph used to create a named Pipeline and its first immutable version.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct CreatePipelineCommand {
     /// Human-readable Pipeline name.
@@ -130,7 +130,7 @@ impl CreatePipelineCommand {
 }
 
 /// One stage's public graph input.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct PipelineStageInput {
     /// Stable stage key.
@@ -198,7 +198,7 @@ impl PipelineStageInput {
 }
 
 /// Directed edge input for a Pipeline stage outcome.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct PipelineTransitionInput {
     /// Source stage.
@@ -243,7 +243,7 @@ impl PipelineTransitionInput {
 }
 
 /// Wire representation of an explicit Pipeline transition destination.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum PipelineTargetInput {
     /// Continue at another stage.
@@ -268,7 +268,7 @@ impl PipelineTargetInput {
 }
 
 /// Structural evidence requirement declared by one Pipeline transition.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ArtifactRequirementInput {
     /// Required Artifact kind.

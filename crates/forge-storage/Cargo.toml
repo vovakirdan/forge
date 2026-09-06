@@ -9,6 +9,7 @@ publish = false
 [dependencies]
 anyhow.workspace = true
 clap.workspace = true
+forge-application = { version = "0.1.0", path = "../forge-application" }
 forge-domain = { path = "../forge-domain" }
 nix = { version = "0.31", features = ["user"] }
 object_store = { version = "0.14.1", features = ["aws"] }

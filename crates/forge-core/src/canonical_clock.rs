@@ -19,7 +19,7 @@ pub(crate) fn project_mutation_time_at(project: &Project, observed_wall: Timesta
             "host wall clock regressed; canonical mutation retains causal Project time"
         );
     }
-    observed_wall.max(last_mutation)
+    forge_application::engine::project_mutation_time_at(project, observed_wall)
 }
 
 #[cfg(test)]

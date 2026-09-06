@@ -1,6 +1,6 @@
 //! Safe errors exposed by Core transports and orchestration.
 
-use forge_application::ApplicationError;
+use forge_application::{ApplicationError, CommandError, RepositoryError};
 use forge_domain::DomainError;
 use forge_storage::StorageError;
 use thiserror::Error;
@@ -19,6 +19,14 @@ pub enum CoreError {
     /// Durable canonical storage was unavailable or rejected a write.
     #[error("canonical storage rejected the operation: {0}")]
     Storage(#[from] StorageError),
+
+    /// The shared command adapter rejected a canonical repository operation.
+    #[error("canonical storage rejected the operation: {0}")]
+    Repository(#[from] RepositoryError),
+
+    /// A command actor or capability does not authorize the requested Project.
+    #[error("actor is not authorized for this project command")]
+    Forbidden,
 
     /// A referenced aggregate was absent in the command Project scope.
     #[error("{aggregate} was not found")]
@@ -43,4 +51,24 @@ pub enum CoreError {
         /// Safe structural explanation.
         reason: String,
     },
+}
+
+impl From<CommandError> for CoreError {
+    fn from(error: CommandError) -> Self {
+        match error {
+            CommandError::Application(error) => Self::Application(error),
+            CommandError::Domain(error) => Self::Domain(error),
+            CommandError::Repository(error) => Self::Repository(error),
+            CommandError::NotFound { aggregate } => Self::NotFound { aggregate },
+            CommandError::IdempotencyConflict => Self::IdempotencyConflict,
+            CommandError::InvalidTransport { field, reason } => {
+                Self::InvalidTransport { field, reason }
+            }
+            CommandError::Forbidden => Self::Forbidden,
+            CommandError::UnsupportedCommand => Self::InvalidTransport {
+                field: "command",
+                reason: "requires the production runtime extension".to_owned(),
+            },
+        }
+    }
 }

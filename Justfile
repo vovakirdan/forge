@@ -36,10 +36,15 @@ check:
 # Run pure Rust tests without starting local data services.
 test-unit:
     cargo test --workspace --all-features --locked --lib
+    cargo test --package forge-testkit --all-features --locked --test command_conformance
 
 # Local service, storage and synthetic-runtime integration; requires build-runtime-fixture.
 test-integration:
     @./scripts/test-integration.sh
+
+# The same application command engine on a services-free reference transaction.
+test-command-conformance:
+    cargo test --package forge-testkit --all-features --locked --test command_conformance
 
 # Explicit actual CLI/API fixture gates; requires FORGE_PROVIDER_RUNTIME_IMAGE digest.
 test-provider-integration:

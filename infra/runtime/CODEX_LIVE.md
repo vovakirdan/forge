@@ -1,14 +1,16 @@
 # Explicit Codex subscription smoke
 
-Status: **PASS for the recorded profile on 2026-09-06**. The operator-approved
-test completed with `1 passed; 0 failed` in 28.61 seconds using Codex `0.153.2`,
+Status: **PASS after the TASK-05 command-engine extraction on 2026-09-06**.
+The operator-approved repeat completed with `1 passed; 0 failed` in 32.72 seconds using Codex `0.153.2`,
 model `gpt-6-astra`, and image
 `localhost/forge-runtime@sha256:b9f92552224c7f7d98cd725c4711c36b1703cc94260423406f8a4a9d17d2da83`.
 Both Runs executed their marker commands concurrently in distinct surfaces and
 homes. Named stop collected interrupted evidence; both containers exited with
 code 0. Source auth was unchanged and supplied tokens were absent from checked
 diagnostics. Private local evidence:
-`/tmp/fc-01a076c6-52a4-7e71-9018-77268b87a0b4` (temporary, not a public archive).
+`/tmp/fc-01a0773d-191d-74d1-a8a3-dbf221c339ed` (temporary, not a public archive).
+The earlier 28.61-second acceptance and the new exact Run/container identities
+are recorded in [M1_RUNTIME.md](../../docs/M1_RUNTIME.md).
 
 This proves the tested profile and scenario, not every model, account or refresh
 race. Compiling the test or passing synthetic integration alone proves none of

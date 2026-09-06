@@ -13,5 +13,6 @@ forge-domain = { path = "../forge-domain" }
 forge-protocol = { path = "../forge-protocol" }
 serde.workspace = true
 serde_json.workspace = true
+sha2 = "0.10"
 thiserror.workspace = true
 uuid.workspace = true
