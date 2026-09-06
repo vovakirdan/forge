@@ -139,6 +139,7 @@ async fn fake_run_preserves_fence_epoch_and_message_order() {
         }"#
         .into(),
         run_spec_version: 1,
+        traceparent: String::new(),
     };
     let control = Arc::new(RunControl::new(
         provision.run_id.clone(),
@@ -147,7 +148,7 @@ async fn fake_run_preserves_fence_epoch_and_message_order() {
     ));
     let (sender, mut receiver) = mpsc::channel(8);
 
-    execute_provision(provision.clone(), sender, control)
+    execute_provision(provision.clone(), sender.into(), control)
         .await
         .unwrap();
     let mut messages = Vec::new();
@@ -171,7 +172,7 @@ async fn fake_run_preserves_fence_epoch_and_message_order() {
                 assert_eq!(submission.environment_epoch, 7);
                 submission.sequence
             }
-            supervisor_to_core::Message::Hello(_) => panic!("fake run must not emit hello"),
+            _ => panic!("fake run must emit only run-scoped messages"),
         })
         .collect();
     assert_eq!(sequences, vec![1, 2, 3, 4, 5, 6]);
@@ -227,6 +228,7 @@ async fn invalid_spec_emits_one_terminal_failed_observation() {
         context_snapshot_id: "snapshot-1".into(),
         run_spec_json: "not JSON".into(),
         run_spec_version: 1,
+        traceparent: String::new(),
     };
     let control = Arc::new(RunControl::new(
         provision.run_id.clone(),
@@ -235,7 +237,9 @@ async fn invalid_spec_emits_one_terminal_failed_observation() {
     ));
     let (sender, mut receiver) = mpsc::channel(4);
 
-    execute_provision(provision, sender, control).await.unwrap();
+    execute_provision(provision, sender.into(), control)
+        .await
+        .unwrap();
 
     let messages: Vec<_> = std::iter::from_fn(|| receiver.try_recv().ok()).collect();
     assert_eq!(messages.len(), 1);

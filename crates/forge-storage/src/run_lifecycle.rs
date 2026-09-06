@@ -427,6 +427,9 @@ fn desired_state_after_observation(
 
 fn observed_state_transition_is_monotonic(from: RunObservedState, to: RunObservedState) -> bool {
     from == to || observed_state_phase(from) < observed_state_phase(to)
+        // A later positive physical-stop observation resolves uncertainty/failure;
+        // it does not accept another executor result or restart the Run.
+        || (matches!(from,RunObservedState::Lost|RunObservedState::Failed) && to==RunObservedState::Stopped)
 }
 
 fn observed_state_phase(state: RunObservedState) -> u8 {

@@ -5,13 +5,21 @@
 
 #![forbid(unsafe_code)]
 
+mod credentials;
 mod error;
+pub mod evidence;
 mod executor_artifacts;
+mod gateway;
+mod health;
 mod model;
 mod outbox;
+mod proxy_keys;
 mod read;
+mod recovery;
 mod run_control;
+mod run_evidence;
 mod run_lifecycle;
+mod runtime;
 mod scheduler;
 mod store;
 mod task_write;
@@ -20,18 +28,24 @@ mod write;
 use sqlx::{PgPool, migrate::Migrator};
 use thiserror::Error;
 
+pub use credentials::StoredCredential;
 pub use error::StorageError;
 pub use executor_artifacts::{
     ExecutorArtifactMapping, ExecutorArtifactReceipt, ExecutorArtifactRunScope,
     ExecutorArtifactWrite,
 };
+pub use gateway::{GatewaySubmissionRecord, GatewayWriteResult};
+pub use health::OperationalSnapshot;
 pub use model::{
     ArtifactLocation, IdempotencyRecord, QueueEntry, QueueEntryInput, QueueState, RunDesiredState,
     RunObservedState, RunProjection, StoredArtifact, StoredEmployee, StoredEvent, StoredTask,
     TaskPersistence,
 };
 pub use outbox::{OutboxClaimRequest, OutboxFailureMark, OutboxLease, OutboxPublishMark};
+pub use proxy_keys::StoredProxyKey;
+pub use recovery::RunRecoveryState;
 pub use run_lifecycle::{ExecutorSubmissionRecord, FencedWrite, ObservedRunUpdate};
+pub use runtime::{EnvironmentReport, IncidentKind};
 pub use scheduler::{LeaseRunRequest, ProvisionedRun};
 pub use store::{PostgresStore, StorageTransaction};
 
@@ -175,7 +189,7 @@ pub enum MigrationError {
     },
 }
 
-const M0_CANONICAL_SCHEMA_VERSION: i64 = 5;
+const M0_CANONICAL_SCHEMA_VERSION: i64 = 14;
 
 struct NamedContractItem {
     name: &'static str,

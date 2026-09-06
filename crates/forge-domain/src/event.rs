@@ -165,6 +165,26 @@ impl AggregateRef {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DomainEventKind {
+    /// A human explicitly configured the Project's host reboot behavior.
+    BootRecoveryPolicyConfigured,
+    /// Core reconciled a changed local execution host generation.
+    ProjectRecoveryReconciled,
+    /// Management accepted a recovery assessment without inventing a stage result.
+    RunRecoveryAssessmentAccepted,
+    /// A redacted technical evidence receipt was retained or uploaded.
+    RunEvidenceRecorded,
+    /// Provider-reported usage/exit diagnostics, never Task completion proof.
+    RunRuntimeReported,
+    /// A Run-scoped proxy key intent, issuance or revocation was recorded.
+    RunProxyKeyChanged,
+    /// Operator selected a validated runtime snapshot for future work.
+    EmployeeRuntimeConfigured,
+    /// Runtime uncertainty or failure requires an explicit management decision.
+    RunIncidentRaised,
+    /// A credential was enrolled or its encrypted auth version changed.
+    CredentialUpdated,
+    /// A worker reported activity without changing task lifecycle.
+    RunProgressReported,
     /// A Project was created with its initial policy catalog.
     ProjectCreated,
     /// Project dispatch was opened by an authorized manager command.
@@ -213,6 +233,10 @@ pub enum DomainEventKind {
     RunObservationIgnored,
     /// Core requested graceful or forceful stop of a fenced Run.
     RunStopRequested,
+    /// The scoped Tool Gateway committed a capability grant or progress signal.
+    ToolGatewayCallAllowed,
+    /// The scoped Tool Gateway rejected a request without applying its action.
+    ToolGatewayCallDenied,
     /// An Employee identity was created.
     EmployeeCreated,
     /// An Employee became eligible for new work.

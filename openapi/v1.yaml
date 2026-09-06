@@ -660,6 +660,10 @@ components:
         - start_project_execution
         - stop_project_execution
         - submit_external_stage_outcome
+        - configure_employee_runtime
+        - enroll_credential
+        - configure_boot_recovery_policy
+        - accept_run_recovery_assessment
 
     CommandRequest:
       type: object
@@ -692,10 +696,168 @@ components:
             - $ref: '#/components/schemas/StartProjectExecutionPayload'
             - $ref: '#/components/schemas/StopProjectExecutionPayload'
             - $ref: '#/components/schemas/SubmitExternalStageOutcomePayload'
+            - $ref: '#/components/schemas/ConfigureEmployeeRuntimePayload'
+            - $ref: '#/components/schemas/EnrollCredentialPayload'
+            - $ref: '#/components/schemas/ConfigureBootRecoveryPolicyPayload'
+            - $ref: '#/components/schemas/AcceptRunRecoveryAssessmentPayload'
           description: |
             The schema must match the `{name}` path parameter. `anyOf` is used
             because empty start/stop payloads intentionally overlap; Core still
             enforces the path-to-payload pairing.
+
+    ConfigureEmployeeRuntimePayload:
+      type: object
+      additionalProperties: false
+      required: [employee_id, binding]
+      properties:
+        employee_id:
+          $ref: '#/components/schemas/UuidV7'
+        binding:
+          $ref: '#/components/schemas/RuntimeBinding'
+      x-forge-command: configure_employee_runtime
+
+    EnrollCredentialPayload:
+      type: object
+      additionalProperties: false
+      required: [secret_id, binding_id, kind, source_file]
+      properties:
+        secret_id:
+          $ref: '#/components/schemas/UuidV7'
+        binding_id:
+          $ref: '#/components/schemas/UuidV7'
+        kind:
+          type: string
+          enum: [codex_chatgpt, api_key]
+        source_file:
+          type: string
+          pattern: '^/'
+          maxLength: 4096
+          description: Explicit owner-only local file; never credential bytes.
+      x-forge-command: enroll_credential
+
+    ConfigureBootRecoveryPolicyPayload:
+      type: object
+      additionalProperties: false
+      required: [policy]
+      properties:
+        policy:
+          type: string
+          enum: [reconcile_then_resume_queue, recover_safe_then_hold, manual_hold]
+      x-forge-command: configure_boot_recovery_policy
+
+    AcceptRunRecoveryAssessmentPayload:
+      type: object
+      additionalProperties: false
+      required: [run_id, assessment]
+      properties:
+        run_id:
+          $ref: '#/components/schemas/UuidV7'
+        assessment:
+          type: string
+          enum: [not_started_confirmed, partial_work_observed, external_effect_possible, unknown]
+      x-forge-command: accept_run_recovery_assessment
+
+    RuntimeBinding:
+      type: object
+      additionalProperties: false
+      required: [execution_profile, image, surface, system_prompt, employee_prompt]
+      properties:
+        execution_profile:
+          $ref: '#/components/schemas/ExecutionProfile'
+        image:
+          type: string
+          pattern: '^.+@sha256:[a-fA-F0-9]{64}$'
+        surface:
+          oneOf:
+            - type: object
+              additionalProperties: false
+              required: [mode]
+              properties:
+                mode:
+                  enum: [none, filesystem_sandbox]
+            - type: object
+              additionalProperties: false
+              required: [mode, repository, base_ref]
+              properties:
+                mode:
+                  const: git_worktree
+                repository:
+                  type: string
+                base_ref:
+                  type: string
+        access:
+          enum: [read_write, read_only]
+          default: read_write
+        system_prompt:
+          type: string
+          minLength: 1
+        employee_prompt:
+          type: string
+          minLength: 1
+        limits:
+          type: object
+          additionalProperties: false
+          required: [cpu_millis, memory_bytes, pids, wall_seconds, stop_grace_seconds]
+          properties:
+            cpu_millis: {type: integer, minimum: 1}
+            memory_bytes: {type: integer, minimum: 1}
+            pids: {type: integer, minimum: 1}
+            wall_seconds: {type: integer, minimum: 1}
+            stop_grace_seconds: {type: integer, minimum: 1}
+        budget:
+          type: object
+          additionalProperties: false
+          required: [max_output_bytes, requests_per_minute, tokens_per_minute]
+          properties:
+            max_output_bytes: {type: integer, minimum: 1, maximum: 268435456}
+            requests_per_minute: {type: integer, minimum: 1}
+            tokens_per_minute: {type: integer, minimum: 1}
+            max_spend_microusd:
+              type: [integer, 'null']
+              minimum: 1
+              maximum: 1000000000000
+              description: Observed-spend gate; in-flight requests may overshoot. Native subscription cost remains unknown.
+
+    ExecutionProfile:
+      type: object
+      additionalProperties: false
+      required: [id, revision, project_id, adapter_id, adapter_version, provider_id, model, credential_binding, credential_delivery, capability_profile]
+      properties:
+        id: {$ref: '#/components/schemas/UuidV7'}
+        revision: {type: integer, minimum: 1}
+        project_id: {$ref: '#/components/schemas/UuidV7'}
+        adapter_id: {enum: [codex_cli, opencode_runtime]}
+        adapter_version: {type: string}
+        provider_id: {type: string, minLength: 1}
+        model: {type: string, minLength: 1}
+        credential_delivery: {enum: [proxy_only, isolated_runtime_secret]}
+        credential_binding:
+          type: object
+          additionalProperties: false
+          required: [id, project_id, secret_id, allowed_delivery_modes]
+          properties:
+            id: {$ref: '#/components/schemas/UuidV7'}
+            project_id: {$ref: '#/components/schemas/UuidV7'}
+            secret_id: {$ref: '#/components/schemas/UuidV7'}
+            account_id: {type: [string, 'null']}
+            allowed_delivery_modes:
+              type: array
+              uniqueItems: true
+              items: {enum: [proxy_only, isolated_runtime_secret, trusted_host]}
+        capability_profile:
+          type: object
+          additionalProperties: false
+          required: [adapter_id, adapter_version, transport_engine, capabilities, credential_exposed_to_run]
+          properties:
+            adapter_id: {type: string}
+            adapter_version: {type: string}
+            transport_engine: {enum: [cli_wrapper, api_runtime]}
+            credential_exposed_to_run: {type: boolean}
+            capabilities:
+              type: array
+              uniqueItems: true
+              items:
+                enum: [structured_events, session_resume, model_selection, usage_reporting, controlled_stop, gateway_auth, native_mcp]
 
     CreateProjectPayload:
       type: object
@@ -1484,6 +1646,9 @@ components:
         - last_observed_sequence
         - run_spec_version
       properties:
+        diagnostics:
+          type: object
+          description: Present on single-Run GET only. Bounded evidence receipts, incidents, immutable handoff, provider-reported usage/exit and proxy usage; no prompts, tokens or raw exception bodies. Missing reports are null until collection completes.
         id:
           $ref: '#/components/schemas/UuidV7'
         task_id:

@@ -1,0 +1,12 @@
+FROM docker.io/library/python@sha256:782412e85d0f0984994c290652577d4018aff08145c85b262bb63dc0c7522254
+
+# The 1.99.1 source tag has no corresponding PyPI distribution. Pin the actual
+# published 1.99.0 package; the selected image digest is recorded by deployment.
+RUN pip install --no-cache-dir 'litellm[proxy,proxy-runtime]==1.99.0'
+RUN pip install --no-cache-dir 'prisma==0.15.0'
+RUN apt-get update && apt-get install -y --no-install-recommends libatomic1 openssl
+RUN prisma generate --schema /usr/local/lib/python3.12/site-packages/litellm/proxy/schema.prisma
+
+ENV LITELLM_LOG=ERROR LITELLM_LOCAL_MODEL_COST_MAP=True
+ENTRYPOINT ["litellm"]
+CMD ["--config", "/etc/forge/litellm.yaml", "--host", "0.0.0.0", "--port", "4000"]

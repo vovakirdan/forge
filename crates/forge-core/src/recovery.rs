@@ -1,4 +1,9 @@
-//! Conservative M0 reconciliation after the local Supervisor reconnects.
+//! Recovery never turns uncertain side effects into an implicit new attempt.
+
+#[path = "recovery/boot.rs"]
+mod boot;
+#[path = "recovery/commands.rs"]
+mod commands;
 
 use forge_domain::ProjectId;
 use forge_protocol::{
@@ -44,7 +49,8 @@ impl CoreService {
 }
 
 fn should_redeliver_provision(run: &RunProjection) -> bool {
-    run.desired_state == RunDesiredState::ProvisionRequested
+    u32::from(run.run_spec_version) == M0_RUN_SPEC_VERSION
+        && run.desired_state == RunDesiredState::ProvisionRequested
         && run.observed_state == RunObservedState::Unknown
 }
 
@@ -85,6 +91,7 @@ fn recovered_provision(run: &RunProjection) -> Result<CoreToSupervisor, CoreErro
             context_snapshot_id: context_snapshot_id.to_owned(),
             run_spec_json,
             run_spec_version: M0_RUN_SPEC_VERSION,
+            traceparent: crate::observability::current_traceparent(),
         })),
     })
 }

@@ -16,14 +16,24 @@ test-support = []
 [dependencies]
 anyhow.workspace = true
 async-nats.workspace = true
+async-stream = "0.3"
 axum.workspace = true
 clap.workspace = true
 forge-application = { path = "../forge-application" }
 forge-domain = { path = "../forge-domain" }
 forge-protocol = { path = "../forge-protocol" }
+forge-provider-codex = { version = "0.1.0", path = "../forge-provider-codex" }
+forge-provider-common = { version = "0.1.0", path = "../forge-provider-common" }
+forge-provider-litellm = { version = "0.1.0", path = "../forge-provider-litellm" }
+forge-provider-opencode = { version = "0.1.0", path = "../forge-provider-opencode" }
 forge-storage = { path = "../forge-storage" }
 futures-util.workspace = true
+hyper = { version = "1.11.1", features = ["http1", "server"] }
+hyper-util = { version = "0.1.20", features = ["tokio"] }
 nix = { version = "0.30", default-features = false, features = ["user"] }
+prometheus-client = "0.25.1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
+rmcp = { version = "3.2.0", default-features = false, features = ["server", "transport-streamable-http-server"] }
 serde.workspace = true
 serde_json.workspace = true
 sha2 = "0.10"
@@ -33,5 +43,6 @@ tokio.workspace = true
 tokio-stream.workspace = true
 tonic.workspace = true
 tracing.workspace = true
-tracing-subscriber.workspace = true
+tracing-subscriber = { workspace = true, features = ["json", "env-filter"] }
 uuid.workspace = true
+zeroize = "1.9.0"

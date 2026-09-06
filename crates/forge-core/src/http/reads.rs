@@ -17,6 +17,14 @@ pub(crate) struct PipelineVersionRead {
 }
 
 impl CoreService {
+    pub(crate) async fn read_run_diagnostics(
+        &self,
+        project_id: ProjectId,
+        run_id: Uuid,
+    ) -> Result<serde_json::Value, CoreError> {
+        self.read_run(project_id, run_id).await?;
+        Ok(self.store.run_diagnostics(run_id).await?)
+    }
     pub(crate) async fn read_project(&self, project_id: ProjectId) -> Result<Project, CoreError> {
         self.store()
             .load_project(project_id)

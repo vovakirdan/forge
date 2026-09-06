@@ -90,7 +90,7 @@ readonly api_socket="$XDG_RUNTIME_DIR/forge/api.sock"
 readonly supervisor_socket="$XDG_RUNTIME_DIR/forge/core.sock"
 
 # The URL remains in the inherited environment rather than a process argument.
-"$forge_core_bin" >"$runtime_dir/core.log" 2>&1 &
+"$forge_core_bin" --fake-runtime >"$runtime_dir/core.log" 2>&1 &
 core_pid=$!
 wait_for_api
 

@@ -1,0 +1,36 @@
+# Contains synthetic fixture credentials only. Not a deployment configuration.
+services:
+  postgres:
+    image: docker.io/library/postgres@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73
+    environment:
+      POSTGRES_DB: litellm_fixture
+      POSTGRES_USER: forge_fixture
+      POSTGRES_PASSWORD: synthetic-fixture-not-a-production-password
+    tmpfs:
+      - /var/lib/postgresql/data
+    networks: [fixture]
+  stub:
+    image: docker.io/library/node@sha256:4bd6219054c8bebcd26a66bfd8ca0bd6e1024b4b97474c59bb7ee3bbcbef4fe8
+    command: ["node", "/fixture/stub.mjs"]
+    volumes:
+      - ./stub.mjs:/fixture/stub.mjs:ro,Z
+    networks: [fixture]
+  litellm:
+    image: localhost/forge-litellm:1.99.0
+    environment:
+      DATABASE_URL: postgresql://forge_fixture:synthetic-fixture-not-a-production-password@postgres:5432/litellm_fixture
+      LITELLM_MASTER_KEY: sk-forge-contract-master-not-a-real-key
+      LITELLM_SALT_KEY: synthetic-fixture-salt-not-a-production-key
+      LITELLM_TELEMETRY: "False"
+      STORE_MODEL_IN_DB: "True"
+      # Test-only fallback for Core-created routes; internal network has no paid egress.
+      OPENAI_API_BASE: http://stub:4101/v1
+    ports:
+      - 127.0.0.1:4007:4000
+    volumes:
+      - ./fixture.yaml:/etc/forge/litellm.yaml:ro,Z
+    depends_on: [postgres, stub]
+    networks: [fixture]
+networks:
+  fixture:
+    internal: true

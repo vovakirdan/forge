@@ -119,6 +119,10 @@ async fn m0_capacity_one_leaves_the_second_task_durably_queued() -> Result<()> {
 #[tokio::test]
 #[ignore = "requires local PostgreSQL and NATS; run `just test-integration`"]
 async fn m0_dependency_wait_is_released_only_after_the_blocker_completes() -> Result<()> {
+    let _ = tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::WARN)
+        .with_test_writer()
+        .try_init();
     let harness = M0Harness::start().await?;
     let mut supervisor = harness.attach_manual_supervisor().await?;
     let project = harness.create_project("M0 dependency").await?;

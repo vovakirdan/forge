@@ -108,3 +108,47 @@ Task history. Prometheus хранит только агрегаты и удал�
 4. High-cardinality identity живёт в logs/traces, а не в Prometheus labels.
 5. Failure of Prometheus, journald export или будущего trace backend не отменяет
    canonical command и не блокирует Core transaction.
+
+## 8. Реализация M1
+
+Native Core/Supervisor пишут JSON в stdout. Metrics-only loopback listeners:
+`127.0.0.1:9878` и `127.0.0.1:9879`, флаг `--observability-address`.
+Невозможность bind отмечается безопасным warning, но не останавливает
+canonical service. Те же endpoints доступны через owner-only Core UDS.
+Порты не публикуют management/Gateway API. Опциональный rootless Prometheus
+dev adjunct, pinned image и команды описаны в
+[`infra/dev/observability.md`](../infra/dev/observability.md).
+
+В M1 Core экспортирует uptime, fixed-class operation counts/duration, здоровье
+PostgreSQL/Supervisor, queued entries, active Leases/Runs, unknown environments,
+open incidents, pending/dead-letter outbox, oldest outbox age и local evidence
+spool bytes. Supervisor экспортирует uptime, Core connection, journal health,
+active/unknown/quiescent environment counts и pending observations. Labels
+операций — только закрытые enums; ID, свободные причины, пути и модели в labels
+не попадают. Метрики ещё не существующих consumer/Summarizer компонентов не
+выдумываются: их instrumentation добавляется вместе с компонентами.
+
+Readiness возвращает только `up/down/disabled`, без endpoint, credential или
+текста ошибки. PostgreSQL проверяется `SELECT 1`, NATS — JetStream account info,
+MinIO — read-only listing зарезервированного `forge-health-probe/` prefix
+настроенного bucket (нужно право list). Ненастроенный NATS/object store отмечен
+`disabled`; настроенный недоступный — `down`. Live Supervisor требует завершённой
+inventory reconciliation. Каждый dependency probe имеет timeout 2 секунды;
+они выполняются параллельно. Не более двух HTTP probes одновременно используют
+БД; лишние получают 503, не занимая очередь canonical commands. Эти проверки
+никогда не вызывают provider inference. При недоступной БД count gauges могут
+быть stale, что явно отмечает `forge_core_postgres_up=0`.
+
+W3C version-00 `traceparent` проверяется на формат и ненулевые IDs; сырой
+некорректный header не логируется и заменяется новым контекстом. Контекст проходит
+HTTP command → materialized Run grant → gRPC `ProvisionRun` → Supervisor
+observations → Core ingress, а также managed adapter environment и MCP headers
+→ Tool Gateway. OpenCode managed provider headers сохраняют локальную
+корреляцию inference ingress. Trace metadata не участвует в execution identity
+и не позволяет повторно запустить Run. Native provider TLS внутри CONNECT tunnel
+не переписывается ради tracing: downstream support не предполагается.
+
+Diagnostics не записывают request URI/query, headers, prompt или response body.
+JSON format и отсутствие synthetic secrets проверяются отдельным acceptance
+test. Точный момент canonical события остаётся в PostgreSQL audit; trace и
+summary не меняют и не заменяют этот факт.

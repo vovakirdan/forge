@@ -1,9 +1,21 @@
 # Forge
 
-Forge is a local-first control plane for durable AI engineering work. The first
-milestone is a deterministic Core simulator: no real LLM, Git worktree, Run
-container or UI is required to prove canonical task state, scheduling and
-recovery boundaries.
+Forge is a local-first control plane for durable AI engineering work. M0 provides
+the deterministic Core simulator. M1 adds isolated rootless Podman execution,
+scoped tools, encrypted credentials, recovery, and Codex/OpenCode provider lanes.
+See the [M1 operator guide](docs/M1_RUNTIME.md) for setup and verification boundaries.
+
+To try one real Codex task interactively on the local development stack:
+
+```sh
+just run-m1
+```
+
+The launcher asks for the task, suggests the current Codex model, and requests
+approval to use the selected ChatGPT auth file and subscription quota. It builds
+the runtime, starts an isolated session, and stops its work on exit. The source
+auth is never changed. This is a developer launcher, not the installer or the
+two-Run subscription acceptance test; see the [quick-start details](docs/M1_RUNTIME.md#быстрый-ручной-запуск).
 
 ## Local development
 
@@ -20,6 +32,7 @@ just dev-up
 just dev-status
 just check
 just test-unit
+just build-runtime-fixture
 just test-integration
 ```
 
@@ -35,6 +48,10 @@ creates, lists, then removes a disposable MinIO bucket. It passes the local
 database and NATS endpoints to the ignored acceptance suite without printing
 credentials.
 
+Each Core acceptance fixture uses its own `forge_test_<UUID>` PostgreSQL schema
+without a `public` fallback. Test schemas and runtime evidence are retained for
+diagnosis; tests do not clear existing shared development data.
+
 If a synthetic local credential is exposed during development, use `just
 dev-rotate-secrets`. It rotates the PostgreSQL and NATS credentials and
 recreates only those service processes. Redis and MinIO credentials, named
@@ -42,8 +59,13 @@ volumes, and canonical data remain intact.
 
 `just migrate` applies the current canonical schema through the
 `forge-storage` `forge-migrate` binary. `just demo-m0` is a local operational
-smoke scenario. `just test-integration` is the M0 acceptance gate for capacity,
-retry, dependency, fence, stop, and outbox behavior.
+smoke scenario. `just test-integration` covers capacity, retry, dependency,
+fences, stop, outbox, Gateway, recovery and real Podman fixture behavior. It never
+imports personal provider credentials. Build the synthetic runtime fixture first
+with `just build-runtime-fixture`.
+Actual pinned CLI/API transport gates use the separate
+`just test-provider-integration` target and its explicit fixture prerequisites;
+see [the provider integration guide](infra/dev/litellm/README.md).
 
 The Core and Supervisor are native host processes. Containers in this topology
 are local data dependencies only and bind their ports to `127.0.0.1`.
@@ -53,7 +75,8 @@ publisher reconnects in the background.
 
 ## Local control socket
 
-The HTTP API has no TCP listener. Core and CLI resolve `api.sock` without using
+The management HTTP API has no TCP listener. Read-only health/metrics exporters
+use loopback ports 9878 (Core) and 9879 (Supervisor). Core and CLI resolve `api.sock` without using
 the current working directory, in this order:
 
 1. `$XDG_RUNTIME_DIR/forge/api.sock`, when `XDG_RUNTIME_DIR` is absolute;

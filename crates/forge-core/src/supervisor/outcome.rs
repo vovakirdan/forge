@@ -28,14 +28,24 @@ use super::{
 impl CoreService {
     pub(super) async fn record_executor_stage_outcome(
         &self,
-        _identity: &SupervisorIdentity,
+        _identity: Option<&SupervisorIdentity>,
         submission: ParsedStageOutcomeSubmission,
     ) -> Result<InboundResult, CoreError> {
-        let now = Timestamp::now_utc();
         let mut transaction = self.store.begin().await?;
+        if submission.scope.is_gateway()
+            && let Some(refused) = reserve_submission(
+                &mut transaction,
+                &submission.scope,
+                "stage_outcome_submission",
+            )
+            .await?
+        {
+            return Ok(refused);
+        }
         let mut context = self
             .load_employee_submission_context(&mut transaction, &submission.scope)
             .await?;
+        let now = crate::canonical_clock::project_mutation_time(&context.project);
         let current_stage_id =
             context
                 .stored_task
@@ -53,12 +63,13 @@ impl CoreService {
                 reason: "does not match the active Run stage".to_owned(),
             });
         }
-        if let Some(refused) = reserve_submission(
-            &mut transaction,
-            &submission.scope,
-            "stage_outcome_submission",
-        )
-        .await?
+        if !submission.scope.is_gateway()
+            && let Some(refused) = reserve_submission(
+                &mut transaction,
+                &submission.scope,
+                "stage_outcome_submission",
+            )
+            .await?
         {
             return Ok(refused);
         }
@@ -177,6 +188,18 @@ impl CoreService {
                 ..
             })
         );
+        if effect.is_some() {
+            crate::handoff::persist_handoff(
+                &mut transaction,
+                &context.run,
+                task,
+                actor,
+                Some(submission.outcome.clone()),
+                None,
+                now,
+            )
+            .await?;
+        }
         if next_employee_stage {
             enqueue_if_employee(
                 &mut transaction,
@@ -184,7 +207,7 @@ impl CoreService {
                 task,
                 &persistence,
                 ExecutorKind::Employee,
-                now,
+                Timestamp::now_utc(),
             )
             .await?;
         }

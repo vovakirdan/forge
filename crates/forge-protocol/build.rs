@@ -14,6 +14,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("cargo::rerun-if-changed={}", proto_file.display());
 
     tonic_prost_build::configure()
+        .type_attribute(".", "#[derive(serde::Serialize, serde::Deserialize)]")
+        .field_attribute(
+            "forge.supervisor.v1.ProvisionRun.traceparent",
+            "#[serde(default)]",
+        )
         .build_client(true)
         .build_server(true)
         .file_descriptor_set_path(descriptor_path)

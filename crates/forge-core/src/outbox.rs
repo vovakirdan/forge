@@ -129,6 +129,7 @@ pub struct OutboxPublisher {
     store: PostgresStore,
     jetstream: Context,
     config: OutboxPublisherConfig,
+    observability: std::sync::Arc<crate::observability::Observability>,
     #[cfg(feature = "test-support")]
     fail_after_broker_ack_for: Option<EventId>,
 }
@@ -141,6 +142,7 @@ impl OutboxPublisher {
             store,
             jetstream,
             config,
+            observability: std::sync::Arc::default(),
             #[cfg(feature = "test-support")]
             fail_after_broker_ack_for: None,
         }
@@ -162,6 +164,22 @@ impl OutboxPublisher {
     /// outbox row is marked published. If PostgreSQL fails after that point,
     /// a later retry uses the same durable Event ID as `Nats-Msg-Id`.
     pub async fn drain_once(&self) -> Result<OutboxDrainReport, OutboxError> {
+        let started = std::time::Instant::now();
+        let result = crate::observability::trace_operation(
+            None,
+            crate::observability::Operation::Outbox,
+            self.drain_once_inner(),
+        )
+        .await;
+        self.observability.record(
+            crate::observability::Operation::Outbox,
+            result.is_ok(),
+            started.elapsed(),
+        );
+        result
+    }
+
+    async fn drain_once_inner(&self) -> Result<OutboxDrainReport, OutboxError> {
         let request = OutboxClaimRequest::new(
             self.lease_owner(),
             self.config.batch_size,
@@ -243,7 +261,10 @@ impl CoreService {
         jetstream: Context,
         config: OutboxPublisherConfig,
     ) -> OutboxPublisher {
-        OutboxPublisher::new(self.store.clone(), jetstream, config)
+        self.observability.observe_nats(jetstream.clone());
+        let mut publisher = OutboxPublisher::new(self.store.clone(), jetstream, config);
+        publisher.observability = std::sync::Arc::clone(&self.observability);
+        publisher
     }
 }
 

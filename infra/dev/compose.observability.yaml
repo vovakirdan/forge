@@ -1,0 +1,25 @@
+services:
+  prometheus:
+    # Prometheus v3.14.0 multi-architecture manifest, resolved 2026-09-06.
+    image: docker.io/prom/prometheus@sha256:5ce7540c3c00ef4ab0c9d2c995c6a5b9c421f44b4a115d97a2c7af3b1c21cbb0
+    # Trusted local service only; employee Run containers remain network=none.
+    network_mode: host
+    command:
+      - --config.file=/etc/prometheus/forge.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+      - --storage.tsdb.retention.size=2GB
+      - --web.listen-address=127.0.0.1:9090
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges]
+    pids_limit: 128
+    mem_limit: 512m
+    cpus: 1
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/forge.yml:ro,Z
+      - prometheus-data:/prometheus:Z
+
+volumes:
+  prometheus-data:
+    name: forge-dev-observability-data

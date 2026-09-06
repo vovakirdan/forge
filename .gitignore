@@ -29,3 +29,13 @@ Thumbs.db
 !*.env.example
 !.env.template
 !*.env.template
+/.gstack/
+.gstack/
+
+# Operator credentials and local runtime state must stay outside source control.
+/secrets/
+/.forge/
+auth.json
+credentials.json
+*.key
+*.pem

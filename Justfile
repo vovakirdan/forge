@@ -1,4 +1,5 @@
 set shell := ["bash", "-eu", "-o", "pipefail", "-c"]
+set positional-arguments := true
 
 default:
     @just --list
@@ -36,10 +37,31 @@ check:
 test-unit:
     cargo test --workspace --all-features --locked --lib
 
-# Check all local services, migrations, a disposable MinIO bucket, and ignored tests.
+# Local service, storage and synthetic-runtime integration; requires build-runtime-fixture.
 test-integration:
     @./scripts/test-integration.sh
+
+# Explicit actual CLI/API fixture gates; requires FORGE_PROVIDER_RUNTIME_IMAGE digest.
+test-provider-integration:
+    @bash ./scripts/test-provider-integration.sh
+
+# REAL subscription usage; explicit opt-in/auth/model/image required, never automated.
+test-codex-live:
+    @bash ./scripts/test-codex-live.sh
+
+# Interactive real Codex task with existing auth, private session and managed stop.
+run-m1 *args:
+    @bash ./scripts/run-m1.sh "$@"
 
 # Execute the deterministic M0 CLI operational smoke scenario.
 demo-m0:
     @./scripts/demo-m0.sh
+
+# Build pinned real CLIs and verify their versions without login/inference.
+build-runtime:
+    @./scripts/build-runtime-image.sh
+
+# Synthetic executable in a real sandbox; never evidence of provider support.
+build-runtime-fixture:
+    cargo build --locked --package forge-supervisor --bin forge-runner
+    podman build --file infra/runtime/Containerfile.fixture --tag localhost/forge-runner-fixture:m1 .

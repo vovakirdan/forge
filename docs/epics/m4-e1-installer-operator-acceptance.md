@@ -39,3 +39,12 @@ review/merge, summarizer lag и reboot дают известные Incident/Task
 
 Installer создаёт processes и config, но не становится вторым Core или source of
 domain truth. Unsupported provider capability показывается оператору явно.
+
+## Открытый дизайн: среда разработки
+
+Wizard должен позволять настроить bundle среды разработки проекта, включая
+непредусмотренные заранее toolchains и зависимости. До реализации нужно
+согласовать формат описания, подготовку окружения, доступ к пакетным репозиториям
+и кеширование. Текущий M1 умеет выбирать digest-pinned runtime image через
+`RuntimeBinding.image`, но удобного bundle wizard и автоматической подготовки
+зависимостей ещё нет. Это развитие installer/runtime workflow, не новый долг M1.

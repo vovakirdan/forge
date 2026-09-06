@@ -1,0 +1,21 @@
+# Adjunct service, separate from the canonical Forge database and M0 compose.
+services:
+  litellm:
+    image: localhost/forge-litellm:1.99.0
+    build:
+      context: .
+      dockerfile: Containerfile
+    environment:
+      DATABASE_URL: ${FORGE_LITELLM_DATABASE_URL:?separate LiteLLM database required}
+      LITELLM_MASTER_KEY: ${FORGE_LITELLM_MASTER_KEY:?explicit admin key required}
+      LITELLM_SALT_KEY: ${FORGE_LITELLM_SALT_KEY:?persistent encryption salt required}
+      STORE_MODEL_IN_DB: "True"
+      LITELLM_TELEMETRY: "False"
+    ports:
+      - 127.0.0.1:${FORGE_LITELLM_PORT:-4000}:4000
+    volumes:
+      - ./config.yaml:/etc/forge/litellm.yaml:ro,Z
+    security_opt:
+      - no-new-privileges
+    cap_drop:
+      - ALL

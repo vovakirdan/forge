@@ -24,11 +24,62 @@ pub struct ManualSupervisor {
     outbound: mpsc::Sender<SupervisorToCore>,
     inbound: tonic::Streaming<CoreToSupervisor>,
     deferred: VecDeque<CoreToSupervisor>,
+    host_id: String,
+    boot_id: String,
 }
 
 impl ManualSupervisor {
+    /// Supplies an explicit empty physical inventory for v2 Core fixture tests.
+    pub async fn reconcile_empty(&mut self) -> Result<()> {
+        self.reconcile(vec![]).await
+    }
+
+    /// Answers the current inventory request with explicit physical evidence.
+    pub async fn reconcile(
+        &mut self,
+        entries: Vec<forge_protocol::supervisor::v1::RunInventoryEntry>,
+    ) -> Result<()> {
+        let request = self
+            .next_matching("RequestInventory", |message| match &message.message {
+                Some(core_to_supervisor::Message::RequestInventory(request)) => {
+                    Some(request.clone())
+                }
+                _ => None,
+            })
+            .await?;
+        let message_id = Uuid::now_v7().to_string();
+        self.outbound
+            .send(SupervisorToCore {
+                message: Some(supervisor_to_core::Message::Inventory(
+                    forge_protocol::supervisor::v1::SupervisorInventory {
+                        message_id: message_id.clone(),
+                        request_command_id: request.command_id,
+                        host_id: self.host_id.clone(),
+                        boot_id: self.boot_id.clone(),
+                        entries,
+                    },
+                )),
+            })
+            .await?;
+        let ack = self.wait_for_acknowledgement(&message_id).await?;
+        if ack.disposition
+            != forge_protocol::supervisor::v1::AcknowledgementDisposition::Accepted as i32
+        {
+            bail!("inventory rejected: {}: {}", ack.reason_code, ack.message);
+        }
+        Ok(())
+    }
     /// Connects with a valid Hello and waits for Core's accepted acknowledgement.
     pub async fn connect(socket_path: &Path) -> Result<Self> {
+        Self::connect_with_identity(socket_path, "m0-acceptance-host", "m0-acceptance-boot").await
+    }
+
+    /// Controls boot identity for recovery failure-injection tests.
+    pub async fn connect_with_identity(
+        socket_path: &Path,
+        host_id: &str,
+        boot_id: &str,
+    ) -> Result<Self> {
         let channel = uds_channel(socket_path).await?;
         let (outbound, receiver) = mpsc::channel(16);
         let hello_id = Uuid::now_v7().to_string();
@@ -37,8 +88,8 @@ impl ManualSupervisor {
                 message: Some(supervisor_to_core::Message::Hello(SupervisorHello {
                     message_id: hello_id.clone(),
                     supervisor_instance_id: Uuid::now_v7().to_string(),
-                    host_id: "m0-acceptance-host".to_owned(),
-                    boot_id: "m0-acceptance-boot".to_owned(),
+                    host_id: host_id.to_owned(),
+                    boot_id: boot_id.to_owned(),
                     protocol_major: 1,
                     started_at_unix_ms: 0,
                 })),
@@ -53,6 +104,8 @@ impl ManualSupervisor {
             outbound,
             inbound: response.into_inner(),
             deferred: VecDeque::new(),
+            host_id: host_id.to_owned(),
+            boot_id: boot_id.to_owned(),
         };
         let acknowledgement = supervisor.wait_for_acknowledgement(&hello_id).await?;
         if acknowledgement.disposition

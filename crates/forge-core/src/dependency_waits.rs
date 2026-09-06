@@ -239,7 +239,7 @@ impl CoreService {
                 &task,
                 &persistence,
                 current_stage_executor(&version, &task)?,
-                now,
+                Timestamp::now_utc(),
             )
             .await?;
         }

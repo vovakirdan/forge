@@ -37,6 +37,22 @@ impl IdempotencyKey {
 /// Typed intent selected by one named HTTP command path.
 #[derive(Clone, Debug)]
 pub enum CommandPayload {
+    /// Explicit Project reboot behavior.
+    ConfigureBootRecoveryPolicy {
+        policy: forge_domain::runtime::BootRecoveryPolicy,
+    },
+    /// Human acceptance of a Run-local candidate assessment.
+    AcceptRunRecoveryAssessment {
+        run_id: Uuid,
+        assessment: forge_domain::runtime::RecoveryAssessment,
+    },
+    /// Local management enrollment: payload carries a filename, never key bytes.
+    EnrollCredential {
+        secret_id: Uuid,
+        binding_id: Uuid,
+        kind: String,
+        source_file: String,
+    },
     /// Create the Project represented by the envelope's reserved identity.
     CreateProject(CreateProjectCommand),
     /// Create a Pipeline and initial immutable graph version.
@@ -116,6 +132,13 @@ pub enum CommandPayload {
     },
     /// Submit a human/external outcome to the current waiting Pipeline stage.
     SubmitExternalStageOutcome(ExternalStageOutcomeCommand),
+    /// Explicit runtime selection; no secrets are accepted on this endpoint.
+    ConfigureEmployeeRuntime {
+        /// Project-owned employee to configure.
+        employee_id: EmployeeId,
+        /// Profile and sandbox defaults pinned by future Runs.
+        binding: Box<forge_domain::runtime::RuntimeBinding>,
+    },
 }
 
 /// A parsed named command ready for Core authorization and transactional apply.
@@ -188,6 +211,85 @@ impl CommandEnvelope {
 impl CommandPayload {
     fn parse(name: CommandName, value: Value) -> Result<Self, ApplicationError> {
         match name {
+            CommandName::ConfigureBootRecoveryPolicy => {
+                #[derive(serde::Deserialize)]
+                #[serde(deny_unknown_fields)]
+                struct Input {
+                    policy: forge_domain::runtime::BootRecoveryPolicy,
+                }
+                let input: Input = parse_typed(name, value)?;
+                Ok(Self::ConfigureBootRecoveryPolicy {
+                    policy: input.policy,
+                })
+            }
+            CommandName::AcceptRunRecoveryAssessment => {
+                #[derive(serde::Deserialize)]
+                #[serde(deny_unknown_fields)]
+                struct Input {
+                    run_id: Uuid,
+                    assessment: forge_domain::runtime::RecoveryAssessment,
+                }
+                let input: Input = parse_typed(name, value)?;
+                if input.run_id.get_version_num() != 7 {
+                    return Err(ApplicationError::InvalidPayload {
+                        command: name,
+                        reason: "run_id must be UUIDv7".into(),
+                    });
+                }
+                Ok(Self::AcceptRunRecoveryAssessment {
+                    run_id: input.run_id,
+                    assessment: input.assessment,
+                })
+            }
+            CommandName::EnrollCredential => {
+                #[derive(serde::Deserialize)]
+                #[serde(deny_unknown_fields)]
+                struct Input {
+                    secret_id: Uuid,
+                    binding_id: Uuid,
+                    kind: String,
+                    source_file: String,
+                }
+                let input: Input = parse_typed(name, value)?;
+                if input.secret_id.is_nil()
+                    || input.binding_id.is_nil()
+                    || !matches!(input.kind.as_str(), "codex_chatgpt" | "api_key")
+                    || !input.source_file.starts_with('/')
+                    || input.source_file.contains('\0')
+                    || input.source_file.len() > 4096
+                {
+                    return Err(ApplicationError::InvalidPayload {
+                        command: name,
+                        reason: "invalid private-file credential enrollment".into(),
+                    });
+                }
+                Ok(Self::EnrollCredential {
+                    secret_id: input.secret_id,
+                    binding_id: input.binding_id,
+                    kind: input.kind,
+                    source_file: input.source_file,
+                })
+            }
+            CommandName::ConfigureEmployeeRuntime => {
+                #[derive(serde::Deserialize)]
+                #[serde(deny_unknown_fields)]
+                struct Input {
+                    employee_id: String,
+                    binding: forge_domain::runtime::RuntimeBinding,
+                }
+                let input: Input = parse_typed(name, value)?;
+                input
+                    .binding
+                    .validate()
+                    .map_err(|error| ApplicationError::InvalidPayload {
+                        command: name,
+                        reason: error.to_string(),
+                    })?;
+                Ok(Self::ConfigureEmployeeRuntime {
+                    employee_id: parse_uuid_v7("employee_id", &input.employee_id)?,
+                    binding: Box::new(input.binding),
+                })
+            }
             CommandName::CreateProject => parse_typed(name, value).map(Self::CreateProject),
             CommandName::CreatePipeline => parse_typed(name, value).map(Self::CreatePipeline),
             CommandName::CreateEmployee => parse_typed(name, value).map(Self::CreateEmployee),
@@ -453,106 +555,5 @@ struct ProjectExecutionInput {
 }
 
 #[cfg(test)]
-mod tests {
-    use forge_protocol::wire::{CommandName, CommandRequest};
-    use serde_json::json;
-
-    use super::{CommandEnvelope, CommandPayload};
-
-    #[test]
-    fn rejects_unknown_typed_create_task_fields() {
-        let request = CommandRequest {
-            project_id: uuid::Uuid::now_v7().to_string(),
-            expected_revision: 1,
-            payload: json!({
-                "title": "Investigate",
-                "kind": "analysis",
-                "pipeline_version_id": uuid::Uuid::now_v7().to_string(),
-                "priority": "normal",
-                "unexpected": true
-            })
-            .as_object()
-            .cloned()
-            .unwrap_or_default(),
-        };
-
-        let parsed = CommandEnvelope::parse(CommandName::CreateTask, request, "test-key");
-
-        assert!(parsed.is_err());
-    }
-
-    #[test]
-    fn maps_the_path_to_a_typed_payload() {
-        let request = CommandRequest {
-            project_id: uuid::Uuid::now_v7().to_string(),
-            expected_revision: 0,
-            payload: json!({"name": "M0 Demo"})
-                .as_object()
-                .cloned()
-                .unwrap_or_default(),
-        };
-
-        let parsed = CommandEnvelope::parse(CommandName::CreateProject, request, "create-project")
-            .expect("valid command");
-
-        assert!(matches!(parsed.payload, CommandPayload::CreateProject(_)));
-    }
-
-    #[test]
-    fn rejects_non_v7_public_project_identity() {
-        let request = CommandRequest {
-            project_id: uuid::Uuid::nil().to_string(),
-            expected_revision: 0,
-            payload: json!({"name": "M0 Demo"})
-                .as_object()
-                .cloned()
-                .unwrap_or_default(),
-        };
-
-        let parsed = CommandEnvelope::parse(CommandName::CreateProject, request, "create-project");
-
-        assert!(parsed.is_err());
-    }
-
-    #[test]
-    fn rejects_create_project_with_a_nonzero_revision() {
-        let request = CommandRequest {
-            project_id: uuid::Uuid::now_v7().to_string(),
-            expected_revision: 1,
-            payload: json!({"name": "M0 Demo"})
-                .as_object()
-                .cloned()
-                .unwrap_or_default(),
-        };
-
-        let parsed = CommandEnvelope::parse(CommandName::CreateProject, request, "create-project");
-
-        assert!(parsed.is_err());
-    }
-
-    #[test]
-    fn eagerly_rejects_an_invalid_external_stage_key() {
-        let request = CommandRequest {
-            project_id: uuid::Uuid::now_v7().to_string(),
-            expected_revision: 1,
-            payload: json!({
-                "task_id": uuid::Uuid::now_v7().to_string(),
-                "expected_task_revision": 1,
-                "stage_id": "Needs Review",
-                "outcome": "accept",
-                "wait_condition_id": uuid::Uuid::now_v7().to_string()
-            })
-            .as_object()
-            .cloned()
-            .unwrap_or_default(),
-        };
-
-        let parsed = CommandEnvelope::parse(
-            CommandName::SubmitExternalStageOutcome,
-            request,
-            "submit-outcome",
-        );
-
-        assert!(parsed.is_err());
-    }
-}
+#[path = "command/tests.rs"]
+mod tests;

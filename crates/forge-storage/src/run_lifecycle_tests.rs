@@ -88,11 +88,11 @@ fn failed_observation_cannot_return_to_running() {
 }
 
 #[test]
-fn terminal_observation_cannot_change_terminal_class() {
+fn failure_can_gain_later_positive_quiescence_evidence() {
     let allowed =
         observed_state_transition_is_monotonic(RunObservedState::Failed, RunObservedState::Stopped);
 
-    assert!(!allowed);
+    assert!(allowed);
 }
 
 #[test]

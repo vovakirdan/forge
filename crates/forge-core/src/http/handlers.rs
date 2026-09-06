@@ -34,6 +34,9 @@ const MAX_PAGE_LIMIT: usize = 100;
 /// Builds the complete local M0 API without giving routes direct storage access.
 pub fn router(core: CoreService) -> Router {
     Router::new()
+        .route("/healthz", get(crate::observability::http::healthz))
+        .route("/readyz", get(crate::observability::http::readyz))
+        .route("/metrics", get(crate::observability::http::metrics))
         .route("/v1/health", get(health))
         .route("/v1/commands/{name}", post(execute_command))
         .route("/v1/projects/{project_id}", get(get_project))
@@ -48,6 +51,10 @@ pub fn router(core: CoreService) -> Router {
         .route("/v1/projects/{project_id}/runs/{run_id}", get(get_run))
         .route("/v1/projects/{project_id}/events", get(stream_events))
         .layer(DefaultBodyLimit::max(MAX_COMMAND_BODY_BYTES))
+        .layer(axum::middleware::from_fn_with_state(
+            core.clone(),
+            crate::observability::middleware,
+        ))
         .with_state(core)
 }
 
@@ -222,7 +229,18 @@ async fn get_run(
         .read_run(project_id, run_id)
         .await
         .map_err(|error| HttpError::from_core(request_id.clone(), error))?;
-    Ok(json_response(StatusCode::OK, run_view(run), &request_id))
+    let diagnostics = core
+        .read_run_diagnostics(project_id, run_id)
+        .await
+        .map_err(|error| HttpError::from_core(request_id.clone(), error))?;
+    Ok(json_response(
+        StatusCode::OK,
+        super::views::RunDetailView {
+            run: run_view(run),
+            diagnostics,
+        },
+        &request_id,
+    ))
 }
 
 async fn stream_events(

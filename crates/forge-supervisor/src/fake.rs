@@ -12,14 +12,15 @@ use forge_protocol::wire::{
 use serde::Deserialize;
 use serde_json::{Value, json};
 use thiserror::Error;
-use tokio::sync::mpsc;
 
-use crate::{M0_RUN_SPEC_VERSION, RunControl, SupervisorError, new_id, now_millis, send};
+use crate::{
+    EventSink, M0_RUN_SPEC_VERSION, RunControl, SupervisorError, new_id, now_millis, send,
+};
 
 /// Executes an opaque provision request through the deterministic M0 simulator.
 pub(crate) async fn execute_provision(
     provision: ProvisionRun,
-    outbound: mpsc::Sender<SupervisorToCore>,
+    outbound: EventSink,
     control: Arc<RunControl>,
 ) -> Result<(), SupervisorError> {
     let mut sequence = RunSequence::default();
@@ -87,7 +88,7 @@ pub(crate) async fn execute_provision(
 /// observation state machine, so it must never be followed by `Stopped`.
 async fn send_failure(
     provision: &ProvisionRun,
-    outbound: &mpsc::Sender<SupervisorToCore>,
+    outbound: &EventSink,
     sequence: &mut RunSequence,
     reason_code: &str,
 ) -> Result<(), SupervisorError> {
@@ -103,7 +104,7 @@ async fn send_failure(
 
 async fn send_stop_observations(
     provision: &ProvisionRun,
-    outbound: &mpsc::Sender<SupervisorToCore>,
+    outbound: &EventSink,
     sequence: &mut RunSequence,
     reason_code: &str,
 ) -> Result<(), SupervisorError> {
@@ -120,7 +121,7 @@ async fn send_stop_observations(
 
 async fn send_stopped(
     provision: &ProvisionRun,
-    outbound: &mpsc::Sender<SupervisorToCore>,
+    outbound: &EventSink,
     sequence: &mut RunSequence,
     reason_code: &str,
 ) -> Result<(), SupervisorError> {
@@ -135,7 +136,7 @@ async fn send_stopped(
 }
 
 async fn send_observation(
-    outbound: &mpsc::Sender<SupervisorToCore>,
+    outbound: &EventSink,
     provision: &ProvisionRun,
     sequence: &mut RunSequence,
     kind: RunEventKind,
@@ -161,7 +162,7 @@ async fn send_observation(
 }
 
 async fn send_artifact(
-    outbound: &mpsc::Sender<SupervisorToCore>,
+    outbound: &EventSink,
     provision: &ProvisionRun,
     sequence: &mut RunSequence,
     artifact: FakeArtifactSpec,
@@ -182,7 +183,7 @@ async fn send_artifact(
 }
 
 async fn send_stage_outcome(
-    outbound: &mpsc::Sender<SupervisorToCore>,
+    outbound: &EventSink,
     provision: &ProvisionRun,
     sequence: &mut RunSequence,
     outcome: FakeStageOutcome,
@@ -211,7 +212,7 @@ async fn send_stage_outcome(
 }
 
 async fn send_submission(
-    outbound: &mpsc::Sender<SupervisorToCore>,
+    outbound: &EventSink,
     provision: &ProvisionRun,
     sequence: &mut RunSequence,
     payload: executor_submission::Payload,

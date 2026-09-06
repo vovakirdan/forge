@@ -254,7 +254,12 @@ fn stop_message(run: &RunProjection) -> Option<CoreToSupervisor> {
             environment_epoch: run.environment_epoch,
             mode: mode as i32,
             reason_code: "core_stop_requested".to_owned(),
-            grace_period_ms: 2_000,
+            grace_period_ms: run
+                .run_spec
+                .pointer("/binding/limits/stop_grace_seconds")
+                .and_then(serde_json::Value::as_u64)
+                .map(|seconds| seconds.saturating_mul(1_000))
+                .unwrap_or(2_000),
         })),
     })
 }

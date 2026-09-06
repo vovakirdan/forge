@@ -134,6 +134,13 @@ pub(crate) struct RunView {
 }
 
 #[derive(Serialize)]
+pub(crate) struct RunDetailView {
+    #[serde(flatten)]
+    pub(crate) run: RunView,
+    pub(crate) diagnostics: Value,
+}
+
+#[derive(Serialize)]
 pub(crate) struct ListView<T> {
     pub(crate) items: Vec<T>,
     #[serde(skip_serializing_if = "Option::is_none")]

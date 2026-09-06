@@ -36,7 +36,51 @@ impl CoreService {
         identity: &SupervisorIdentity,
         message: SupervisorToCore,
     ) -> CoreToSupervisor {
+        let parent = match message.message.as_ref() {
+            Some(supervisor_to_core::Message::ObservedRunEvent(event))
+                if event.details_json.len() <= 262_144 =>
+            {
+                serde_json::from_str::<serde_json::Value>(&event.details_json)
+                    .ok()
+                    .and_then(|details| {
+                        details
+                            .get("traceparent")
+                            .and_then(serde_json::Value::as_str)
+                            .map(str::to_owned)
+                    })
+            }
+            _ => None,
+        };
+        let started = std::time::Instant::now();
+        let response = crate::observability::trace_operation(
+            parent.as_deref(),
+            crate::observability::Operation::Grpc,
+            self.handle_supervisor_message_inner(identity, message),
+        )
+        .await;
+        let success = matches!(response.message.as_ref(), Some(forge_protocol::supervisor::v1::core_to_supervisor::Message::Acknowledgement(ack))
+            if ack.disposition != AcknowledgementDisposition::Rejected as i32);
+        self.record_operation(
+            crate::observability::Operation::Grpc,
+            success,
+            started.elapsed(),
+        );
+        response
+    }
+
+    async fn handle_supervisor_message_inner(
+        &self,
+        identity: &SupervisorIdentity,
+        message: SupervisorToCore,
+    ) -> CoreToSupervisor {
         match message.message {
+            Some(supervisor_to_core::Message::Inventory(inventory)) => {
+                let message_id = inventory.message_id.clone();
+                match self.record_supervisor_inventory(identity, inventory).await {
+                    Ok(result) => inbound_acknowledgement(&message_id, result),
+                    Err(error) => core_error_acknowledgement(&message_id, error),
+                }
+            }
             Some(supervisor_to_core::Message::Hello(hello)) => acknowledgement(
                 &hello.message_id,
                 AcknowledgementDisposition::Rejected,
@@ -60,13 +104,19 @@ impl CoreService {
                 let message_id = submission.message_id.clone();
                 match validation::parse_executor_submission(submission) {
                     Ok(validation::ParsedExecutorSubmission::Artifact(artifact)) => {
-                        match self.record_executor_artifact(identity, artifact).await {
+                        match self
+                            .record_executor_artifact(Some(identity), artifact)
+                            .await
+                        {
                             Ok(result) => inbound_acknowledgement(&message_id, result),
                             Err(error) => core_error_acknowledgement(&message_id, error),
                         }
                     }
                     Ok(validation::ParsedExecutorSubmission::StageOutcome(outcome)) => {
-                        match self.record_executor_stage_outcome(identity, outcome).await {
+                        match self
+                            .record_executor_stage_outcome(Some(identity), outcome)
+                            .await
+                        {
                             Ok(result) => inbound_acknowledgement(&message_id, result),
                             Err(error) => core_error_acknowledgement(&message_id, error),
                         }
@@ -86,9 +136,8 @@ impl CoreService {
     async fn record_supervisor_observation(
         &self,
         identity: &SupervisorIdentity,
-        observation: validation::ParsedObservation,
+        mut observation: validation::ParsedObservation,
     ) -> Result<InboundResult, CoreError> {
-        let now = Timestamp::now_utc();
         let mut transaction = self.store.begin().await?;
         let Some(run) = transaction.load_run(observation.run_id).await? else {
             return Ok(InboundResult::Rejected(
@@ -102,6 +151,19 @@ impl CoreService {
                 "Run Project does not exist in canonical state",
             ));
         };
+        let observed_wall = Timestamp::now_utc();
+        let now = crate::canonical_clock::project_mutation_time_at(&project, observed_wall);
+        // Provider failure is not proof that the shell/container has stopped.
+        let must_stop = run.run_spec_version == 2
+            && matches!(
+                observation.kind,
+                forge_protocol::supervisor::v1::RunEventKind::ProviderFailed
+                    | forge_protocol::supervisor::v1::RunEventKind::BudgetExhausted
+                    | forge_protocol::supervisor::v1::RunEventKind::PolicyDenied
+            );
+        if must_stop {
+            observation.state = RunObservedState::Stopping;
+        }
         let stale_fence_or_epoch = run.lease_fencing_token != observation.lease_fencing_token
             || run.environment_epoch != observation.environment_epoch;
         let result = transaction
@@ -113,7 +175,7 @@ impl CoreService {
                 observed_state: observation.state,
                 details: observation.details.clone(),
                 reported_at: observation.reported_at,
-                received_at: now,
+                received_at: observed_wall,
             })
             .await?;
         if result != FencedWrite::Applied {
@@ -131,10 +193,46 @@ impl CoreService {
             }
             return Ok(refused_fenced_write(result));
         }
+        if matches!(
+            observation.kind,
+            forge_protocol::supervisor::v1::RunEventKind::Running
+                | forge_protocol::supervisor::v1::RunEventKind::Heartbeat
+        ) {
+            transaction
+                .record_run_liveness(run.id, observed_wall)
+                .await?;
+        }
+        if must_stop {
+            let _ = transaction
+                .request_run_stop(
+                    run.id,
+                    run.lease_fencing_token,
+                    run.environment_epoch,
+                    false,
+                )
+                .await?;
+        }
         let terminal_observation = matches!(
             observation.state,
             RunObservedState::Stopped | RunObservedState::Failed | RunObservedState::Lost
         );
+        if observation.state == RunObservedState::Stopped {
+            self.write_back_run_auth(&mut transaction, &run).await?;
+            transaction
+                .record_environment_report(&forge_storage::EnvironmentReport {
+                    scope: forge_domain::runtime::RunScope {
+                        run_id: run.id,
+                        fencing_token: run.lease_fencing_token,
+                        environment_epoch: run.environment_epoch,
+                    },
+                    host_id: identity.host_id.clone(),
+                    boot_id: identity.boot_id.clone(),
+                    environment_id: String::new(),
+                    quiescent: true,
+                    unknown: false,
+                })
+                .await?;
+        }
         // A terminal observation before a StageOutcome must not leave the
         // Task's leased queue entry behind. Completion moves that entry to
         // `completed` before the terminal observation, so only a still-leased
@@ -160,7 +258,7 @@ impl CoreService {
                 )
                 .await?;
         }
-        let interrupted_event = if interrupted_queue {
+        let interrupted_event = if interrupted_queue || must_stop {
             pause_interrupted_task(
                 &mut transaction,
                 &mut project,
@@ -175,6 +273,48 @@ impl CoreService {
         } else {
             None
         };
+        if (terminal_observation || must_stop) && !transaction.run_has_handoff(run.id).await? {
+            let (incident_id, inserted) = transaction
+                .record_run_incident(
+                    project.id(),
+                    run.id,
+                    forge_storage::IncidentKind::Interrupted,
+                    forge_domain::runtime::RecoveryAssessment::Unknown,
+                )
+                .await?;
+            let task = load_scoped_task(&mut transaction, &project, run.task_id)
+                .await?
+                .task;
+            crate::handoff::persist_handoff(
+                &mut transaction,
+                &run,
+                &task,
+                self.actors.core,
+                None,
+                Some(incident_id),
+                now,
+            )
+            .await?;
+            if inserted {
+                transaction
+                    .append_event_and_outbox(&event(
+                        project.id(),
+                        AggregateRef::Task(task.id()),
+                        task.revision().get(),
+                        DomainEventKind::RunIncidentRaised,
+                        self.actors.core,
+                        CommandId::from(observation.message_id),
+                        None,
+                        event_payload([
+                            ("run_id", json!(run.id)),
+                            ("incident_id", json!(incident_id)),
+                            ("kind", json!("interrupted")),
+                        ]),
+                        now,
+                    )?)
+                    .await?;
+            }
+        }
         let audit = event(
             project.id(),
             AggregateRef::Project(project.id()),
@@ -203,6 +343,17 @@ impl CoreService {
         }
         let project_id = project.id();
         transaction.commit().await?;
+        if terminal_observation {
+            self.close_run_gateway(run.id).await;
+        }
+        if (terminal_observation || must_stop)
+            && let Err(error) = self.revoke_run_proxy_key(&run).await
+        {
+            warn!(error=%error,"proxy key revocation deferred; scope is revoked locally");
+        }
+        if must_stop {
+            let _ = self.deliver_pending_stop_requests(project_id).await;
+        }
         if terminal_observation && let Err(error) = self.dispatch_available(project_id).await {
             warn!(error = %error, "could not dispatch work after terminal Run observation");
         }
@@ -210,119 +361,10 @@ impl CoreService {
     }
 }
 
-fn stale_observation_event(
-    project: &Project,
-    identity: &SupervisorIdentity,
-    observation: &validation::ParsedObservation,
-    expected_lease_fencing_token: u64,
-    expected_environment_epoch: u64,
-    now: Timestamp,
-) -> Result<DomainEvent, CoreError> {
-    Ok(event(
-        project.id(),
-        AggregateRef::Project(project.id()),
-        project.revision(),
-        DomainEventKind::RunObservationIgnored,
-        identity.actor(),
-        CommandId::from(observation.message_id),
-        None,
-        event_payload([
-            ("reason_code", json!("stale_fence_or_environment_epoch")),
-            ("run_id", json!(observation.run_id)),
-            ("state", json!(observed_state_name(observation.state))),
-            ("sequence", json!(observation.sequence)),
-            (
-                "lease_fencing_token",
-                json!(observation.lease_fencing_token),
-            ),
-            ("environment_epoch", json!(observation.environment_epoch)),
-            (
-                "expected_lease_fencing_token",
-                json!(expected_lease_fencing_token),
-            ),
-            (
-                "expected_environment_epoch",
-                json!(expected_environment_epoch),
-            ),
-        ]),
-        now,
-    )?)
-}
-
-#[expect(
-    clippy::too_many_arguments,
-    reason = "the fenced Run fact and Core audit identity must remain explicit at this canonical reconciliation boundary"
-)]
-async fn pause_interrupted_task(
-    transaction: &mut forge_storage::StorageTransaction<'_>,
-    project: &mut Project,
-    task_id: TaskId,
-    run_id: uuid::Uuid,
-    observed_state: RunObservedState,
-    actor: forge_domain::Actor,
-    command_id: CommandId,
-    now: Timestamp,
-) -> Result<Option<DomainEvent>, CoreError> {
-    let stored = load_scoped_task(transaction, project, task_id).await?;
-    let previous_task_revision = stored.task.revision().get();
-    let mut task = stored.task;
-    if task.lifecycle().is_terminal() {
-        return Ok(None);
-    }
-    task.add_wait_condition(
-        TaskWaitCondition::new(
-            WaitConditionId::new(),
-            TaskWaitKind::Interrupted,
-            Some(format!(
-                "run_id={run_id};observed_state={}",
-                observed_state_name(observed_state)
-            )),
-            actor,
-            now,
-        )?,
-        now,
-    )?;
-    let persistence = retained_persistence(project, &task, stored.persistence)?;
-    persist_task_and_project(
-        transaction,
-        project,
-        &task,
-        persistence,
-        previous_task_revision,
-        now,
-    )
-    .await?;
-    Ok(Some(task_event(
-        project,
-        &task,
-        DomainEventKind::TaskWaiting,
-        actor,
-        command_id,
-        now,
-        event_payload([
-            ("reason_code", json!("run_terminated_before_stage_outcome")),
-            ("run_id", json!(run_id)),
-            ("observed_state", json!(observed_state_name(observed_state))),
-        ]),
-    )?))
-}
-
-pub(super) fn refused_fenced_write(result: FencedWrite) -> InboundResult {
-    match result {
-        FencedWrite::Applied => InboundResult::Accepted("Run fence accepted"),
-        FencedWrite::Ignored => InboundResult::Ignored("stale_or_duplicate_run_message"),
-        FencedWrite::SequenceGap { .. } => {
-            InboundResult::Rejected("run_sequence_gap", "Run message sequence is not contiguous")
-        }
-        FencedWrite::InvalidObservedStateTransition { .. } => InboundResult::Rejected(
-            "invalid_observed_state_transition",
-            "Observed Run state would regress its canonical lifecycle",
-        ),
-        FencedWrite::Missing => {
-            InboundResult::Rejected("run_not_found", "Run does not exist in canonical state")
-        }
-    }
-}
+#[path = "bridge/lifecycle.rs"]
+mod lifecycle;
+pub(super) use lifecycle::refused_fenced_write;
+use lifecycle::{pause_interrupted_task, stale_observation_event};
 
 fn inbound_acknowledgement(message_id: &str, result: InboundResult) -> CoreToSupervisor {
     match result {
@@ -403,34 +445,5 @@ const fn observed_state_name(state: RunObservedState) -> &'static str {
 }
 
 #[cfg(test)]
-mod tests {
-    use forge_storage::{FencedWrite, RunObservedState};
-
-    use super::{InboundResult, refused_fenced_write};
-
-    #[test]
-    fn sequence_gap_is_rejected_instead_of_silently_ignored() {
-        let result = refused_fenced_write(FencedWrite::SequenceGap {
-            expected: 2,
-            received: 3,
-        });
-
-        assert!(matches!(
-            result,
-            InboundResult::Rejected("run_sequence_gap", _)
-        ));
-    }
-
-    #[test]
-    fn invalid_state_regression_is_rejected() {
-        let result = refused_fenced_write(FencedWrite::InvalidObservedStateTransition {
-            from: RunObservedState::Stopped,
-            to: RunObservedState::Running,
-        });
-
-        assert!(matches!(
-            result,
-            InboundResult::Rejected("invalid_observed_state_transition", _)
-        ));
-    }
-}
+#[path = "bridge/tests.rs"]
+mod tests;

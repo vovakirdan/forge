@@ -66,6 +66,7 @@ pub(crate) fn queue_input(
 
 /// Inserts the current Task stage into the queue only when Pipeline assigns it
 /// to an Employee. Human/external stages already carry a domain wait instead.
+/// Eligibility is an operational wall-clock deadline, not causal mutation time.
 pub(crate) async fn enqueue_if_employee(
     transaction: &mut StorageTransaction<'_>,
     project: &Project,

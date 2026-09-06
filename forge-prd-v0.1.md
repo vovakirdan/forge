@@ -1286,6 +1286,10 @@ Logs должны иметь correlation по Project, Task, Run, SystemJob и E
 
 ## 22. Этапы реализации
 
+Текущий Linux-first backend delivery plan и критерии проверки детализированы
+в `docs/IMPLEMENTATION_PLAN.md`. UI подключается отдельным workstream после
+стабилизации backend contracts и не блокирует M0–M1.
+
 ### Milestone 0 — Deterministic core simulator
 
 - доменная модель;
@@ -1305,9 +1309,12 @@ Logs должны иметь correlation по Project, Task, Run, SystemJob и E
 - MCP façade;
 - Context Compiler;
 - Run logging/cancellation;
-- простой Board и Task Detail.
+- CLI и read models Task/Run для локального наблюдения.
 
-**Exit criterion:** Bob получает задачу через daemon, меняет код только в worktree и отдаёт structured outcome.
+**Exit criterion:** Bob получает задачу через daemon, работает только в выданной
+TaskWorkSurface и отдаёт structured outcome. Core может безопасно остановить
+Run или сверить его состояние после сбоя без duplicate write-Run. Git worktree —
+одна из реализаций TaskWorkSurface; полный Git engineering loop относится к M2.
 
 ### Milestone 2 — Полный инженерный цикл
 
@@ -1331,16 +1338,20 @@ Logs должны иметь correlation по Project, Task, Run, SystemJob и E
 
 **Exit criterion:** следующий Run получает релевантный опыт, но не получает неструктурированный полный history.
 
-### Milestone 4 — Control Room
+### Milestone 4 — Local product proof и interface readiness
 
-- Lead chat;
-- Overview;
-- Team/Hire Employee;
-- Pipeline Designer;
-- Resources/Activity/Run Detail;
-- planning wave.
+- Linux installer и initial wizard;
+- user systemd services и BootRecoveryPolicy при restart;
+- operator CLI workflow и failure matrix;
+- полный локальный MVP acceptance и stable HTTP/SSE contracts.
 
-**Exit criterion:** пользователь управляет проектом через UI и понимает текущее состояние без прямого чтения БД или daemon logs.
+**Exit criterion:** чистый Linux host устанавливает Forge одной командой/wizard,
+корректно восстанавливает сервисы после reboot, а operator проходит полный
+acceptance через CLI без ручного изменения БД.
+
+Control Room подключается отдельным UI workstream: Lead chat, Overview,
+Team/Hire Employee, Pipeline Designer, Resources/Activity/Run Detail и planning
+wave используют backend contracts. UI acceptance не входит в этот backend этап.
 
 ---
 

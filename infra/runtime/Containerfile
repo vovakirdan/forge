@@ -1,0 +1,20 @@
+# Base and CLI identities are pinned; each completed build is referenced by its
+# resulting digest in ExecutionProfile/RunSpec, never by this mutable local tag.
+FROM docker.io/library/node@sha256:4bd6219054c8bebcd26a66bfd8ca0bd6e1024b4b97474c59bb7ee3bbcbef4fe8 AS providers
+WORKDIR /opt/forge-runtimes
+COPY infra/runtime/package.json infra/runtime/package-lock.json ./
+RUN npm ci --ignore-scripts --omit=dev --no-audit --no-fund && node node_modules/opencode-ai/postinstall.mjs
+
+FROM docker.io/library/ubuntu@sha256:1e0a86e57d247923571b75e0aaf48a1449cf8c543d51fb3e07a4a7d7bfa79316
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates git && apt-get clean
+COPY --from=providers /usr/local/bin/node /usr/local/bin/node
+COPY --from=providers /opt/forge-runtimes /opt/forge-runtimes
+RUN ln -s /opt/forge-runtimes/node_modules/.bin/codex /usr/local/bin/codex && ln -s /opt/forge-runtimes/node_modules/.bin/opencode /usr/local/bin/opencode && mkdir -p /run/forge /run/forge-input /run/forge-evidence /run/forge-gateway /run/forge-secrets /workspace
+COPY target/debug/forge-runner /usr/local/bin/forge-runner
+COPY target/debug/forge-opencode-driver /usr/local/bin/forge-opencode-driver
+RUN chmod 755 /usr/local/bin/forge-runner /usr/local/bin/forge-opencode-driver
+LABEL org.opencontainers.image.title="Forge managed runtime" \
+      io.forge.codex.version="0.153.2" \
+      io.forge.opencode.version="1.18.29" \
+      io.forge.node.version="24.14.0"
+ENTRYPOINT ["/usr/local/bin/forge-runner"]

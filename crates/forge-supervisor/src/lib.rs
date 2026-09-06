@@ -1,86 +1,113 @@
-//! Deterministic M0 Supervisor process boundary for Forge Runs.
+//! Reconnecting Forge Supervisor with durable, fenced execution observations.
 //!
-//! This crate is deliberately only a transport-side simulator. It never
-//! mutates Forge state, provisions a container, or invokes a provider. Core
-//! remains the canonical writer and validates every emitted submission.
+//! Core remains the canonical writer. A Core transport interruption never stops
+//! a worker; events remain in an owner-only bounded journal until acknowledged.
 
 #![forbid(unsafe_code)]
-
-use std::{
-    collections::HashMap,
-    io,
-    os::unix::fs::{FileTypeExt, MetadataExt},
-    path::{Path, PathBuf},
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
-    time::{SystemTime, UNIX_EPOCH},
-};
 
 use forge_protocol::{
     local_paths::default_runtime_directory,
     supervisor::v1::{
-        AcknowledgementDisposition, CoreAcknowledgement, CoreToSupervisor, ProvisionRun, StopRun,
-        SupervisorHello, SupervisorToCore, core_to_supervisor,
+        AcknowledgementDisposition, CoreAcknowledgement, CoreToSupervisor, SupervisorHello,
+        SupervisorInventory, SupervisorToCore, core_to_supervisor,
         supervisor_control_client::SupervisorControlClient, supervisor_to_core,
     },
 };
-use hyper_util::rt::TokioIo;
-use nix::unistd::Uid;
+use std::{
+    collections::HashSet,
+    io,
+    path::PathBuf,
+    time::{SystemTime, UNIX_EPOCH},
+};
 use thiserror::Error;
 use tokio::{
-    net::UnixStream,
-    sync::{Mutex, Notify, mpsc, watch},
+    sync::{mpsc, watch},
     task::JoinSet,
     time::{Duration, Instant, sleep},
 };
 use tokio_stream::wrappers::ReceiverStream;
-use tonic::transport::{Channel, Endpoint};
-use tower::service_fn;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 mod fake;
+mod journal;
+mod observability;
+mod podman;
+mod registry;
+/// Container-local durable process wrapper, not a host execution API.
+pub mod runner;
+mod surface;
+mod transport;
+
+use journal::{Journal, message_id, retryable_ack};
+pub(crate) use registry::RunControl;
+use registry::{EventSink, RunRegistry};
 
 /// The only RunSpec version understood by the deterministic M0 executor.
 pub const M0_RUN_SPEC_VERSION: u32 = 1;
-
 const PROTOCOL_MAJOR: u32 = 1;
 const OUTBOUND_CHANNEL_CAPACITY: usize = 64;
 const STOP_GRACE_PERIOD: Duration = Duration::from_secs(2);
 
-/// Connection identity and retry configuration for one Supervisor process.
+/// Connection identity and replay storage for one Supervisor process.
 #[derive(Clone, Debug)]
 pub struct SupervisorConfig {
-    /// Unix-domain socket served by Forge Core's Supervisor gRPC service.
+    /// Unix-domain socket served by Core's Supervisor gRPC service.
     pub socket_path: PathBuf,
-    /// Stable identity of the local execution host.
+    /// Stable identity of the execution host.
     pub host_id: String,
-    /// Identity of the current host boot used by recovery reconciliation.
+    /// Current host boot identity.
     pub boot_id: String,
-    /// Stable identity of this Supervisor process across Core reconnects.
+    /// Identity of this process, retained across Core reconnects.
     pub supervisor_instance_id: String,
-    /// Pause before reconnecting after Core is unavailable or disconnects.
+    /// Delay before reconnecting to an unavailable Core.
     pub reconnect_delay: Duration,
+    /// Owner-only replay state, retained across process and host restarts.
+    pub state_directory: PathBuf,
+    /// Upper bound for replay state; full journals refuse further work.
+    pub journal_max_bytes: usize,
+    /// Admission budget for retained raw evidence plus active output reservations.
+    /// This is not a filesystem quota for arbitrary employee-created files.
+    pub evidence_max_bytes: u64,
+    /// Stable process start time, not the time of each reconnect handshake.
+    pub started_at_unix_ms: i64,
+    /// Trusted rootless Podman executable; never selected by a worker.
+    pub podman_binary: PathBuf,
+    /// Core materializes invocation/stdin and scoped credentials here.
+    pub grants_directory: PathBuf,
+    /// Per-run Core Gateway sockets; the administrative socket is never mounted.
+    pub gateways_directory: PathBuf,
+    /// Optional read-only loopback exporter, separate from the Core control UDS.
+    pub observability_address: Option<std::net::SocketAddr>,
 }
 
 impl SupervisorConfig {
-    /// Creates a Supervisor configuration using the supplied Core socket and host identity.
+    /// Creates a configuration with replay state beside the supplied socket.
+    /// Daemon composition overrides this when sockets use volatile storage.
     #[must_use]
     pub fn new(socket_path: PathBuf, host_id: String, boot_id: String) -> Self {
+        let state_directory = socket_path.with_extension("supervisor-state");
+        let grants_directory = state_directory.join("grants");
+        let gateways_directory = state_directory.join("gateways");
         Self {
             socket_path,
             host_id,
             boot_id,
             supervisor_instance_id: new_id(),
             reconnect_delay: Duration::from_millis(500),
+            state_directory,
+            journal_max_bytes: 16 * 1024 * 1024,
+            evidence_max_bytes: 2 * 1024 * 1024 * 1024,
+            started_at_unix_ms: now_millis(),
+            podman_binary: PathBuf::from("podman"),
+            grants_directory,
+            gateways_directory,
+            observability_address: None,
         }
     }
 }
 
-/// Reads the Linux host boot identity used to distinguish reboot recovery from
-/// a transient Supervisor reconnect.
+/// Reads the Linux boot identity for reboot reconciliation.
 pub fn current_boot_id() -> Result<String, SupervisorError> {
     let boot_id = std::fs::read_to_string("/proc/sys/kernel/random/boot_id")
         .map_err(SupervisorError::HostBootIdentity)?;
@@ -91,75 +118,134 @@ pub fn current_boot_id() -> Result<String, SupervisorError> {
     Ok(boot_id.to_owned())
 }
 
-/// Returns the shared CWD-independent local Core socket convention.
+/// Shared CWD-independent Core socket convention.
 #[must_use]
 pub fn default_socket_path() -> PathBuf {
     default_runtime_directory().join("core.sock")
 }
 
-/// Errors local to the Supervisor transport and fake executor.
-#[derive(Debug, Error)]
-pub enum SupervisorError {
-    /// The Linux host boot identity could not be read.
-    #[error("could not read the Linux host boot identity")]
-    HostBootIdentity(#[source] io::Error),
-
-    /// The Linux host boot identity was blank.
-    #[error("the Linux host boot identity is blank")]
-    InvalidHostBootIdentity,
-
-    /// Core's local gRPC endpoint could not be reached.
-    #[error("could not connect to Forge Core over the Supervisor socket")]
-    Transport(#[from] tonic::transport::Error),
-
-    /// The local Core socket or enclosing directory is not owner-only.
-    #[error("Core socket authentication boundary is not owner-only")]
-    UnsafeSocket,
-
-    /// Core ended or rejected the gRPC session.
-    #[error("Forge Core rejected or ended the Supervisor gRPC session")]
-    Rpc(#[from] tonic::Status),
-
-    /// Core's inbound gRPC stream no longer accepts messages.
-    #[error("Forge Core closed the Supervisor outbound stream")]
-    CoreStreamClosed,
-
-    /// A value could not be serialized into a safe JSON wire payload.
-    #[error("could not serialize Supervisor JSON payload")]
-    Json(#[from] serde_json::Error),
-
-    /// A per-run sequence cannot advance without overflowing the protocol field.
-    #[error("run-scoped Supervisor sequence overflowed")]
-    SequenceOverflow,
+/// Persistent Supervisor state, deliberately independent of XDG_RUNTIME_DIR.
+#[must_use]
+pub fn default_state_directory() -> PathBuf {
+    std::env::var_os("XDG_STATE_HOME")
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+        .map(|path| path.join("forge/supervisor"))
+        .or_else(|| {
+            std::env::var_os("HOME")
+                .map(PathBuf::from)
+                .filter(|path| path.is_absolute())
+                .map(|path| path.join(".local/state/forge/supervisor"))
+        })
+        .unwrap_or_else(|| PathBuf::from("/tmp/forge-supervisor-state"))
 }
 
-/// Runs a reconnecting Supervisor control client until `shutdown` becomes true.
-///
-/// A temporary unavailable Core is normal during local startup. This loop never
-/// exposes `run_spec_json` or Core acknowledgement text in logs.
+/// Local transport, execution and replay-storage errors. Diagnostics omit payloads.
+#[derive(Debug, Error)]
+pub enum SupervisorError {
+    #[error("could not read the Linux host boot identity")]
+    HostBootIdentity(#[source] io::Error),
+    #[error("the Linux host boot identity is blank")]
+    InvalidHostBootIdentity,
+    #[error("could not connect to Forge Core over the Supervisor socket")]
+    Transport(#[from] tonic::transport::Error),
+    #[error("Core socket authentication boundary is not owner-only")]
+    UnsafeSocket,
+    #[error("Forge Core rejected or ended the Supervisor gRPC session")]
+    Rpc(#[from] tonic::Status),
+    #[error("Forge Core closed the Supervisor outbound stream")]
+    CoreStreamClosed,
+    #[error("could not serialize Supervisor JSON payload")]
+    Json(#[from] serde_json::Error),
+    #[error("run-scoped Supervisor sequence overflowed")]
+    SequenceOverflow,
+    #[error("Supervisor operational journal I/O failed")]
+    JournalIo(#[from] io::Error),
+    #[error("Supervisor operational journal is already locked")]
+    JournalInUse,
+    #[error("Supervisor journal storage is not owner-only")]
+    UnsafeJournal,
+    #[error("Supervisor journal capacity exhausted")]
+    JournalFull,
+    #[error(
+        "Supervisor unresolved environment inventory capacity exhausted; resolve retained environments before admitting new work"
+    )]
+    InventoryCapacity,
+    #[error(
+        "retained evidence capacity exhausted; archive policy or a larger explicit budget is required"
+    )]
+    EvidenceCapacity,
+    #[error("Supervisor journal version or host identity does not match")]
+    JournalIdentity,
+    #[error("Supervisor message violates journal scope or sequence")]
+    InvalidJournalMessage,
+    #[error("provision conflicts with retained execution identity")]
+    ConflictingProvision,
+    #[error("sandbox RunSpec or private invocation is invalid")]
+    InvalidRunSpec,
+    #[error("sandbox source or private runtime path is unsafe")]
+    UnsafeSurface,
+    #[error("Task-private Git workspace preparation failed")]
+    SurfacePreparationFailed,
+    #[error("rootless Podman with cgroup v2 is required")]
+    RootlessUnavailable,
+    #[error("pinned runtime executable failed the isolated version preflight")]
+    RuntimePreflightFailed,
+    #[error("Podman operation did not provide reliable environment evidence")]
+    PodmanFailed,
+}
+
+/// Runs until shutdown. Transport reconnects never recreate or cancel workers.
 pub async fn run(
     config: SupervisorConfig,
     shutdown: watch::Receiver<bool>,
 ) -> Result<(), SupervisorError> {
+    let journal = Journal::open(
+        &config.state_directory,
+        &config.host_id,
+        config.journal_max_bytes,
+    )?;
+    let registry = RunRegistry::new(journal);
+    let observability = observability::serve(&config, registry.clone(), shutdown.clone()).await;
+    let mut workers = JoinSet::new();
+    let backend = podman::PodmanBackend::new(&config);
+    for provision in backend.reconcile(&registry).await? {
+        let control = registry.adopt_control(&provision).await;
+        let worker_backend = backend.clone();
+        let worker_registry = registry.clone();
+        workers.spawn(async move {
+            worker_backend
+                .run(provision, worker_registry, control, true)
+                .await
+        });
+    }
     loop {
         if shutdown_requested(&shutdown) {
-            return Ok(());
+            break;
         }
-
-        match serve_session(&config, shutdown.clone()).await {
-            Ok(SessionEnd::Shutdown) => return Ok(()),
+        match serve_session(&config, shutdown.clone(), &registry, &mut workers, &backend).await {
+            Ok(SessionEnd::Shutdown) => break,
             Ok(SessionEnd::Disconnected) => {
-                warn!(socket = %config.socket_path.display(), "Core disconnected Supervisor session");
+                warn!(socket = %config.socket_path.display(), "Core disconnected Supervisor session")
             }
             Err(error) => {
-                warn!(socket = %config.socket_path.display(), error = %error, "Supervisor session unavailable");
+                warn!(socket = %config.socket_path.display(), error = %error, "Supervisor session unavailable")
             }
         }
-
+        registry
+            .connected
+            .store(false, std::sync::atomic::Ordering::Release);
         if wait_to_reconnect(shutdown.clone(), config.reconnect_delay).await {
-            return Ok(());
+            break;
         }
     }
+    registry.request_stop_all().await;
+    drain_workers(&mut workers).await;
+    if let Some(task) = observability {
+        task.abort();
+        let _ = task.await;
+    }
+    Ok(())
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -171,132 +257,123 @@ enum SessionEnd {
 async fn serve_session(
     config: &SupervisorConfig,
     mut shutdown: watch::Receiver<bool>,
+    registry: &RunRegistry,
+    workers: &mut JoinSet<Result<(), SupervisorError>>,
+    backend: &podman::PodmanBackend,
 ) -> Result<SessionEnd, SupervisorError> {
-    let channel = connect(&config.socket_path).await?;
+    let channel = transport::connect(&config.socket_path).await?;
     let mut client = SupervisorControlClient::new(channel);
     let (outbound, receiver) = mpsc::channel(OUTBOUND_CHANNEL_CAPACITY);
-    // The first client-stream frame is the identity handshake. Queue it before
-    // opening the RPC so a Core that waits for Hello cannot deadlock the session.
-    send_hello(&outbound, config).await?;
-    let response = client
+    outbound
+        .send(SupervisorToCore {
+            message: Some(supervisor_to_core::Message::Hello(hello_for(config))),
+        })
+        .await
+        .map_err(|_| SupervisorError::CoreStreamClosed)?;
+    let mut inbound = client
         .supervisor_session(ReceiverStream::new(receiver))
-        .await?;
-    let mut inbound = response.into_inner();
-
+        .await?
+        .into_inner();
+    registry
+        .connected
+        .store(true, std::sync::atomic::Ordering::Release);
+    let mut sent = HashSet::new();
     info!(socket = %config.socket_path.display(), "Supervisor connected to Core");
-
-    let registry = RunRegistry::default();
-    let mut workers = JoinSet::new();
-
     loop {
         if shutdown_requested(&shutdown) {
-            registry.request_stop_all().await;
-            drain_workers(&mut workers).await;
             return Ok(SessionEnd::Shutdown);
         }
-
+        let pending = registry
+            .journal
+            .lock()
+            .await
+            .pending_heads()
+            .find(|message| message_id(message).is_some_and(|id| !sent.contains(id)))
+            .cloned();
         tokio::select! {
             changed = shutdown.changed() => {
-                if changed.is_err() || shutdown_requested(&shutdown) {
-                    registry.request_stop_all().await;
-                    drain_workers(&mut workers).await;
-                    return Ok(SessionEnd::Shutdown);
-                }
+                if changed.is_err() || shutdown_requested(&shutdown) { return Ok(SessionEnd::Shutdown); }
             }
             message = inbound.message() => match message? {
                 Some(CoreToSupervisor { message: Some(core_to_supervisor::Message::ProvisionRun(provision)) }) => {
-                    let control = registry.register(&provision).await;
-                    let worker_outbound = outbound.clone();
-                    let worker_registry = registry.clone();
-                    workers.spawn(async move {
-                        let result = fake::execute_provision(provision, worker_outbound, control.clone()).await;
-                        worker_registry.remove(&control).await;
-                        result
-                    });
+                    match registry.register(&provision, &config.boot_id).await {
+                        Ok(Some(control)) => {
+                            let worker_registry = registry.clone();
+                            let worker_backend = backend.clone();
+                            workers.spawn(async move {
+                                if provision.run_spec_version == 2 {
+                                    return worker_backend.run(provision, worker_registry, control, false).await;
+                                }
+                                let result = fake::execute_provision(provision.clone(), worker_registry.sink(), control).await;
+                                // Fake work exists only in this future. An error still
+                                // proves it stopped, but cannot imply Task completion.
+                                worker_registry.finish(&provision, true).await?;
+                                result
+                            });
+                        }
+                        Ok(None) => send_inventory(&outbound, config, registry, provision.command_id).await?,
+                        Err(SupervisorError::ConflictingProvision) => {
+                            warn!(run_id = %provision.run_id, "refused conflicting provision without replacing existing execution");
+                            send_inventory(&outbound, config, registry, provision.command_id).await?;
+                        }
+                        Err(error) => return Err(error),
+                    }
                 }
                 Some(CoreToSupervisor { message: Some(core_to_supervisor::Message::StopRun(stop)) }) => {
-                    if !registry.request_stop(&stop).await {
-                        debug!(run_id = %stop.run_id, "ignored stale or unknown Core stop request");
-                    }
+                    if !registry.request_stop(&stop).await { debug!(run_id = %stop.run_id, "ignored stale or unknown Core stop request"); }
                 }
                 Some(CoreToSupervisor { message: Some(core_to_supervisor::Message::Acknowledgement(ack)) }) => {
                     log_acknowledgement(&ack);
+                    registry.journal.lock().await.acknowledge(&ack)?;
+                    if retryable_ack(&ack) {
+                        return Ok(SessionEnd::Disconnected);
+                    }
+                    sent.remove(&ack.acknowledged_message_id);
                 }
-                Some(CoreToSupervisor { message: None }) => {
-                    warn!("received empty Core-to-Supervisor envelope");
+                Some(CoreToSupervisor { message: Some(core_to_supervisor::Message::RequestInventory(request)) }) => {
+                    send_inventory(&outbound, config, registry, request.command_id).await?;
                 }
-                None => {
-                    registry.request_stop_all().await;
-                    drain_workers(&mut workers).await;
-                    return Ok(SessionEnd::Disconnected);
-                }
+                Some(CoreToSupervisor { message: None }) => warn!("received empty Core-to-Supervisor envelope"),
+                None => return Ok(SessionEnd::Disconnected),
             },
+            permit = outbound.reserve(), if pending.is_some() => {
+                let permit = permit.map_err(|_| SupervisorError::CoreStreamClosed)?;
+                if let Some(message) = pending {
+                    if let Some(id) = message_id(&message) { sent.insert(id.clone()); }
+                    permit.send(message);
+                }
+            }
+            () = registry.changed.notified() => {}
             completed = workers.join_next(), if !workers.is_empty() => {
                 match completed {
-                    Some(Ok(Ok(()))) => {}
-                    Some(Ok(Err(error))) => warn!(error = %error, "fake Run ended before normal completion"),
-                    Some(Err(error)) => warn!(error = %error, "fake Run worker failed"),
-                    None => {}
+                    Some(Ok(Ok(()))) | None => {}
+                    Some(Ok(Err(error))) => warn!(error = %error, "Run observation delivery failed"),
+                    Some(Err(error)) => warn!(error = %error, "Run worker failed"),
                 }
             }
         }
     }
 }
 
-async fn connect(socket_path: &Path) -> Result<Channel, SupervisorError> {
-    validate_socket_path(socket_path)?;
-    let socket_path = socket_path.to_owned();
-    let expected_uid = Uid::effective().as_raw();
-    Endpoint::from_static("http://[::]:50051")
-        .connect_with_connector(service_fn(move |_| {
-            let socket_path = socket_path.clone();
-            async move {
-                let stream = UnixStream::connect(socket_path).await?;
-                if stream.peer_cred()?.uid() != expected_uid {
-                    return Err(io::Error::new(
-                        io::ErrorKind::PermissionDenied,
-                        "Core peer identity does not match local Supervisor user",
-                    ));
-                }
-                Ok::<_, io::Error>(TokioIo::new(stream))
-            }
-        }))
-        .await
-        .map_err(SupervisorError::Transport)
-}
-
-fn validate_socket_path(socket_path: &Path) -> Result<(), SupervisorError> {
-    let owner = Uid::effective().as_raw();
-    let directory = socket_path.parent().ok_or(SupervisorError::UnsafeSocket)?;
-    let directory_metadata =
-        std::fs::symlink_metadata(directory).map_err(|_| SupervisorError::UnsafeSocket)?;
-    let socket_metadata =
-        std::fs::symlink_metadata(socket_path).map_err(|_| SupervisorError::UnsafeSocket)?;
-    let directory_is_safe = directory_metadata.file_type().is_dir()
-        && directory_metadata.uid() == owner
-        && directory_metadata.mode() & 0o077 == 0;
-    let socket_is_safe = socket_metadata.file_type().is_socket()
-        && socket_metadata.uid() == owner
-        && socket_metadata.mode() & 0o077 == 0;
-    if directory_is_safe && socket_is_safe {
-        Ok(())
-    } else {
-        Err(SupervisorError::UnsafeSocket)
-    }
-}
-
-async fn send_hello(
+async fn send_inventory(
     outbound: &mpsc::Sender<SupervisorToCore>,
     config: &SupervisorConfig,
+    registry: &RunRegistry,
+    request_command_id: String,
 ) -> Result<(), SupervisorError> {
-    let hello = hello_for(config);
-    send(
-        outbound,
-        SupervisorToCore {
-            message: Some(supervisor_to_core::Message::Hello(hello)),
-        },
-    )
-    .await
+    let inventory = SupervisorInventory {
+        message_id: new_id(),
+        request_command_id,
+        host_id: config.host_id.clone(),
+        boot_id: config.boot_id.clone(),
+        entries: registry.journal.lock().await.inventory(),
+    };
+    outbound
+        .send(SupervisorToCore {
+            message: Some(supervisor_to_core::Message::Inventory(inventory)),
+        })
+        .await
+        .map_err(|_| SupervisorError::CoreStreamClosed)
 }
 
 fn hello_for(config: &SupervisorConfig) -> SupervisorHello {
@@ -306,129 +383,25 @@ fn hello_for(config: &SupervisorConfig) -> SupervisorHello {
         host_id: config.host_id.clone(),
         boot_id: config.boot_id.clone(),
         protocol_major: PROTOCOL_MAJOR,
-        started_at_unix_ms: now_millis(),
+        started_at_unix_ms: config.started_at_unix_ms,
     }
 }
 
 pub(crate) async fn send(
-    outbound: &mpsc::Sender<SupervisorToCore>,
+    outbound: &EventSink,
     message: SupervisorToCore,
 ) -> Result<(), SupervisorError> {
-    outbound
-        .send(message)
-        .await
-        .map_err(|_| SupervisorError::CoreStreamClosed)
+    outbound.send(message).await
 }
 
 fn log_acknowledgement(ack: &CoreAcknowledgement) {
     match AcknowledgementDisposition::try_from(ack.disposition).ok() {
         Some(AcknowledgementDisposition::Accepted) => {
-            debug!(message_id = %ack.acknowledged_message_id, "Core accepted Supervisor message");
+            debug!(message_id = %ack.acknowledged_message_id, "Core accepted Supervisor message")
         }
         disposition => {
-            warn!(
-                message_id = %ack.acknowledged_message_id,
-                disposition = ?disposition,
-                reason_code = %ack.reason_code,
-                "Core did not accept Supervisor message"
-            );
+            warn!(message_id = %ack.acknowledged_message_id, disposition = ?disposition, reason_code = %ack.reason_code, "Core did not accept Supervisor message")
         }
-    }
-}
-
-#[derive(Default)]
-struct RunRegistry {
-    active: Arc<Mutex<HashMap<String, Arc<RunControl>>>>,
-}
-
-impl Clone for RunRegistry {
-    fn clone(&self) -> Self {
-        Self {
-            active: Arc::clone(&self.active),
-        }
-    }
-}
-
-impl RunRegistry {
-    async fn register(&self, provision: &ProvisionRun) -> Arc<RunControl> {
-        let next = Arc::new(RunControl::new(
-            provision.run_id.clone(),
-            provision.lease_fencing_token,
-            provision.environment_epoch,
-        ));
-        let previous = self
-            .active
-            .lock()
-            .await
-            .insert(provision.run_id.clone(), Arc::clone(&next));
-        if let Some(previous) = previous {
-            previous.request_stop();
-        }
-        next
-    }
-
-    async fn request_stop(&self, request: &StopRun) -> bool {
-        let active = self.active.lock().await.get(&request.run_id).cloned();
-        match active {
-            Some(active)
-                if active.lease_fencing_token == request.lease_fencing_token
-                    && active.environment_epoch == request.environment_epoch =>
-            {
-                active.request_stop();
-                true
-            }
-            _ => false,
-        }
-    }
-
-    async fn request_stop_all(&self) {
-        let active: Vec<_> = self.active.lock().await.values().cloned().collect();
-        for run in active {
-            run.request_stop();
-        }
-    }
-
-    async fn remove(&self, control: &Arc<RunControl>) {
-        let mut active = self.active.lock().await;
-        if active
-            .get(&control.run_id)
-            .is_some_and(|current| Arc::ptr_eq(current, control))
-        {
-            active.remove(&control.run_id);
-        }
-    }
-}
-
-pub(crate) struct RunControl {
-    run_id: String,
-    lease_fencing_token: u64,
-    environment_epoch: u64,
-    stopped: AtomicBool,
-    stop_notification: Notify,
-}
-
-impl RunControl {
-    fn new(run_id: String, lease_fencing_token: u64, environment_epoch: u64) -> Self {
-        Self {
-            run_id,
-            lease_fencing_token,
-            environment_epoch,
-            stopped: AtomicBool::new(false),
-            stop_notification: Notify::new(),
-        }
-    }
-
-    pub(crate) fn stopped(&self) -> bool {
-        self.stopped.load(Ordering::Acquire)
-    }
-
-    fn request_stop(&self) {
-        self.stopped.store(true, Ordering::Release);
-        self.stop_notification.notify_one();
-    }
-
-    pub(crate) async fn stop_notified(&self) {
-        self.stop_notification.notified().await;
     }
 }
 
@@ -453,10 +426,7 @@ fn shutdown_requested(shutdown: &watch::Receiver<bool>) -> bool {
 }
 
 async fn wait_to_reconnect(mut shutdown: watch::Receiver<bool>, delay: Duration) -> bool {
-    tokio::select! {
-        () = sleep(delay) => false,
-        changed = shutdown.changed() => changed.is_err() || shutdown_requested(&shutdown),
-    }
+    tokio::select! { () = sleep(delay) => false, changed = shutdown.changed() => changed.is_err() || shutdown_requested(&shutdown) }
 }
 
 pub(crate) fn new_id() -> String {
@@ -472,23 +442,8 @@ pub(crate) fn now_millis() -> i64 {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::path::PathBuf;
-
-    use super::{SupervisorConfig, hello_for};
-
-    #[test]
-    fn reconnect_hellos_retain_the_process_identity() {
-        let config = SupervisorConfig::new(
-            PathBuf::from("/tmp/forge-supervisor-test.sock"),
-            "test-host".to_owned(),
-            "test-boot".to_owned(),
-        );
-
-        let first = hello_for(&config);
-        let second = hello_for(&config);
-
-        assert_eq!(first.supervisor_instance_id, second.supervisor_instance_id);
-        assert_ne!(first.message_id, second.message_id);
-    }
-}
+mod podman_tests;
+#[cfg(test)]
+mod session_tests;
+#[cfg(test)]
+mod tests;

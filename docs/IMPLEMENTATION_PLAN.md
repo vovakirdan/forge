@@ -1,7 +1,7 @@
 # Forge: Implementation Plan
 
-**Статус:** draft для выполнения после подтверждения
-**Дата:** 4 сентября 2026
+**Статус:** приёмочные сценарии M0 и M1 пройдены, включая live Codex; отклонение TASK-05 требует отдельного решения
+**Дата обновления:** 6 сентября 2026
 **Граница:** local Linux-first MVP. План покрывает control plane, execution
 runtime, provider boundary, local install и knowledge loop. Existing `frontend/`
 не является его workstream: UI подключается позднее к стабильным HTTP/SSE
@@ -20,9 +20,10 @@ runtime, provider boundary, local install и knowledge loop. Existing `frontend/
 
 ### Фактическая исходная точка
 
-- В root пока нет Rust workspace, migrations, services или test harness.
-- Документация является единственным source of truth для нового control plane.
-- Существующий `frontend/` разработан отдельно и не блокирует backend MVP.
+- В root есть Rust workspace, canonical migrations, Core/CLI/Supervisor и test harness.
+- M0 simulator имеет автоматический acceptance gate; реальный runtime включается явно.
+- Реализация TASK-11–19 и границы её проверки описаны в [M1_RUNTIME.md](M1_RUNTIME.md).
+- UI не входит в текущий checkout/workstream и не блокирует backend MVP.
 - Нет права заменять утверждённые доменные контракты кодом. Неясность сначала
   становится коротким research spike или proposal, а не скрытым допущением.
 
@@ -181,6 +182,15 @@ Git, Podman или UI.
 - **Risk:** Pipeline owns stage presentation; Core owns lifecycle only.
 
 ##### TASK-05 — Application command boundary и in-memory reference engine
+
+**Сверка реализации, 6 сентября 2026:** named commands, revision/idempotency и
+атомарная запись state/Event/outbox реализованы через PostgreSQL. Отдельного
+in-memory reference engine с repository ports и fake-clock conformance harness
+в текущем checkout нет: `forge-application` разбирает typed commands, а
+`M0Harness` использует `PostgresStore`, PostgreSQL и NATS. Функциональный M0
+acceptance пройден, но эта часть TASK-05 не выполнена буквально. Требуется
+отдельно согласовать изменение подхода либо реализацию reference engine;
+приведённый ниже scope пока не отменён.
 
 - **Type / priority:** capability / P0.
 - **Goal:** implement named command handling before real persistence so all
@@ -665,6 +675,11 @@ MVP acceptance через CLI. Web Control Room использует эти stab
 
 ##### TASK-28 — Linux local installer, wizard and user systemd services
 
+**К обсуждению:** wizard должен позволять настроить bundle среды разработки
+проекта. Набор toolchains и зависимостей нельзя ограничить заранее известным
+списком. Формат bundle, подготовка зависимостей, package-registry policy и
+кеширование требуют отдельного дизайна; это не дополнительный exit gate M1.
+
 - **Type / priority:** infra / P0.
 - **Goal:** make Forge installable and restartable without manually assembling
   services.
@@ -745,24 +760,30 @@ Core task; it is not papered over in Supervisor or adapter code.
 | M3: Knowledge loop | M3.1 derived memory/retrieval | handoff is immediate, retrieval is derived and bounded |
 | M4: Local product proof | M4.1 installer/operator acceptance | one-command local installation and full failure matrix pass |
 
-### Recommended next 5 tasks
+### Current execution focus
 
-1. **TASK-01:** defines the build/lint/test baseline and unblocks all Rust work.
-2. **TASK-03:** establishes the pure domain contract that every later layer
-   consumes; it can start as soon as workspace exists.
-3. **TASK-02:** can run alongside TASK-03 and removes storage-test uncertainty.
-4. **TASK-04:** turns Pipeline/dependency/escalation documents into a testable
-   state engine before persistence hides mistakes.
-5. **TASK-05:** establishes the only mutation path and allows TASK-06 to be a
-   storage implementation rather than a second semantic model.
+Функциональный M0 acceptance пройден; отличие TASK-05 от первоначального
+in-memory подхода отмечено в самой задаче и требует решения. Для M1 / TASK-11–19
+завершены реализация, независимое review с исправлением findings, общий integration
+target и отдельные проверки
+реальных CLI/API-компонентов с локальным upstream stub. Результаты и ограничения
+зафиксированы в [M1_RUNTIME.md](M1_RUNTIME.md).
+
+6 сентября 2026 прошли одиночный Codex Run с принятым Artifact/outcome и
+`just test-codex-live`: два одновременных Run через выбранную подписку,
+раздельные surfaces/homes, named stop и сбор interrupted evidence. Тест завершился
+с `1 passed; 0 failed` за 28.61 секунды; оба контейнера остановлены с exit 0,
+исходный auth не изменился. Live acceptance blocker M1 снят. Это проверка
+конкретного Codex profile, а не всех моделей и provider lanes.
+TASK-20–29 остаются roadmap; наличие их описаний не означает реализацию.
 
 ## 8. Task readiness notes
 
 ### Ready now
 
-TASK-01, TASK-02 and TASK-03 are fully startable. TASK-04 follows directly from
-the accepted Task/Pipeline/dependency contracts. No stack choice must be reopened
-for these five tasks.
+M1 runtime прошёл operator-approved live acceptance на проверенных M0 contracts.
+Следующий продуктовый этап — M2. Отклонение TASK-05 остаётся явным вопросом
+сверки плана; выбор стека не переоткрывается.
 
 ### Explicit configuration work, not architecture blockers
 

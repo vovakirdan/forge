@@ -44,6 +44,27 @@ const OUTBOX_RECONNECT_DELAY: Duration = Duration::from_secs(1);
 #[derive(Debug, Parser)]
 #[command(name = "forge-core", version, about = "Forge local canonical Core")]
 struct Arguments {
+    /// Read-only local health/metrics listener, never the management API.
+    #[arg(long, default_value = "127.0.0.1:9878")]
+    observability_address: std::net::SocketAddr,
+    /// Owner-only S3/MinIO JSON config. Absence retains PendingUpload locally.
+    #[arg(long, requires = "execution_root")]
+    evidence_config: Option<PathBuf>,
+    /// Trusted local LiteLLM proxy endpoint (Core administration only).
+    #[arg(long, requires = "litellm_master_key")]
+    litellm_url: Option<String>,
+    /// Owner-only file holding the LiteLLM administrative key.
+    #[arg(long, requires = "litellm_url")]
+    litellm_master_key: Option<PathBuf>,
+    /// Shared owner-only Supervisor state root for isolated runtime grants.
+    #[arg(long)]
+    execution_root: Option<PathBuf>,
+    /// Previously initialized Forge Secret Store directory.
+    #[arg(long)]
+    secret_store: Option<PathBuf>,
+    /// Explicit deterministic simulator mode; never enabled automatically.
+    #[arg(long)]
+    fake_runtime: bool,
     /// PostgreSQL URL, or the FORGE_DATABASE_URL environment value.
     #[arg(long, value_name = "URL")]
     database_url: Option<String>,
@@ -61,7 +82,10 @@ struct Arguments {
 #[tokio::main]
 async fn main() -> ExitCode {
     let _ = tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env())
+        .json()
+        .with_env_filter(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+        )
         .with_target(false)
         .try_init();
     match run(Arguments::parse()).await {
@@ -75,6 +99,13 @@ async fn main() -> ExitCode {
 
 async fn run(arguments: Arguments) -> Result<()> {
     let Arguments {
+        observability_address,
+        evidence_config,
+        litellm_url,
+        litellm_master_key,
+        execution_root,
+        secret_store,
+        fake_runtime,
         database_url,
         nats_url,
         api_socket,
@@ -105,7 +136,32 @@ async fn run(arguments: Arguments) -> Result<()> {
         .await
         .context("connect canonical PostgreSQL")?;
     store.validate_schema().await.context("validate schema")?;
-    let core = CoreService::new(store, m0_actors(), Arc::new(SupervisorHub::default()));
+    let core = CoreService::new(store, m0_actors(), Arc::new(SupervisorHub::default()))
+        .with_nats_health_required(config.nats_url.is_some());
+    let core = if fake_runtime {
+        core.with_fake_runtime()
+    } else {
+        core
+    };
+    let core = match secret_store {
+        Some(directory) => core.with_secret_store(
+            forge_provider_common::SecretStore::load(&directory)
+                .context("load the original Forge Secret Store key")?,
+        ),
+        None => core,
+    };
+    let core = match execution_root {
+        Some(root) => core.with_execution_root(root)?,
+        None => core,
+    };
+    let core = match evidence_config {
+        Some(path) => core.with_evidence_config_file(&path)?,
+        None => core,
+    };
+    let core = match (litellm_url, litellm_master_key) {
+        (Some(url), Some(key)) => core.with_inference_proxy(&url, &key)?,
+        _ => core,
+    };
     let api_listener = bind_owner_socket(&api_socket, api_socket_is_default)?;
     let supervisor_listener = bind_owner_socket(&supervisor_socket, supervisor_socket_is_default)?;
     // PostgreSQL is the canonical command plane. NATS delivery is deliberately
@@ -119,6 +175,36 @@ async fn run(arguments: Arguments) -> Result<()> {
     );
 
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let observability = forge_core::observability::serve_local(
+        core.clone(),
+        observability_address,
+        shutdown_rx.clone(),
+    )
+    .await;
+    let maintenance_core = core.clone();
+    let mut maintenance_shutdown = shutdown_rx.clone();
+    let maintenance = tokio::spawn(async move {
+        let mut tick = tokio::time::interval(Duration::from_secs(5));
+        loop {
+            tokio::select! {
+                _=tick.tick()=>if let Err(error)=maintenance_core.watchdog_tick(forge_domain::Timestamp::now_utc(),forge_core::WatchdogDeadlines::default()).await {
+                    tracing::warn!(error=%error,"watchdog tick failed; no uncertain reservation released");
+                },
+                _=maintenance_shutdown.changed()=>break,
+            }
+        }
+    });
+    let evidence_core = core.clone();
+    let mut evidence_shutdown = shutdown_rx.clone();
+    let evidence_worker = tokio::spawn(async move {
+        let mut tick = tokio::time::interval(Duration::from_secs(5));
+        loop {
+            tokio::select! {
+                _=tick.tick()=>if let Err(error)=evidence_core.evidence_tick().await {tracing::warn!(error=%error,"evidence remains pending");},
+                _=evidence_shutdown.changed()=>break,
+            }
+        }
+    });
     let signal_task = tokio::spawn(wait_for_interrupt(shutdown_tx));
     let api = axum::serve(api_listener, router(core.clone()).into_make_service())
         .with_graceful_shutdown(wait_for_shutdown(shutdown_rx.clone()));
@@ -153,7 +239,15 @@ async fn run(arguments: Arguments) -> Result<()> {
     };
     signal_task.abort();
     let _ = signal_task.await;
+    maintenance.abort();
+    evidence_worker.abort();
+    let _ = maintenance.await;
+    let _ = evidence_worker.await;
     if let Some(task) = outbox_task {
+        task.abort();
+        let _ = task.await;
+    }
+    if let Some(task) = observability {
         task.abort();
         let _ = task.await;
     }
@@ -374,98 +468,5 @@ async fn wait_for_shutdown(mut receiver: watch::Receiver<bool>) {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::{
-        fs,
-        os::unix::{fs::PermissionsExt, net::UnixListener},
-        time::Duration,
-    };
-
-    use super::{
-        OUTBOX_STREAM_NAME, OUTBOX_SUBJECT, bind_owner_socket, m0_actors, outbox_stream_config,
-        prepare_socket_parent, spawn_outbox_reconnector,
-    };
-    use uuid::Uuid;
-
-    #[test]
-    fn m0_actor_identity_is_stable_across_daemon_restarts() {
-        let first = m0_actors();
-        let second = m0_actors();
-
-        assert_eq!(first.human.id(), second.human.id());
-        assert_eq!(first.core.id(), second.core.id());
-        assert_eq!(first.human.id().as_uuid().get_version_num(), 7);
-        assert_eq!(first.core.id().as_uuid().get_version_num(), 7);
-    }
-
-    #[test]
-    fn forge_owned_socket_parent_is_tightened_before_listening() {
-        let parent = std::env::temp_dir().join(format!("forge-core-{}", Uuid::now_v7()));
-        fs::create_dir_all(&parent).expect("create test directory");
-        fs::set_permissions(&parent, fs::Permissions::from_mode(0o755))
-            .expect("make fixture permissive");
-
-        prepare_socket_parent(&parent, true).expect("tighten Forge-owned directory");
-
-        let mode = fs::metadata(&parent)
-            .expect("read test directory")
-            .permissions()
-            .mode();
-        assert_eq!(mode & 0o777, 0o700);
-        fs::remove_dir(&parent).expect("remove empty test directory");
-    }
-
-    #[test]
-    fn second_core_socket_bind_refuses_a_live_listener() {
-        let parent = std::env::temp_dir().join(format!("forge-core-live-{}", Uuid::now_v7()));
-        fs::create_dir(&parent).expect("create test directory");
-        fs::set_permissions(&parent, fs::Permissions::from_mode(0o700))
-            .expect("restrict test directory");
-        let socket = parent.join("api.sock");
-        let first_listener = UnixListener::bind(&socket).expect("bind first Core socket");
-        fs::set_permissions(&socket, fs::Permissions::from_mode(0o600))
-            .expect("restrict first Core socket");
-
-        let error = bind_owner_socket(&socket, true).expect_err("reject second Core socket");
-        assert!(error.to_string().contains("live Forge socket"));
-
-        drop(first_listener);
-        fs::remove_file(&socket).expect("remove first Core socket");
-        fs::remove_dir(&parent).expect("remove test directory");
-    }
-
-    #[test]
-    fn outbox_stream_uses_the_canonical_event_subject() {
-        let stream = outbox_stream_config();
-
-        assert_eq!(stream.name, OUTBOX_STREAM_NAME);
-        assert_eq!(stream.subjects, [OUTBOX_SUBJECT]);
-    }
-
-    #[test]
-    fn nats_token_url_exposes_a_single_credential_component() {
-        let address = "nats://local-token@127.0.0.1:4222"
-            .parse::<async_nats::ServerAddr>()
-            .expect("parse local token URL");
-
-        assert_eq!(address.username(), Some("local-token"));
-        assert_eq!(address.password(), None);
-    }
-
-    #[tokio::test]
-    async fn malformed_nats_url_stays_in_the_background_reconnect_loop() {
-        let task = spawn_outbox_reconnector("://not-a-nats-url".to_owned(), |_| async {});
-
-        tokio::time::sleep(Duration::from_millis(20)).await;
-
-        assert!(
-            !task.is_finished(),
-            "a malformed optional broker URL must not end the Core-owned reconnect task"
-        );
-        task.abort();
-        let error = task
-            .await
-            .expect_err("aborted reconnect task must not complete");
-        assert!(error.is_cancelled());
-    }
-}
+#[path = "support/tests.rs"]
+mod tests;

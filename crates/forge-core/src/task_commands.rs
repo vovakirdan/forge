@@ -286,7 +286,7 @@ impl CoreService {
             &task,
             &persistence,
             executor_kind,
-            now,
+            Timestamp::now_utc(),
         )
         .await?;
         let approved = event(

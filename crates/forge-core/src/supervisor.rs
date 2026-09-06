@@ -4,6 +4,10 @@
 mod bridge;
 #[path = "supervisor/executor.rs"]
 mod executor;
+#[path = "supervisor/gateway.rs"]
+mod gateway;
+#[path = "supervisor/inventory.rs"]
+mod inventory;
 #[path = "supervisor/outcome.rs"]
 mod outcome;
 #[path = "supervisor/validation.rs"]
@@ -85,6 +89,8 @@ impl TransportRejection {
 struct ActiveSupervisor {
     identity: SupervisorIdentity,
     sender: mpsc::Sender<CoreToSupervisor>,
+    inventory_request_id: Option<String>,
+    reconciled: bool,
 }
 
 /// A registered outbound stream. Its receiver belongs to tonic and its sender
@@ -118,12 +124,25 @@ impl SupervisorAttachError {
 }
 
 /// Process-local connection registry; it never owns canonical state.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct SupervisorHub {
     active: Mutex<Option<ActiveSupervisor>>,
+    created_at: std::time::Instant,
+}
+
+impl Default for SupervisorHub {
+    fn default() -> Self {
+        Self {
+            active: Mutex::new(None),
+            created_at: std::time::Instant::now(),
+        }
+    }
 }
 
 impl SupervisorHub {
+    pub(crate) fn startup_reconciliation_grace(&self, seconds: u32) -> bool {
+        self.created_at.elapsed() < std::time::Duration::from_secs(u64::from(seconds))
+    }
     /// Registers the sole connected local Supervisor without replacing another stream.
     pub(crate) async fn attach(
         &self,
@@ -141,6 +160,8 @@ impl SupervisorHub {
         *active = Some(ActiveSupervisor {
             identity,
             sender: sender.clone(),
+            inventory_request_id: None,
+            reconciled: false,
         });
         Ok(SupervisorAttachment { sender, receiver })
     }
@@ -162,6 +183,55 @@ impl SupervisorHub {
     /// Returns whether a local Supervisor can receive a committed provision request.
     pub async fn is_connected(&self) -> bool {
         self.active.lock().await.is_some()
+    }
+
+    /// Real dispatch is gated until this exact Supervisor has answered inventory.
+    pub async fn is_reconciled(&self) -> bool {
+        self.active
+            .lock()
+            .await
+            .as_ref()
+            .is_some_and(|active| active.reconciled)
+    }
+
+    async fn request_inventory(&self) -> Result<(), CoreError> {
+        let command_id = Uuid::now_v7().to_string();
+        if let Some(active) = self.active.lock().await.as_mut() {
+            active.inventory_request_id = Some(command_id.clone());
+        }
+        self.send(CoreToSupervisor {
+            message: Some(
+                forge_protocol::supervisor::v1::core_to_supervisor::Message::RequestInventory(
+                    forge_protocol::supervisor::v1::RequestInventory { command_id },
+                ),
+            ),
+        })
+        .await
+    }
+
+    async fn inventory_is_requested(
+        &self,
+        identity: &SupervisorIdentity,
+        command_id: &str,
+    ) -> bool {
+        self.active.lock().await.as_ref().is_some_and(|active| {
+            active.identity == *identity
+                && !active.reconciled
+                && active.inventory_request_id.as_deref() == Some(command_id)
+        })
+    }
+
+    async fn accept_inventory(&self, identity: &SupervisorIdentity, command_id: &str) -> bool {
+        if let Some(active) = self.active.lock().await.as_mut()
+            && active.identity == *identity
+            && active.inventory_request_id.as_deref() == Some(command_id)
+            && !active.reconciled
+        {
+            active.reconciled = true;
+            active.inventory_request_id = None;
+            return true;
+        }
+        false
     }
 
     /// Delivers a desired-state request after its canonical transaction commits.
@@ -250,6 +320,9 @@ impl SupervisorControl for SupervisorService {
 
         let core = self.core.clone();
         tokio::spawn(async move {
+            if core.supervisor.request_inventory().await.is_err() {
+                warn!("could not request Supervisor inventory");
+            }
             // Return the response before recovery may need outbound channel
             // capacity. The fake Supervisor can then receive replayed desired
             // messages while this task preserves inbound message ordering.
@@ -307,6 +380,24 @@ mod tests {
             host_id: "local-host".to_owned(),
             boot_id: "local-boot".to_owned(),
         }
+    }
+
+    #[tokio::test]
+    async fn requested_inventory_completes_reconciliation_only_once() {
+        let hub = SupervisorHub::default();
+        let identity = identity();
+        let mut attachment = hub.attach(identity.clone()).await.expect("attach");
+        hub.request_inventory().await.expect("request");
+        let message = attachment.receiver.recv().await.expect("request message");
+        let Some(forge_protocol::supervisor::v1::core_to_supervisor::Message::RequestInventory(
+            request,
+        )) = message.message
+        else {
+            panic!("expected inventory request")
+        };
+        assert!(!hub.accept_inventory(&identity, "unsolicited").await);
+        assert!(hub.accept_inventory(&identity, &request.command_id).await);
+        assert!(!hub.accept_inventory(&identity, &request.command_id).await);
     }
 
     #[tokio::test]

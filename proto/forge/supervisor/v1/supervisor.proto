@@ -21,6 +21,7 @@ message SupervisorToCore {
     SupervisorHello hello = 1;
     ObservedRunEvent observed_run_event = 2;
     ExecutorSubmission executor_submission = 3;
+    SupervisorInventory inventory = 4;
   }
 }
 
@@ -30,7 +31,44 @@ message CoreToSupervisor {
     ProvisionRun provision_run = 1;
     StopRun stop_run = 2;
     CoreAcknowledgement acknowledgement = 3;
+    RequestInventory request_inventory = 4;
   }
+}
+
+// Requests a snapshot of execution identities retained by Supervisor. Inventory
+// is observational evidence; it never authorizes a new provision or write lease.
+message RequestInventory {
+  string command_id = 1;
+}
+
+// Complete unresolved local inventory at capture time. Completed tombstones may
+// be omitted only after an Accepted Stopped ACK and an empty replay queue.
+// Unknown identities recovered from the durable journal must remain included.
+message SupervisorInventory {
+  string message_id = 1;
+  string request_command_id = 2;
+  string host_id = 3;
+  string boot_id = 4;
+  repeated RunInventoryEntry entries = 5;
+}
+
+message RunInventoryEntry {
+  string run_id = 1;
+  uint64 lease_fencing_token = 2;
+  uint64 environment_epoch = 3;
+  uint64 last_sequence = 4;
+  EnvironmentPresence presence = 5;
+  // Empty when no external execution environment has been identified.
+  string environment_id = 6;
+  // Boot during which this identity was originally admitted.
+  string provision_boot_id = 7;
+}
+
+enum EnvironmentPresence {
+  ENVIRONMENT_PRESENCE_UNSPECIFIED = 0;
+  ENVIRONMENT_PRESENCE_ACTIVE = 1;
+  ENVIRONMENT_PRESENCE_QUIESCENT = 2;
+  ENVIRONMENT_PRESENCE_UNKNOWN = 3;
 }
 
 // Identifies a newly connected Supervisor process and its host boot.
@@ -184,6 +222,8 @@ message ProvisionRun {
   string run_spec_json = 10;
   // Non-zero schema version of `run_spec_json`. M0 uses version 1.
   uint32 run_spec_version = 11;
+  // Optional validated W3C trace context; correlation only, never authority.
+  string traceparent = 12;
 }
 
 // Requests that the Supervisor stop a provisioned Run. Completion is reported

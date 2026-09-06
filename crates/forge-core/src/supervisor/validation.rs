@@ -35,11 +35,27 @@ pub(super) struct SubmissionScope {
     pub(super) lease_fencing_token: u64,
     pub(super) environment_epoch: u64,
     pub(super) sequence: u64,
+    pub(super) ingress: SubmissionIngress,
+}
+
+/// Gateway messages have a separate durable idempotency ledger and never
+/// consume a sequence in the Supervisor observation stream.
+#[derive(Clone, Copy, Debug)]
+pub(super) enum SubmissionIngress {
+    Supervisor,
+    Gateway { payload_hash: [u8; 32] },
+}
+
+impl SubmissionScope {
+    pub(super) fn is_gateway(&self) -> bool {
+        matches!(self.ingress, SubmissionIngress::Gateway { .. })
+    }
 }
 
 /// Parsed runtime observation ready for canonical Core handling.
 #[derive(Clone, Debug)]
 pub(super) struct ParsedObservation {
+    pub(super) kind: RunEventKind,
     pub(super) message_id: Uuid,
     pub(super) run_id: Uuid,
     pub(super) lease_fencing_token: u64,
@@ -101,6 +117,9 @@ pub(super) fn parse_observation(
 ) -> Result<ParsedObservation, TransportRejection> {
     let state = observed_state(observation.kind)?;
     Ok(ParsedObservation {
+        kind: RunEventKind::try_from(observation.kind).map_err(|_| {
+            TransportRejection::new("invalid_observation_kind", "invalid observation kind")
+        })?,
         message_id: parse_uuid_v7("observed_run_event.message_id", &observation.message_id)?,
         run_id: parse_uuid_v7("observed_run_event.run_id", &observation.run_id)?,
         lease_fencing_token: positive(
@@ -141,6 +160,7 @@ pub(super) fn parse_executor_submission(
             submission.environment_epoch,
         )?,
         sequence: positive("executor_submission.sequence", submission.sequence)?,
+        ingress: SubmissionIngress::Supervisor,
     };
     let _ = timestamp_from_unix_ms(
         "executor_submission.submitted_at_unix_ms",
@@ -191,7 +211,7 @@ pub(super) fn acknowledged_message_id(value: &str) -> String {
         .unwrap_or_default()
 }
 
-fn parse_artifact_submission(
+pub(super) fn parse_artifact_submission(
     scope: SubmissionScope,
     artifact: ArtifactSubmission,
 ) -> Result<ParsedArtifactSubmission, TransportRejection> {
@@ -227,7 +247,7 @@ fn parse_artifact_submission(
     })
 }
 
-fn parse_stage_outcome_submission(
+pub(super) fn parse_stage_outcome_submission(
     scope: SubmissionScope,
     outcome: StageOutcomeSubmission,
 ) -> Result<ParsedStageOutcomeSubmission, TransportRejection> {

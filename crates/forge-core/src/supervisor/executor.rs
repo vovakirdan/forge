@@ -3,7 +3,6 @@
 use forge_domain::{
     Actor, ActorId, AggregateRef, Artifact, ArtifactBody, ArtifactId, ArtifactProducer, CommandId,
     DomainEventKind, ExecutorKind, LifecycleStatus, NewArtifact, PipelineVersion, Project,
-    Timestamp,
 };
 use forge_storage::{
     ArtifactLocation, ExecutorArtifactReceipt, ExecutorArtifactWrite, ExecutorSubmissionRecord,
@@ -23,7 +22,7 @@ use crate::{
 use super::{
     SupervisorIdentity,
     bridge::{InboundResult, refused_fenced_write},
-    validation::{ParsedArtifactSubmission, SubmissionScope},
+    validation::{ParsedArtifactSubmission, SubmissionIngress, SubmissionScope},
 };
 
 pub(super) struct SubmissionContext {
@@ -36,16 +35,25 @@ pub(super) struct SubmissionContext {
 impl CoreService {
     pub(super) async fn record_executor_artifact(
         &self,
-        identity: &SupervisorIdentity,
+        identity: Option<&SupervisorIdentity>,
         submission: ParsedArtifactSubmission,
     ) -> Result<InboundResult, CoreError> {
-        let now = Timestamp::now_utc();
         let mut transaction = self.store.begin().await?;
+        if submission.scope.is_gateway()
+            && let Some(refused) =
+                reserve_submission(&mut transaction, &submission.scope, "artifact_submission")
+                    .await?
+        {
+            return Ok(refused);
+        }
         let mut context = self
             .load_employee_submission_context(&mut transaction, &submission.scope)
             .await?;
-        if let Some(refused) =
-            reserve_submission(&mut transaction, &submission.scope, "artifact_submission").await?
+        let now = crate::canonical_clock::project_mutation_time(&context.project);
+        if !submission.scope.is_gateway()
+            && let Some(refused) =
+                reserve_submission(&mut transaction, &submission.scope, "artifact_submission")
+                    .await?
         {
             return Ok(refused);
         }
@@ -85,7 +93,10 @@ impl CoreService {
             stage_id: Some(stage_id),
             producer: ArtifactProducer::EmployeeRun,
             producer_id: Some(context.run.employee_id.as_uuid()),
-            producer_data: json!({"supervisor_instance_id": identity.instance_id()}),
+            producer_data: identity.map_or_else(
+                || json!({"ingress": "gateway"}),
+                |identity| json!({"supervisor_instance_id": identity.instance_id()}),
+            ),
         };
         let receipt = ExecutorArtifactReceipt::new(
             submission.scope.message_id,
@@ -197,6 +208,33 @@ pub(super) async fn reserve_submission(
     scope: &SubmissionScope,
     kind: &'static str,
 ) -> Result<Option<InboundResult>, CoreError> {
+    if let SubmissionIngress::Gateway { payload_hash } = scope.ingress {
+        let result = transaction
+            .record_gateway_submission(&forge_storage::GatewaySubmissionRecord {
+                scope: forge_domain::runtime::RunScope {
+                    run_id: scope.run_id,
+                    fencing_token: scope.lease_fencing_token,
+                    environment_epoch: scope.environment_epoch,
+                },
+                message_id: scope.message_id,
+                payload_hash: payload_hash
+                    .iter()
+                    .map(|byte| format!("{byte:02x}"))
+                    .collect(),
+                receipt: json!({"status":"accepted", "message_id":scope.message_id, "kind":kind}),
+            })
+            .await?;
+        return match result {
+            forge_storage::GatewayWriteResult::Applied => Ok(None),
+            forge_storage::GatewayWriteResult::Replayed(_) => Ok(Some(InboundResult::Accepted(
+                "Gateway submission already recorded",
+            ))),
+            forge_storage::GatewayWriteResult::Denied => Ok(Some(InboundResult::Ignored(
+                "Gateway scope is no longer active",
+            ))),
+            forge_storage::GatewayWriteResult::Conflict => Err(CoreError::IdempotencyConflict),
+        };
+    }
     let result = transaction
         .record_executor_submission(&ExecutorSubmissionRecord {
             message_id: scope.message_id,

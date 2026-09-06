@@ -51,6 +51,14 @@ podman run --rm \
     --env-file "$TEMP_ENV_FILE" \
     "$MINIO_MC_IMAGE" ls "forge/${BUCKET_NAME}" >/dev/null
 
+if [[ "${1:-}" == "--evidence" ]]; then
+    env FORGE_MINIO_ENDPOINT="http://${FORGE_MINIO_HOST}:${FORGE_MINIO_PORT}" \
+        FORGE_MINIO_EVIDENCE_TEST_BUCKET="$BUCKET_NAME" \
+        FORGE_MINIO_ROOT_USER="$FORGE_MINIO_ROOT_USER" \
+        FORGE_MINIO_ROOT_PASSWORD="$FORGE_MINIO_ROOT_PASSWORD" \
+        cargo test --locked --package forge-storage --test evidence_minio -- --ignored
+fi
+
 podman run --rm \
     --network "container:${MINIO_CONTAINER_ID}" \
     --env-file "$TEMP_ENV_FILE" \

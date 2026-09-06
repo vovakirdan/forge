@@ -4,8 +4,8 @@ use forge_domain::{
     AggregateRef, ArtifactRequirementScope, CommandId, DomainEventKind, ExecutorKind,
     LifecycleStatus, PipelineStage, ProjectId, Task, Timestamp,
 };
+use forge_protocol::supervisor::v1::CoreToSupervisor;
 use forge_protocol::supervisor::v1::{ProvisionRun, core_to_supervisor};
-use forge_protocol::{supervisor::v1::CoreToSupervisor, wire::M0_RUN_SPEC_VERSION};
 use forge_storage::{LeaseRunRequest, QueueEntry, StorageTransaction};
 use serde_json::{Value, json};
 use time::Duration;
@@ -28,13 +28,67 @@ impl CoreService {
     /// Supervisor. Each Run is committed before its desired provision request
     /// crosses the process boundary.
     pub async fn dispatch_available(&self, project_id: ProjectId) -> Result<usize, CoreError> {
+        let started = std::time::Instant::now();
+        let parent = crate::observability::current_traceparent();
+        let result = crate::observability::trace_operation(
+            Some(&parent),
+            crate::observability::Operation::Scheduler,
+            self.dispatch_available_inner(project_id),
+        )
+        .await;
+        self.record_operation(
+            crate::observability::Operation::Scheduler,
+            result.is_ok(),
+            started.elapsed(),
+        );
+        result
+    }
+
+    async fn dispatch_available_inner(&self, project_id: ProjectId) -> Result<usize, CoreError> {
         if !self.supervisor.is_connected().await {
+            return Ok(0);
+        }
+        if !self.fake_runtime_enabled && !self.supervisor.is_reconciled().await {
             return Ok(0);
         }
 
         let mut delivered = 0_usize;
-        while let Some(provision) = self.claim_and_provision(project_id).await? {
-            match self.supervisor.send(provision).await {
+        while let Some(mut provision) = self.claim_and_provision(project_id).await? {
+            if !self.fake_runtime_enabled
+                && let Some(core_to_supervisor::Message::ProvisionRun(request)) =
+                    &mut provision.message
+            {
+                let run_id = Uuid::parse_str(&request.run_id)
+                    .map_err(|_| crate::credentials::credential_error())?;
+                if let Err(error) = self.prepare_run(run_id).await {
+                    self.fail_preparation(run_id).await?;
+                    warn!(error=%error,"Run preparation failed before Supervisor delivery");
+                    continue;
+                }
+                request.traceparent =
+                    self.prepared_traceparent(run_id, request.environment_epoch)?;
+            }
+            // Serialize the final delivery with Project stop. Preparation can
+            // take time, so its earlier authorization is not a delivery permit.
+            let mut delivery = self.store.begin().await?;
+            if !self.fake_runtime_enabled
+                && let Some(core_to_supervisor::Message::ProvisionRun(request)) = &provision.message
+            {
+                let scope = forge_domain::runtime::RunScope {
+                    run_id: Uuid::parse_str(&request.run_id)
+                        .map_err(|_| crate::credentials::credential_error())?,
+                    fencing_token: request.lease_fencing_token,
+                    environment_epoch: request.environment_epoch,
+                };
+                if !delivery.gateway_scope_is_active(scope).await? {
+                    delivery.commit().await?;
+                    self.fail_preparation(scope.run_id).await?;
+                    continue;
+                }
+            }
+            let sent = self.supervisor.send(provision).await;
+            delivery.commit().await?;
+            match sent {
                 Ok(()) => delivered = delivered.saturating_add(1),
                 Err(error) => {
                     // The Run remains durably provision-requested. Recovery will
@@ -52,11 +106,12 @@ impl CoreService {
         &self,
         project_id: ProjectId,
     ) -> Result<Option<CoreToSupervisor>, CoreError> {
-        let now = Timestamp::now_utc();
         let mut transaction = self.store.begin().await?;
         let Some(mut project) = transaction.lock_project(project_id).await? else {
             return Ok(None);
         };
+        let observed_wall = Timestamp::now_utc();
+        let now = crate::canonical_clock::project_mutation_time_at(&project, observed_wall);
         let Some(queue_entry) = transaction.claim_next(project_id).await? else {
             transaction.commit().await?;
             return Ok(None);
@@ -88,35 +143,154 @@ impl CoreService {
                     field: "queue.stage_id",
                     reason: "is absent from the task pinned pipeline version".to_owned(),
                 })?;
-        let run_spec = fake_run_spec(stage, &scoped.task)?;
+        let surface_id = scoped
+            .persistence
+            .task_work_surface_id
+            .unwrap_or_else(Uuid::now_v7);
+        let mut pinned_credential = None;
+        let (run_spec_version, run_spec) = if self.fake_runtime_enabled {
+            (1_u16, fake_run_spec(stage, &scoped.task)?)
+        } else {
+            let binding =
+                transaction
+                    .runtime_binding(employee.id())
+                    .await?
+                    .ok_or(CoreError::InvalidTransport {
+                    field: "employee.runtime_binding",
+                    reason:
+                        "an explicit sandbox runtime profile is required; fake fallback is disabled"
+                            .into(),
+                })?;
+            binding
+                .validate()
+                .map_err(|error| CoreError::InvalidTransport {
+                    field: "runtime_binding",
+                    reason: error.to_string(),
+                })?;
+            if self.execution.is_none() {
+                return Err(crate::credentials::credential_error());
+            }
+            let record = transaction
+                .load_credential(
+                    project_id,
+                    binding.execution_profile.credential_binding().secret_id,
+                )
+                .await?
+                .ok_or_else(crate::credentials::credential_error)?;
+            let _checked = self
+                .open_runtime_credential(&record, binding.execution_profile.credential_binding())?;
+            pinned_credential = Some(record);
+            let instruction = serde_json::to_string(&json!({
+                "task": scoped.task.spec(), "stage": stage,
+                "previous_handoff": transaction.latest_handoff(scoped.task.id()).await?,
+                "submission_policy": "Use Forge Gateway to attach artifacts and explicitly submit one of the permitted stage outcomes. Exit status alone does not complete the task.",
+            })).map_err(|_| CoreError::InvalidTransport { field: "context", reason: "cannot serialize task contract".into() })?;
+            let spec = forge_domain::runtime::SandboxRunSpec {
+                schema_version: forge_domain::runtime::SANDBOX_RUN_SPEC_VERSION,
+                project_id,
+                surface_id,
+                binding,
+                instruction,
+            };
+            spec.validate()
+                .map_err(|error| CoreError::InvalidTransport {
+                    field: "run_spec",
+                    reason: error.to_string(),
+                })?;
+            (
+                spec.schema_version,
+                serde_json::to_value(spec).map_err(|_| CoreError::InvalidTransport {
+                    field: "run_spec",
+                    reason: "cannot serialize runtime intent".into(),
+                })?,
+            )
+        };
         let context_snapshot_id = Uuid::now_v7();
+        let run_id = Uuid::now_v7();
+        let previous_handoff = transaction
+            .latest_handoff(scoped.task.id())
+            .await?
+            .map(serde_json::from_value::<forge_domain::TaskHandoff>)
+            .transpose()
+            .map_err(|_| CoreError::InvalidTransport {
+                field: "handoff",
+                reason: "stored handoff violates its domain contract".into(),
+            })?;
+        let profile_revision = run_spec
+            .get("binding")
+            .and_then(|value| value.get("execution_profile"))
+            .map(|value| {
+                format!(
+                    "{}:{}",
+                    value["id"].as_str().unwrap_or("unknown"),
+                    value["revision"]
+                )
+            })
+            .unwrap_or_else(|| "fake_m0:1".into());
+        let context = forge_domain::ContextSnapshot::new(forge_domain::ContextSnapshotInput {
+            context_snapshot_id,
+            project_id,
+            task_id: scoped.task.id(),
+            run_id,
+            employee_id: employee.id(),
+            pipeline_version_id: queue_entry.input.pipeline_version_id,
+            stage_id: queue_entry.input.stage_id.clone(),
+            task_revision_before_dispatch: expected_task_revision,
+            task_spec: scoped.task.spec().clone(),
+            system_policy_revision: profile_revision.clone(),
+            employee_prompt_revision: profile_revision,
+            capability_grants: [
+                "board.list",
+                "task.read",
+                "artifact.submit",
+                "outcome.submit",
+                "progress.report",
+                "human.request",
+            ]
+            .into_iter()
+            .map(str::to_owned)
+            .collect(),
+            tool_catalog_revision: "forge_task_tools_v1".into(),
+            run_spec_id: run_id,
+            prior_handoff: previous_handoff,
+            artifacts: vec![],
+            control_instruction: None,
+            created_at: now,
+        })?;
         let lease_request = LeaseRunRequest {
             queue_entry: queue_entry.clone(),
             employee_id: employee.id(),
             lease_id: Uuid::now_v7(),
-            run_id: Uuid::now_v7(),
+            run_id,
             lease_expires_at: Timestamp::from_offset_date_time(
-                now.as_offset_date_time() + M0_LEASE_DURATION,
+                observed_wall.as_offset_date_time() + M0_LEASE_DURATION,
             ),
-            task_work_surface_id: scoped.persistence.task_work_surface_id,
-            lease_scope: json!({"m0": true}),
+            task_work_surface_id: (!self.fake_runtime_enabled).then_some(surface_id),
+            lease_scope: json!({"simulator": self.fake_runtime_enabled}),
             resource_reservation: json!({}),
-            run_spec_version: u16::try_from(M0_RUN_SPEC_VERSION).map_err(|_| {
+            run_spec_version,
+            run_spec: run_spec.clone(),
+            context_manifest: serde_json::to_value(context).map_err(|_| {
                 CoreError::InvalidTransport {
-                    field: "m0_run_spec_version",
-                    reason: "does not fit the storage contract".to_owned(),
+                    field: "context",
+                    reason: "cannot serialize context snapshot".into(),
                 }
             })?,
-            run_spec: run_spec.clone(),
-            context_manifest: json!({
-                "context_snapshot_id": context_snapshot_id,
-                "task_revision_before_dispatch": expected_task_revision,
-            }),
         };
         // Storage validates the claimed queue snapshot against the Task's old
         // revision. Starting the Task before this call would invalidate the
         // exact queue item that authorizes the Lease.
         let provisioned = transaction.create_lease_and_run(&lease_request).await?;
+        if !self.fake_runtime_enabled {
+            transaction
+                .reserve_environment(provisioned.run.id, Some(surface_id))
+                .await?;
+            if let Some(record) = pinned_credential {
+                transaction
+                    .pin_run_credential(provisioned.run.id, &record)
+                    .await?;
+            }
+        }
 
         let mut task = scoped.task;
         let starts_task = task.lifecycle() == LifecycleStatus::Ready;
@@ -135,7 +309,7 @@ impl CoreService {
                 })?;
         let mut persistence =
             crate::scheduler::task_persistence(&project, &task, next_attempt_count)?;
-        persistence.task_work_surface_id = scoped.persistence.task_work_surface_id;
+        persistence.task_work_surface_id = lease_request.task_work_surface_id;
         persist_task_and_project(
             &mut transaction,
             &mut project,
@@ -204,7 +378,8 @@ impl CoreService {
                 environment_epoch: provisioned.environment_epoch,
                 context_snapshot_id: context_snapshot_id.to_string(),
                 run_spec_json,
-                run_spec_version: M0_RUN_SPEC_VERSION,
+                run_spec_version: u32::from(run_spec_version),
+                traceparent: crate::observability::current_traceparent(),
             })),
         }))
     }
@@ -301,135 +476,5 @@ fn fake_run_spec(stage: &PipelineStage, task: &Task) -> Result<Value, CoreError>
 }
 
 #[cfg(test)]
-mod tests {
-    use forge_domain::{
-        Actor, ActorId, ArtifactKind, ArtifactRequirement, ArtifactRequirementScope, ExecutorKind,
-        NewTask, OutcomeKey, PipelineId, PipelineStage, PipelineTransition,
-        PipelineTransitionTarget, PipelineVersionId, PriorityScheme, ProjectId,
-        ProjectLocalSequence, StageId, Task, TaskId, TaskKey, TaskKind, TaskPipelineBinding,
-        TaskProperties, TaskPropertySchema, TaskScope, TaskSource, TaskSpec, TaskSpecInput,
-        Timestamp,
-    };
-    use serde_json::json;
-
-    use super::fake_run_spec;
-
-    fn task_with_history_artifact(kind: &str) -> Task {
-        let priority_scheme = PriorityScheme::default_three_levels().expect("priority scheme");
-        let now = Timestamp::now_utc();
-        let mut task = Task::new_draft(
-            NewTask {
-                id: TaskId::new(),
-                project_id: ProjectId::new(),
-                key: TaskKey::new(ProjectLocalSequence::new(1).expect("sequence")),
-                kind: TaskKind::Delivery,
-                spec: TaskSpec::new(TaskSpecInput {
-                    title: "M0 fake test".to_owned(),
-                    description: String::new(),
-                    rationale: None,
-                    definition_of_done: Some("Historical evidence is available".to_owned()),
-                    scope: TaskScope::default(),
-                    properties: TaskProperties::empty(),
-                    labels: Default::default(),
-                })
-                .expect("task spec"),
-                priority_level_id: priority_scheme.default_level_id().clone(),
-                pipeline: TaskPipelineBinding::new(
-                    PipelineId::new(),
-                    PipelineVersionId::new(),
-                    StageId::new("work").expect("stage"),
-                ),
-                source: TaskSource::Human,
-                created_by: Actor::human(ActorId::new()),
-                created_at: now,
-            },
-            &priority_scheme,
-        )
-        .expect("draft task");
-        task.approve(&TaskPropertySchema::new([]).expect("schema"), now)
-            .expect("approve task");
-        let artifact = forge_domain::Artifact::new(
-            forge_domain::ArtifactId::new(),
-            forge_domain::NewArtifact {
-                project_id: task.project_id(),
-                kind: ArtifactKind::new(kind).expect("artifact kind"),
-                title: "Historical evidence".to_owned(),
-                body: forge_domain::ArtifactBody::inline_json(json!({})),
-                metadata: json!({}),
-                created_by: Actor::human(ActorId::new()),
-                created_at: now,
-            },
-        )
-        .expect("artifact");
-        task.attach_artifact(
-            &artifact,
-            forge_domain::ArtifactProducer::Human,
-            Actor::human(ActorId::new()),
-            None,
-            now,
-        )
-        .expect("attach artifact");
-        task
-    }
-
-    #[test]
-    fn fake_spec_supplies_each_current_stage_requirement() {
-        let stage = PipelineStage::new(
-            StageId::new("work").expect("stable stage key"),
-            "Work",
-            ExecutorKind::Employee,
-            [PipelineTransition::new(
-                OutcomeKey::new("implemented").expect("stable outcome key"),
-                PipelineTransitionTarget::Done,
-                vec![
-                    ArtifactRequirement::new(
-                        ArtifactKind::new("change_set").expect("stable artifact key"),
-                        2,
-                    )
-                    .expect("positive requirement"),
-                ],
-            )
-            .expect("valid transition")],
-        )
-        .expect("valid stage");
-
-        let task = task_with_history_artifact("unrelated");
-        let spec = fake_run_spec(&stage, &task).expect("compatible M0 stage");
-
-        assert_eq!(spec["artifacts"].as_array().map(Vec::len), Some(2));
-        assert_eq!(spec["stage_outcome"]["outcome"], "implemented");
-    }
-
-    #[test]
-    fn fake_spec_cites_satisfied_task_history_evidence() {
-        let requirement = ArtifactRequirement::new_with_scope(
-            ArtifactKind::new("change_set").expect("artifact key"),
-            1,
-            ArtifactRequirementScope::TaskHistory,
-        )
-        .expect("positive requirement");
-        let stage = PipelineStage::new(
-            StageId::new("review").expect("stable stage key"),
-            "Review",
-            ExecutorKind::Employee,
-            [PipelineTransition::new(
-                OutcomeKey::new("approved").expect("stable outcome key"),
-                PipelineTransitionTarget::Done,
-                vec![requirement],
-            )
-            .expect("valid transition")],
-        )
-        .expect("valid stage");
-        let task = task_with_history_artifact("change_set");
-
-        let spec = fake_run_spec(&stage, &task).expect("history evidence is available");
-
-        assert!(spec["artifacts"].as_array().is_some_and(Vec::is_empty));
-        assert_eq!(
-            spec["stage_outcome"]["artifact_ids"]
-                .as_array()
-                .map(Vec::len),
-            Some(1)
-        );
-    }
-}
+#[path = "dispatch/tests.rs"]
+mod tests;

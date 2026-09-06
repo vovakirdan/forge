@@ -1,0 +1,6 @@
+# TASK-12 execution fixture. This is not a supported real-provider runtime image.
+FROM docker.io/library/ubuntu@sha256:1e0a86e57d247923571b75e0aaf48a1449cf8c543d51fb3e07a4a7d7bfa79316
+COPY target/debug/forge-runner /usr/local/bin/forge-runner
+COPY infra/runtime/codex-fixture.sh /usr/local/bin/codex
+RUN chmod 755 /usr/local/bin/forge-runner /usr/local/bin/codex && mkdir -p /run/forge /run/forge-input /run/forge-evidence /run/forge-gateway /run/forge-secrets /workspace
+ENTRYPOINT ["/usr/local/bin/forge-runner"]

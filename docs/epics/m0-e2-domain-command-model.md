@@ -3,6 +3,11 @@
 **Milestone:** M0 — Deterministic Core Simulator
 **Источник:** ../IMPLEMENTATION_PLAN.md, TASK-03–05
 
+**Сверка, 6 сентября 2026:** функциональный M0 acceptance пройден на PostgreSQL.
+Отдельный in-memory reference engine и fake-clock command harness из TASK-05
+не реализованы в текущем checkout. Это открытое отклонение от плана, а не
+согласованное исключение; подробности и требуемое решение отмечены в TASK-05.
+
 ## Цель
 
 Сделать утверждённые Task, Pipeline, dependency и escalation contracts

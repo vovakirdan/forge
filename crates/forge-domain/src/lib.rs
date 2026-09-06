@@ -6,23 +6,43 @@
 #![forbid(unsafe_code)]
 
 mod artifact;
+mod context;
 mod employee;
 mod error;
 mod event;
+mod evidence;
+pub mod execution_profile;
+mod handoff;
 mod ids;
 mod project;
+pub mod runtime;
 mod task;
+
+#[cfg(test)]
+mod context_tests;
 
 pub use artifact::{
     Artifact, ArtifactBody, ArtifactKind, ArtifactLink, ArtifactProducer,
     MAX_INLINE_JSON_BODY_BYTES, NewArtifact,
 };
+pub use context::{ContextSnapshot, ContextSnapshotInput};
 pub use employee::{
     Employee, EmployeeRole, EmployeeState, StageEligibility, StageEligibilityTarget,
 };
 pub use error::DomainError;
 pub use event::{
     Actor, ActorKind, AggregateRef, AggregateType, DomainEvent, DomainEventInput, DomainEventKind,
+};
+pub use evidence::{
+    EvidenceLocation, EvidenceObject, EvidenceObjectInput, EvidenceScope, EvidenceStream,
+};
+pub use execution_profile::{
+    CapabilityProfile, CredentialBinding, CredentialDeliveryMode, ExecutionProfile,
+    ExecutionProfileError, ExecutionProfileInput, RuntimeCapability, TransportEngine,
+};
+pub use handoff::{
+    HandoffArtifactAcceptance, HandoffArtifactReference, HandoffOutcome, HandoffProducer,
+    TaskHandoff, TaskHandoffInput,
 };
 pub use ids::{
     ActorId, ArtifactId, CommandId, EmployeeId, EventId, PipelineId, PipelineVersionId, ProjectId,

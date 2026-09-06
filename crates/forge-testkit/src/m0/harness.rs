@@ -12,7 +12,7 @@ use forge_protocol::{
 };
 use forge_storage::{PostgresStore, RunProjection, StoredTask};
 use serde_json::{Value, json};
-use sqlx::{PgPool, postgres::PgPoolOptions};
+use sqlx::PgPool;
 use tokio::{
     net::UnixListener,
     sync::watch,
@@ -24,6 +24,8 @@ use tonic::transport::Server;
 use uuid::Uuid;
 
 use super::supervisor::ManualSupervisor;
+
+mod database;
 
 const WAIT_TIMEOUT: Duration = Duration::from_secs(8);
 const POLL_INTERVAL: Duration = Duration::from_millis(15);
@@ -37,7 +39,7 @@ pub fn require_integration() -> Result<()> {
     }
 }
 
-/// One isolated Core and local gRPC listener backed by the shared development database.
+/// One Core and local gRPC listener backed by a private schema in the development database.
 pub struct M0Harness {
     /// Canonical Core command service exercised by acceptance tests.
     pub core: CoreService,
@@ -56,17 +58,20 @@ pub struct M0Harness {
 impl M0Harness {
     /// Starts a Core service and its real local Supervisor gRPC endpoint.
     pub async fn start() -> Result<Self> {
+        Self::start_configured(|core| Ok(core.with_fake_runtime())).await
+    }
+
+    /// Runs the same canonical fixture harness with an explicitly selected Core.
+    pub async fn start_configured(
+        configure: impl FnOnce(CoreService) -> Result<CoreService>,
+    ) -> Result<Self> {
         require_integration()?;
         let database_url = required_environment("FORGE_DATABASE_URL")?;
         let nats_url = required_environment("FORGE_NATS_URL")?;
         let nats = connect_nats(&nats_url).await?;
         nats.flush().await.context("flush local NATS connection")?;
 
-        let pool = PgPoolOptions::new()
-            .max_connections(8)
-            .connect(&database_url)
-            .await
-            .context("connect local Forge PostgreSQL")?;
+        let pool = database::isolated_pool(&database_url).await?;
         let store = PostgresStore::from_pool(pool.clone());
         store
             .validate_schema()
@@ -81,11 +86,11 @@ impl M0Harness {
             .context("restrict test Supervisor socket")?;
 
         let hub = Arc::new(SupervisorHub::default());
-        let core = CoreService::new(
+        let core = configure(CoreService::new(
             store.clone(),
             CoreActors::new(ActorId::new(), ActorId::new()),
             Arc::clone(&hub),
-        );
+        ))?;
         let (shutdown, shutdown_receiver) = watch::channel(false);
         let grpc_task = tokio::spawn(
             Server::builder()
@@ -129,9 +134,45 @@ impl M0Harness {
         self.wait_for_supervisor(true).await
     }
 
+    /// Executes v2 specs in real rootless Podman, with a test-owned shared root.
+    pub async fn attach_runtime_supervisor(&mut self, root: PathBuf) -> Result<()> {
+        let mut config = forge_supervisor::SupervisorConfig::new(
+            self.socket_path.clone(),
+            format!("m1-test-host-{}", Uuid::now_v7()),
+            forge_supervisor::current_boot_id()?,
+        );
+        config.state_directory = root.clone();
+        config.grants_directory = root.join("grants");
+        config.gateways_directory = root.join("gateways");
+        self.fake_task = Some(tokio::spawn(forge_supervisor::run(
+            config,
+            self.shutdown.subscribe(),
+        )));
+        timeout(WAIT_TIMEOUT, async {
+            while !self.hub.is_reconciled().await {
+                sleep(POLL_INTERVAL).await;
+            }
+        })
+        .await
+        .context("wait for runtime inventory")?;
+        Ok(())
+    }
+
     /// Attaches a deliberately non-executing Supervisor for scheduler assertions.
     pub async fn attach_manual_supervisor(&self) -> Result<ManualSupervisor> {
         let supervisor = ManualSupervisor::connect(&self.socket_path).await?;
+        self.wait_for_supervisor(true).await?;
+        Ok(supervisor)
+    }
+
+    /// Controls the physical host generation without executing a provider.
+    pub async fn attach_manual_supervisor_with_identity(
+        &self,
+        host: &str,
+        boot: &str,
+    ) -> Result<ManualSupervisor> {
+        let supervisor =
+            ManualSupervisor::connect_with_identity(&self.socket_path, host, boot).await?;
         self.wait_for_supervisor(true).await?;
         Ok(supervisor)
     }
@@ -403,6 +444,27 @@ impl M0Harness {
         self.wait_for_supervisor(false).await
     }
 
+    /// Ends local Supervisor workers before test-owned emergency inventory.
+    /// Does not remove containers, credentials, sockets or retained evidence.
+    pub async fn stop_runtime_supervisor_for_cleanup(&mut self) -> Result<()> {
+        let _ = self.shutdown.send(true);
+        if let Some(mut task) = self.fake_task.take() {
+            // The normal shutdown path drains, aborts and joins every worker.
+            // Aborting just the owner would not await its JoinSet children.
+            match timeout(Duration::from_secs(10), &mut task).await {
+                Ok(result) => result.context("join test Supervisor worker owner")??,
+                Err(_) => {
+                    task.abort();
+                    let _ = timeout(Duration::from_secs(2), task).await;
+                    anyhow::bail!(
+                        "test Supervisor worker shutdown incomplete; emergency inventory required"
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Stops local helper tasks and removes only the unique test socket directory.
     pub async fn shutdown(mut self) {
         let _ = self.shutdown.send(true);
@@ -417,7 +479,7 @@ impl M0Harness {
         let _ = fs::remove_dir(&self.temp_dir);
     }
 
-    async fn execute(
+    pub async fn execute(
         &self,
         project_id: ProjectId,
         name: CommandName,
@@ -451,13 +513,16 @@ impl M0Harness {
                 Err(error) if retryable_revision_race(&error) && attempt < 3 => {
                     sleep(POLL_INTERVAL).await;
                 }
-                Err(error) => return Err(error.into()),
+                Err(error) => {
+                    return Err(anyhow::Error::from(error)
+                        .context(format!("execute named command {name:?}")));
+                }
             }
         }
         bail!("M0 command exhausted revision retries")
     }
 
-    async fn required_task(&self, task_id: TaskId) -> Result<StoredTask> {
+    pub async fn required_task(&self, task_id: TaskId) -> Result<StoredTask> {
         self.store
             .load_task(task_id)
             .await?
@@ -484,79 +549,6 @@ impl Drop for M0Harness {
     }
 }
 
-fn required_environment(name: &str) -> Result<String> {
-    env::var(name)
-        .with_context(|| format!("set {name} through the owner-only Forge dev environment"))
-}
-
-async fn connect_nats(nats_url: &str) -> Result<async_nats::Client> {
-    let address = nats_url
-        .parse::<async_nats::ServerAddr>()
-        .map_err(|_| anyhow::anyhow!("parse configured NATS JetStream URL"))?;
-    let client = match (address.username(), address.password()) {
-        (Some(token), None) => {
-            async_nats::ConnectOptions::with_token(token.to_owned())
-                .connect(nats_url)
-                .await
-        }
-        (Some(user), Some(password)) => {
-            async_nats::ConnectOptions::with_user_and_password(user.to_owned(), password.to_owned())
-                .connect(nats_url)
-                .await
-        }
-        (None, None) => async_nats::connect(nats_url).await,
-        (None, Some(_)) => bail!("configured NATS URL has a password without a username"),
-    };
-    client.map_err(|_| anyhow::anyhow!("connect local NATS JetStream"))
-}
-
-fn test_directory() -> Result<PathBuf> {
-    let directory = env::temp_dir().join(format!("forge-m0-acceptance-{}", Uuid::now_v7()));
-    fs::create_dir(&directory).context("create isolated M0 test socket directory")?;
-    fs::set_permissions(&directory, fs::Permissions::from_mode(0o700))
-        .context("restrict M0 test socket directory")?;
-    Ok(directory)
-}
-
-async fn wait_for_shutdown(mut receiver: watch::Receiver<bool>) {
-    if !*receiver.borrow() {
-        let _ = receiver.changed().await;
-    }
-}
-
-async fn wait_until<T, F, Fut>(description: &str, mut check: F) -> Result<T>
-where
-    F: FnMut() -> Fut,
-    Fut: Future<Output = Result<Option<T>>>,
-{
-    timeout(WAIT_TIMEOUT, async {
-        loop {
-            if let Some(value) = check().await? {
-                return Ok(value);
-            }
-            sleep(POLL_INTERVAL).await;
-        }
-    })
-    .await
-    .with_context(|| format!("wait for {description}"))?
-}
-
-fn resource_id(receipt: &CommandReceipt, expected_kind: &str) -> Result<TaskId> {
-    let resource = receipt
-        .resource
-        .as_ref()
-        .context("command returned no resource")?;
-    if resource.kind != expected_kind {
-        bail!("expected {expected_kind} resource, got {}", resource.kind)
-    }
-    Ok(TaskId::from(
-        Uuid::parse_str(&resource.id).context("parse Task resource identity")?,
-    ))
-}
-
-fn retryable_revision_race(error: &CoreError) -> bool {
-    matches!(
-        error,
-        CoreError::Domain(DomainError::StaleProjectRevision { .. })
-    )
-}
+#[path = "harness/support.rs"]
+mod support;
+use support::*;

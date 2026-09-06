@@ -1,0 +1,9 @@
+# Deny-by-default build context: never send local state, credentials or Git data.
+**
+!infra/runtime/Containerfile.fixture
+!infra/runtime/Containerfile
+!infra/runtime/codex-fixture.sh
+!infra/runtime/package.json
+!infra/runtime/package-lock.json
+!target/debug/forge-runner
+!target/debug/forge-opencode-driver

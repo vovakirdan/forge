@@ -216,6 +216,10 @@ fn validate_metadata_entries<'a>(
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CommandName {
+    /// Configure audited Project reboot behavior.
+    ConfigureBootRecoveryPolicy,
+    /// Accept a candidate assessment for one interrupted execution.
+    AcceptRunRecoveryAssessment,
     /// Create a Project with the caller-reserved Project identity.
     CreateProject,
     /// Create a Pipeline and its initial immutable PipelineVersion.
@@ -244,6 +248,10 @@ pub enum CommandName {
     StopProjectExecution,
     /// Record a human/resolver outcome at an external Pipeline stage.
     SubmitExternalStageOutcome,
+    /// Assign a validated immutable runtime profile for future Employee Runs.
+    ConfigureEmployeeRuntime,
+    /// Enroll a new credential from an explicitly selected private local file.
+    EnrollCredential,
 }
 
 /// Common body for a named local API command.
