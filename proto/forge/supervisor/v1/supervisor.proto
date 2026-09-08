@@ -22,6 +22,9 @@ message SupervisorToCore {
     ObservedRunEvent observed_run_event = 2;
     ExecutorSubmission executor_submission = 3;
     SupervisorInventory inventory = 4;
+    GitCandidateInspectionResult git_candidate_inspection = 5;
+    GitIntegrationReply git_integration = 6;
+    RuntimeInputReceipt runtime_input_receipt = 9;
   }
 }
 
@@ -32,7 +35,104 @@ message CoreToSupervisor {
     StopRun stop_run = 2;
     CoreAcknowledgement acknowledgement = 3;
     RequestInventory request_inventory = 4;
+    InspectGitCandidate inspect_git_candidate = 5;
+    GitIntegrationCommand git_integration = 6;
+    DeliverRuntimeInput deliver_runtime_input = 9;
   }
+}
+
+// Versioned typed domain JSON; strict bounded decoding is required on both peers.
+// No Run is invented for a deterministic System stage. Paths derive only from
+// the immutable operator-registered Task binding, never an Employee request.
+message GitIntegrationCommand { string command_id = 1; string request_json = 2; }
+message GitIntegrationReply { string message_id = 1; string result_json = 2; }
+
+// Durable exact-scope control, never a shell command or a provider-specific flag.
+message DeliverRuntimeInput {
+  string command_id = 1;
+  string run_id = 2;
+  uint64 lease_fencing_token = 3;
+  uint64 environment_epoch = 4;
+  uint64 sequence = 5;
+  oneof action {
+    RuntimeMessageInput message = 6;
+    CloseRuntimeInput close_after_turn = 7;
+  }
+}
+
+message RuntimeMessageInput {
+  // Canonical immutable EmployeeMessage. Body remains bounded to 32 KiB.
+  string source_message_json = 1;
+}
+
+message CloseRuntimeInput {
+  // Stable Core classification, not a model prompt or an emergency stop.
+  string reason_code = 1;
+}
+
+// Runtime acceptance requires native echoed-input identity/session correlation.
+// Neither durable queueing nor a successful stdin write establishes acceptance.
+message RuntimeInputReceipt {
+  string message_id = 1;
+  string input_command_id = 2;
+  string run_id = 3;
+  uint64 lease_fencing_token = 4;
+  uint64 environment_epoch = 5;
+  RuntimeInputStatus status = 6;
+}
+
+enum RuntimeInputStatus {
+  RUNTIME_INPUT_STATUS_UNSPECIFIED = 0;
+  RUNTIME_INPUT_STATUS_RUNTIME_ACCEPTED = 1;
+  RUNTIME_INPUT_STATUS_INPUT_CLOSED = 2;
+  RUNTIME_INPUT_STATUS_UNSUPPORTED = 3;
+  RUNTIME_INPUT_STATUS_STALE_SCOPE = 4;
+  RUNTIME_INPUT_STATUS_CONFLICT = 5;
+  RUNTIME_INPUT_STATUS_DELIVERY_UNKNOWN = 6;
+}
+
+// Read-only inspection of a previously provisioned Task writer after physical quiescence.
+// No filesystem path or executable is accepted. This is not another Run stream event.
+message InspectGitCandidate {
+  string command_id = 1;
+  string run_id = 2;
+  uint64 lease_fencing_token = 3;
+  uint64 environment_epoch = 4;
+  string project_id = 5;
+  string surface_id = 6;
+  string expected_commit = 7;
+  string host_id = 8;
+  string boot_id = 9;
+}
+
+// Independently durable/replayable reply: it does not advance a stopped Run's sequence.
+message GitCandidateInspectionResult {
+  string message_id = 1;
+  string request_command_id = 2;
+  string run_id = 3;
+  uint64 lease_fencing_token = 4;
+  uint64 environment_epoch = 5;
+  // Both identities are present only for VERIFIED; no raw Git diagnostic is transported.
+  string commit = 6;
+  string tree = 7;
+  GitCandidateInspectionCode result_code = 8;
+  string host_id = 9;
+  string boot_id = 10;
+}
+
+enum GitCandidateInspectionCode {
+  GIT_CANDIDATE_INSPECTION_CODE_UNSPECIFIED = 0;
+  GIT_CANDIDATE_INSPECTION_CODE_VERIFIED = 1;
+  GIT_CANDIDATE_INSPECTION_CODE_INVALID_REQUEST = 2;
+  GIT_CANDIDATE_INSPECTION_CODE_STALE_SCOPE = 3;
+  GIT_CANDIDATE_INSPECTION_CODE_BUSY = 4;
+  GIT_CANDIDATE_INSPECTION_CODE_QUIESCENCE_UNKNOWN = 5;
+  GIT_CANDIDATE_INSPECTION_CODE_UNSAFE_SURFACE = 6;
+  GIT_CANDIDATE_INSPECTION_CODE_HEAD_CHANGED = 7;
+  GIT_CANDIDATE_INSPECTION_CODE_DIRTY_CANDIDATE = 8;
+  GIT_CANDIDATE_INSPECTION_CODE_UNSUPPORTED_REPOSITORY = 9;
+  GIT_CANDIDATE_INSPECTION_CODE_UNAVAILABLE = 10;
+  GIT_CANDIDATE_INSPECTION_CODE_CONFLICTING_REQUEST = 11;
 }
 
 // Requests a snapshot of execution identities retained by Supervisor. Inventory
@@ -98,8 +198,8 @@ message ObservedRunEvent {
   // Increases each time Core asks the Supervisor to provision a new environment
   // for this Run.
   uint64 environment_epoch = 4;
-  // Strictly increases across all run-scoped SupervisorToCore messages for this
-  // (run_id, environment_epoch) pair.
+  // Strictly increases across ObservedRunEvent and ExecutorSubmission for this
+  // (run_id, environment_epoch) pair. Inspection replies are independently scoped.
   uint64 sequence = 5;
   // When the observation occurred, expressed as Unix epoch milliseconds.
   int64 occurred_at_unix_ms = 6;
@@ -193,6 +293,9 @@ message StageOutcomeSubmission {
   // IDs to the outcome. Core rejects duplicates; omission never cites every
   // ArtifactSubmission from the Run.
   repeated string artifact_submission_message_ids = 6;
+  // Explicit full HEAD for a Task-owned Git surface. An outcome carrying this
+  // field is only a proposal until post-quiescence verification succeeds.
+  string candidate_commit = 7;
 }
 
 // Core's desired provision request. RunSpec JSON is opaque and explicitly
@@ -224,6 +327,29 @@ message ProvisionRun {
   uint32 run_spec_version = 11;
   // Optional validated W3C trace context; correlation only, never authority.
   string traceparent = 12;
+  // Absent only for legacy v1/v2 TaskStage requests. V3 must carry an exact owner.
+  oneof assignment {
+    TaskStageExecutionAssignment task_stage = 13;
+    CommunicationExecutionAssignment communication = 14;
+    ResolutionExecutionAssignment resolution = 15;
+    HookExecutionAssignment hook = 16;
+  }
+}
+
+message TaskStageExecutionAssignment { string task_id = 1; string queue_entry_id = 2; string stage_id = 3; }
+message CommunicationExecutionAssignment { string assignment_id = 1; string thread_id = 2; string source_message_id = 3; }
+message ResolutionExecutionAssignment {
+  string escalation_id = 1;
+  string assignment_id = 2;
+  uint64 lease_generation = 3;
+}
+message HookExecutionAssignment {
+  string invocation_id = 1;
+  string task_id = 2;
+  string pipeline_version_id = 3;
+  string stage_id = 4;
+  uint64 stage_visit = 5;
+  string candidate_proposal_id = 6;
 }
 
 // Requests that the Supervisor stop a provisioned Run. Completion is reported

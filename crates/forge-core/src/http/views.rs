@@ -79,6 +79,10 @@ pub(crate) struct PipelineVersionView {
     pipeline_id: String,
     version: u32,
     name: String,
+    catalog_revision: u64,
+    default_version_id: String,
+    latest_version: u32,
+    deleted_at: Option<String>,
     task_kinds: Vec<forge_domain::TaskKind>,
     entry_stage_id: String,
     max_stage_visits: Option<u32>,
@@ -92,6 +96,10 @@ pub(crate) struct PipelineStageView {
     name: String,
     executor_kind: forge_domain::ExecutorKind,
     outcomes: Vec<String>,
+    instructions: String,
+    workspace: Option<forge_domain::StageWorkspaceRequirements>,
+    acceptance_policy: Option<forge_domain::candidate_review::StageAcceptancePolicy>,
+    system_action: Option<forge_domain::git_integration::SystemStageAction>,
 }
 
 #[derive(Serialize)]
@@ -121,9 +129,10 @@ pub(crate) struct ArtifactRequirementView {
 #[derive(Serialize)]
 pub(crate) struct RunView {
     id: String,
-    task_id: String,
-    employee_id: String,
-    stage_id: String,
+    task_id: Option<String>,
+    assignment: forge_domain::ExecutionAssignment,
+    employee_id: Option<String>,
+    stage_id: Option<String>,
     attempt: u32,
     desired_state: forge_storage::RunDesiredState,
     observed_state: forge_storage::RunObservedState,
@@ -227,6 +236,10 @@ pub(crate) fn pipeline_version_view(
         pipeline_id: read.version.pipeline_id().to_string(),
         version: read.version.version(),
         name: read.pipeline.name().to_owned(),
+        catalog_revision: read.pipeline.revision(),
+        default_version_id: read.pipeline.default_version_id().to_string(),
+        latest_version: read.pipeline.latest_version(),
+        deleted_at: read.pipeline.deleted_at().map(timestamp).transpose()?,
         task_kinds: supported_task_kinds(&read.version),
         entry_stage_id: read.version.entry_stage_id().to_string(),
         max_stage_visits: read.version.max_stage_visits(),
@@ -238,9 +251,13 @@ pub(crate) fn pipeline_version_view(
 pub(crate) fn run_view(run: RunProjection) -> RunView {
     RunView {
         id: run.id.to_string(),
-        task_id: run.task_id.to_string(),
-        employee_id: run.employee_id.to_string(),
-        stage_id: run.stage_id,
+        task_id: run.task_id().map(|id| id.to_string()),
+        assignment: run.assignment.clone(),
+        employee_id: run.employee_id.map(|id| id.to_string()),
+        stage_id: run
+            .assignment
+            .task_stage()
+            .map(|owner| owner.stage_id.to_string()),
         attempt: run.attempt_number,
         desired_state: run.desired_state,
         observed_state: run.observed_state,
@@ -299,6 +316,10 @@ fn pipeline_stage_view(stage: &PipelineStage) -> PipelineStageView {
             .transitions()
             .map(|transition| transition.outcome().as_str().to_owned())
             .collect(),
+        instructions: stage.instructions().to_owned(),
+        workspace: stage.workspace().copied(),
+        acceptance_policy: stage.acceptance_policy().cloned(),
+        system_action: stage.system_action().cloned(),
     }
 }
 
@@ -372,7 +393,7 @@ fn actor_reference(actor: Actor) -> ActorReference {
     }
 }
 
-fn timestamp(value: Timestamp) -> Result<String, CoreError> {
+pub(super) fn timestamp(value: Timestamp) -> Result<String, CoreError> {
     value
         .as_offset_date_time()
         .format(&Rfc3339)
@@ -395,5 +416,43 @@ mod tests {
         let actual = serde_json::to_value(project_view(&project)).expect("view serializes");
 
         assert_eq!(actual["execution_gate"], "stopped");
+    }
+
+    #[test]
+    fn pipeline_view_exposes_pinned_instructions_and_catalog_without_rewriting_graph() {
+        let now = Timestamp::now_utc();
+        let input:forge_application::CreatePipelineCommand=serde_json::from_value(serde_json::json!({
+            "name":"Review","task_kinds":["delivery"],"entry_stage_id":"review",
+            "stages":[{"id":"review","name":"Review","executor_kind":"employee","outcomes":["done"],
+                "instructions":"Inspect the accepted revision","workspace":{"kind":"git","access":"read_only"}}],
+            "transitions":[{"from_stage_id":"review","outcome":"done","target":{"kind":"done"}}]
+        })).unwrap();
+        let (mut pipeline, version) = input
+            .build(
+                forge_domain::PipelineId::new(),
+                forge_domain::PipelineVersionId::new(),
+                ProjectId::new(),
+                forge_domain::Actor::human(forge_domain::ActorId::new()),
+                now,
+            )
+            .unwrap();
+        pipeline.soft_delete(now).unwrap();
+        let id = version.id().to_string();
+        let actual = serde_json::to_value(
+            super::pipeline_version_view(super::PipelineVersionRead { pipeline, version }).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(actual["catalog_revision"], 2);
+        assert_eq!(actual["latest_version"], 1);
+        assert_eq!(actual["default_version_id"], id);
+        assert!(actual["deleted_at"].is_string());
+        assert_eq!(
+            actual["stages"][0]["instructions"],
+            "Inspect the accepted revision"
+        );
+        assert_eq!(
+            actual["stages"][0]["workspace"],
+            serde_json::json!({"kind":"git","access":"read_only"})
+        );
     }
 }

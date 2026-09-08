@@ -15,6 +15,7 @@ use crate::{
 };
 
 mod artifact_history;
+mod catalog_management;
 
 fn stage(
     id: &str,

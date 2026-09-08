@@ -97,6 +97,29 @@ async fn main() -> ExitCode {
     }
 }
 
+fn admission_limits_from_environment() -> Result<forge_domain::admission::AdmissionLimits> {
+    let defaults = forge_domain::admission::AdmissionLimits::default();
+    let read = |name: &str, default| -> Result<u16> {
+        match std::env::var(name) {
+            Ok(value) => value
+                .parse::<u16>()
+                .ok()
+                .filter(|value| *value > 0)
+                .with_context(|| format!("{name} must be an integer between 1 and 65535")),
+            Err(std::env::VarError::NotPresent) => Ok(default),
+            Err(_) => bail!("{name} must contain valid Unicode"),
+        }
+    };
+    Ok(forge_domain::admission::AdmissionLimits {
+        host_max_runs: read("FORGE_HOST_MAX_RUNS", defaults.host_max_runs)?,
+        project_max_runs: read("FORGE_PROJECT_MAX_RUNS", defaults.project_max_runs)?,
+        credential_account_max_runs: read(
+            "FORGE_ACCOUNT_MAX_RUNS",
+            defaults.credential_account_max_runs,
+        )?,
+    })
+}
+
 async fn run(arguments: Arguments) -> Result<()> {
     let Arguments {
         observability_address,
@@ -136,8 +159,12 @@ async fn run(arguments: Arguments) -> Result<()> {
         .await
         .context("connect canonical PostgreSQL")?;
     store.validate_schema().await.context("validate schema")?;
+    let limits = admission_limits_from_environment()?;
     let core = CoreService::new(store, m0_actors(), Arc::new(SupervisorHub::default()))
-        .with_nats_health_required(config.nats_url.is_some());
+        .with_nats_health_required(config.nats_url.is_some())
+        .with_admission_limits(limits)
+        .await
+        .context("validate shared local admission configuration")?;
     let core = if fake_runtime {
         core.with_fake_runtime()
     } else {

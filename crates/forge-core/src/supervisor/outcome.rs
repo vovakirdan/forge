@@ -32,20 +32,24 @@ impl CoreService {
         submission: ParsedStageOutcomeSubmission,
     ) -> Result<InboundResult, CoreError> {
         let mut transaction = self.store.begin().await?;
-        if submission.scope.is_gateway()
-            && let Some(refused) = reserve_submission(
-                &mut transaction,
-                &submission.scope,
-                "stage_outcome_submission",
-            )
+        let readonly = transaction
+            .load_run(submission.scope.run_id)
             .await?
+            .is_some_and(|run| run.run_spec["binding"]["access"] == "read_only");
+        let receipt_kind = if submission.candidate_commit.is_some() && !readonly {
+            "git_stage_proposal"
+        } else {
+            "stage_outcome_submission"
+        };
+        if submission.scope.is_gateway()
+            && let Some(refused) =
+                reserve_submission(&mut transaction, &submission.scope, receipt_kind).await?
         {
             return Ok(refused);
         }
         let mut context = self
             .load_employee_submission_context(&mut transaction, &submission.scope)
             .await?;
-        let now = crate::canonical_clock::project_mutation_time(&context.project);
         let current_stage_id =
             context
                 .stored_task
@@ -56,7 +60,7 @@ impl CoreService {
                     reason: "is absent for an employee stage outcome".to_owned(),
                 })?;
         if current_stage_id != &submission.stage_id
-            || context.run.stage_id != submission.stage_id.as_str()
+            || context.run.require_task_stage()?.stage_id.as_str() != submission.stage_id.as_str()
         {
             return Err(CoreError::InvalidTransport {
                 field: "stage_outcome.stage_id",
@@ -64,19 +68,33 @@ impl CoreService {
             });
         }
         if !submission.scope.is_gateway()
-            && let Some(refused) = reserve_submission(
-                &mut transaction,
-                &submission.scope,
-                "stage_outcome_submission",
-            )
-            .await?
+            && let Some(refused) =
+                reserve_submission(&mut transaction, &submission.scope, receipt_kind).await?
         {
             return Ok(refused);
         }
 
-        let actor = employee_actor(&context.run);
-        let previous_revision = context.stored_task.task.revision().get();
         let task = &mut context.stored_task.task;
+        let message_context = forge_domain::communication::TaskMessageContext {
+            task_id: task.id(),
+            pipeline_version_id: task.pipeline().pipeline_version_id(),
+            stage_id: submission.stage_id.clone(),
+            stage_visit: task
+                .current_stage_visit()
+                .ok_or(CoreError::InvalidTransport {
+                    field: "inbox.barrier",
+                    reason: "active stage visit is absent".into(),
+                })?
+                .get(),
+        };
+        if !transaction
+            .pending_task_messages(context.project.id(), &message_context)
+            .await?
+            .is_empty()
+        {
+            return Err(CoreError::InvalidTransport {field:"inbox.barrier",
+                reason:"addressed instructions require acknowledgement or an answer before outcome acceptance".into()});
+        }
         let mut outcome_artifact_ids = submission.artifact_ids.clone();
         verify_existing_outcome_artifacts(
             &mut transaction,
@@ -93,6 +111,57 @@ impl CoreService {
             &mut outcome_artifact_ids,
         )
         .await?;
+        if matches!(task.work_surface(), forge_domain::TaskWorkSurface::Git(_)) {
+            if readonly {
+                self.record_readonly_candidate_outcome(
+                    &mut transaction,
+                    &context,
+                    &submission,
+                    &outcome_artifact_ids,
+                )
+                .await?;
+                return self
+                    .apply_resolved_employee_outcome(
+                        transaction,
+                        context,
+                        submission,
+                        outcome_artifact_ids,
+                        None,
+                    )
+                    .await;
+            }
+            return self
+                .capture_git_proposal(transaction, context, submission, outcome_artifact_ids)
+                .await;
+        }
+        if submission.candidate_commit.is_some() {
+            return Err(CoreError::InvalidTransport {
+                field: "candidate_commit",
+                reason: "requires a Task-owned Git binding".into(),
+            });
+        }
+        self.apply_resolved_employee_outcome(
+            transaction,
+            context,
+            submission,
+            outcome_artifact_ids,
+            None,
+        )
+        .await
+    }
+
+    pub(super) async fn apply_resolved_employee_outcome(
+        &self,
+        mut transaction: StorageTransaction<'_>,
+        mut context: super::executor::SubmissionContext,
+        submission: ParsedStageOutcomeSubmission,
+        outcome_artifact_ids: BTreeSet<forge_domain::ArtifactId>,
+        git_proposal: Option<forge_domain::git_delivery::GitStageProposal>,
+    ) -> Result<InboundResult, CoreError> {
+        let now = crate::canonical_clock::project_mutation_time(&context.project);
+        let actor = employee_actor(&context.run)?;
+        let task = &mut context.stored_task.task;
+        let previous_revision = task.revision().get();
         let next_wait = next_stage_wait(
             &context.version,
             task,
@@ -156,6 +225,17 @@ impl CoreService {
             }
             Err(error) => return Err(error.into()),
         };
+        if task.lifecycle() == forge_domain::LifecycleStatus::Done
+            && !transaction
+                .required_hooks_satisfied(
+                    task,
+                    &context.version,
+                    git_proposal.as_ref().map(|proposal| proposal.id),
+                )
+                .await?
+        {
+            return Err(CoreError::InvalidTransport{field:"outcome",reason:"applicable required project hooks have no passing result for the current candidate".into()});
+        }
         let persistence =
             retained_persistence(&context.project, task, context.stored_task.persistence)?;
         persist_task_and_project(
@@ -167,15 +247,19 @@ impl CoreService {
             now,
         )
         .await?;
-        if transaction
-            .complete_queue_after_accepted_stage_outcome(
-                submission.scope.run_id,
-                submission.scope.lease_fencing_token,
-                submission.scope.environment_epoch,
-            )
-            .await?
-            != FencedWrite::Applied
-        {
+        let completed = if let Some(proposal) = &git_proposal {
+            transaction.complete_git_proposal_queue(proposal).await?
+        } else {
+            transaction
+                .complete_queue_after_accepted_stage_outcome(
+                    submission.scope.run_id,
+                    submission.scope.lease_fencing_token,
+                    submission.scope.environment_epoch,
+                )
+                .await?
+                == FencedWrite::Applied
+        };
+        if !completed {
             return Err(CoreError::InvalidTransport {
                 field: "executor_submission",
                 reason: "Run queue lease was no longer current".to_owned(),
@@ -253,8 +337,19 @@ impl CoreService {
         for event in events {
             transaction.append_event_and_outbox(&event).await?;
         }
+        if let Some(proposal) = git_proposal {
+            transaction
+                .set_git_proposal_state(
+                    proposal.id,
+                    forge_domain::git_delivery::GitProposalState::Accepted,
+                )
+                .await?;
+        }
         let project_id = context.project.id();
         transaction.commit().await?;
+        if let Err(error) = self.reconcile_runtime_inputs(Some(project_id)).await {
+            warn!(error = %error, "could not reconcile input after stage outcome");
+        }
         if let Err(error) = self.dispatch_available(project_id).await {
             warn!(error = %error, "could not dispatch newly eligible executor work");
         }
@@ -331,7 +426,7 @@ async fn resolve_current_run_artifacts(
     Ok(())
 }
 
-fn next_stage_wait(
+pub(crate) fn next_stage_wait(
     version: &PipelineVersion,
     task: &Task,
     outcome: &forge_domain::OutcomeKey,
@@ -363,12 +458,7 @@ fn next_stage_wait(
             field: "pipeline.transition.target",
             reason: "is absent from the pinned pipeline version".to_owned(),
         })?;
-    if next_stage.executor_kind() == ExecutorKind::System {
-        return Err(CoreError::InvalidTransport {
-            field: "pipeline.transition.target",
-            reason: "system stages are not implemented in M0".to_owned(),
-        });
-    }
+    forge_application::engine::task_support::reject_unimplemented_system_stage(next_stage, task)?;
     if !next_stage.executor_kind().requires_wait() {
         return Ok(None);
     }

@@ -16,7 +16,7 @@ pub(crate) async fn insert_task_row(
 ) -> Result<(), StorageError> {
     let columns = TaskColumns::from_task(task, persistence)?;
     sqlx::query(
-        "INSERT INTO tasks (id, project_id, task_sequence, task_key, title, description, definition_of_done, task_kind, properties, priority_level_id, priority_rank, lifecycle, pipeline_id, pipeline_version_id, current_stage_id, wait_conditions, resume_to_lifecycle, cancellation_reason_id, cancellation_note, attempt_count, task_work_surface_id, created_by, revision, canonical_snapshot, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, $12, $13, $14, $15, $16::jsonb, $17, $18, $19, $20, $21, $22::jsonb, $23, $24::jsonb, $25, $26)",
+        "INSERT INTO tasks (id, project_id, task_sequence, task_key, title, description, definition_of_done, task_kind, properties, priority_level_id, priority_rank, lifecycle, pipeline_id, pipeline_version_id, current_stage_id, wait_conditions, resume_to_lifecycle, cancellation_reason_id, cancellation_note, attempt_count, task_work_surface_id, created_by, revision, canonical_snapshot, created_at, updated_at, project_repository_id, base_sha) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, $12, $13, $14, $15, $16::jsonb, $17, $18, $19, $20, $21, $22::jsonb, $23, $24::jsonb, $25, $26, $27, $28)",
     )
     .bind(task.id().as_uuid())
     .bind(task.project_id().as_uuid())
@@ -44,6 +44,8 @@ pub(crate) async fn insert_task_row(
     .bind(columns.snapshot)
     .bind(database_timestamp(task.created_at()))
     .bind(database_timestamp(task.updated_at()))
+    .bind(columns.project_repository_id)
+    .bind(columns.base_sha)
     .execute(&mut **transaction)
     .await?;
     Ok(())
@@ -62,7 +64,7 @@ pub(crate) async fn update_task_row(
     }
     let columns = TaskColumns::from_task(task, persistence)?;
     let result = sqlx::query(
-        "UPDATE tasks SET title = $2, description = $3, definition_of_done = $4, task_kind = $5, properties = $6::jsonb, priority_level_id = $7, priority_rank = $8, lifecycle = $9, pipeline_id = $10, pipeline_version_id = $11, current_stage_id = $12, wait_conditions = $13::jsonb, resume_to_lifecycle = $14, cancellation_reason_id = $15, cancellation_note = $16, attempt_count = $17, task_work_surface_id = $18, revision = $19, canonical_snapshot = $20::jsonb WHERE id = $1 AND revision = $21",
+        "UPDATE tasks SET title = $2, description = $3, definition_of_done = $4, task_kind = $5, properties = $6::jsonb, priority_level_id = $7, priority_rank = $8, lifecycle = $9, pipeline_id = $10, pipeline_version_id = $11, current_stage_id = $12, wait_conditions = $13::jsonb, resume_to_lifecycle = $14, cancellation_reason_id = $15, cancellation_note = $16, attempt_count = $17, task_work_surface_id = $18, revision = $19, canonical_snapshot = $20::jsonb, project_repository_id = $22, base_sha = $23 WHERE id = $1 AND revision = $21",
     )
     .bind(task.id().as_uuid())
     .bind(columns.title)
@@ -85,6 +87,8 @@ pub(crate) async fn update_task_row(
     .bind(columns.revision)
     .bind(columns.snapshot)
     .bind(u64_to_i64(expected_revision, "task.expected_revision")?)
+    .bind(columns.project_repository_id)
+    .bind(columns.base_sha)
     .execute(&mut **transaction)
     .await?;
     if result.rows_affected() == 1 {
@@ -114,12 +118,28 @@ struct TaskColumns {
     cancellation_note: Option<String>,
     attempt_count: i32,
     task_work_surface_id: Option<Uuid>,
+    project_repository_id: Option<Uuid>,
+    base_sha: Option<String>,
     revision: i64,
     snapshot: String,
 }
 
 impl TaskColumns {
     fn from_task(task: &Task, persistence: TaskPersistence) -> Result<Self, StorageError> {
+        let (project_repository_id, base_sha) = match task.work_surface() {
+            forge_domain::TaskWorkSurface::None => (None, None),
+            forge_domain::TaskWorkSurface::Git(binding) => {
+                if persistence.task_work_surface_id != Some(binding.surface_id) {
+                    return Err(StorageError::InvalidInput {
+                        reason: "Task Git surface and scheduler projection disagree".into(),
+                    });
+                }
+                (
+                    Some(binding.repository_id),
+                    Some(binding.initial_base.as_str().to_owned()),
+                )
+            }
+        };
         let waits =
             serde_json::to_value(task.wait_conditions().collect::<Vec<_>>()).map_err(|source| {
                 StorageError::Snapshot {
@@ -157,6 +177,8 @@ impl TaskColumns {
             cancellation_note,
             attempt_count: u32_to_i32(persistence.attempt_count, "task.attempt_count")?,
             task_work_surface_id: persistence.task_work_surface_id,
+            project_repository_id,
+            base_sha,
             revision: u64_to_i64(task.revision().get(), "task.revision")?,
             snapshot: encode_snapshot(task, "task")?,
         })

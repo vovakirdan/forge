@@ -20,7 +20,9 @@ impl CoreService {
         transaction: &mut StorageTransaction<'_>,
         run: &RunProjection,
     ) -> Result<(), CoreError> {
-        if run.run_spec_version != 2 || transaction.auth_writeback_recorded(run.id).await? {
+        if !matches!(run.run_spec_version, 2..=4)
+            || transaction.auth_writeback_recorded(run.id).await?
+        {
             return Ok(());
         }
         let Some(execution) = &self.execution else {

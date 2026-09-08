@@ -1,7 +1,7 @@
 //! Host-side composition; provider executables run only inside Supervisor sandboxes.
 
 use crate::{CoreError, CoreService, GatewayHandle, credentials::credential_error};
-use forge_domain::runtime::SandboxRunSpec;
+use forge_domain::runtime::RuntimeLaunchSpec;
 use forge_protocol::runtime::{RunnerCredentialFile, RunnerInvocation, RunnerManagedFile};
 use forge_provider_common::{PrivateMaterialization, SecretBytes, adapter::PreparedInvocation};
 use forge_storage::RunProjection;
@@ -95,9 +95,12 @@ impl CoreService {
             .load_run(run_id)
             .await?
             .ok_or(CoreError::NotFound { aggregate: "run" })?;
-        let spec: SandboxRunSpec =
+        let mut spec: RuntimeLaunchSpec =
             serde_json::from_value(run.run_spec.clone()).map_err(|_| credential_error())?;
         spec.validate().map_err(|_| credential_error())?;
+        // Resolution is one-shot even when this Employee's Task profile supports
+        // native input. This is an effective launch copy, never a binding edit.
+        apply_purpose_profile(&mut spec)?;
         let mut transaction = self.store.begin().await?;
         let scope = forge_domain::runtime::RunScope {
             run_id,
@@ -115,6 +118,7 @@ impl CoreService {
         let auth = self.open_runtime_credential(
             &record,
             spec.binding.execution_profile.credential_binding(),
+            spec.binding.execution_profile.adapter_id(),
         )?;
         let prompt = SecretBytes::new(
             format!(
@@ -155,6 +159,24 @@ impl CoreService {
                 .map_err(|_| credential_error())?;
                 (prepared, key, "api-key")
             }
+            "claude_code_cli" => (
+                forge_provider_claude::ClaudeAdapter::prepare(
+                    forge_provider_claude::ClaudeRunInput {
+                        profile: &spec.binding.execution_profile,
+                        prompt,
+                        workdir,
+                        gateway_url: "http://127.0.0.1:4097/mcp",
+                        proxy_url: "http://127.0.0.1:4098",
+                        // Stable per-Run identities make preparation retries byte
+                        // identical. This path delivers one turn and then stdin EOF.
+                        session_id: run.id,
+                        message_id: run.id,
+                    },
+                )
+                .map_err(|_| credential_error())?,
+                auth,
+                "claude-setup-token",
+            ),
             _ => {
                 return Err(CoreError::InvalidTransport {
                     field: "runtime",
@@ -192,18 +214,36 @@ impl CoreService {
     }
 }
 
+fn apply_purpose_profile(spec: &mut RuntimeLaunchSpec) -> Result<(), CoreError> {
+    if spec.resolution.is_some() {
+        let mut profile: forge_domain::ExecutionProfileInput =
+            spec.binding.execution_profile.clone().into();
+        profile
+            .capability_profile
+            .capabilities
+            .retain(|capability| *capability != forge_domain::RuntimeCapability::LiveInput);
+        spec.binding.execution_profile = profile.try_into().map_err(|_| credential_error())?;
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+#[path = "runtime_preparation/resolution_tests.rs"]
+mod resolution_tests;
+
 fn container_workdir(surface: &forge_domain::runtime::SurfaceSpec) -> &'static str {
     match surface {
         forge_domain::runtime::SurfaceSpec::None => "/workspace",
         forge_domain::runtime::SurfaceSpec::FilesystemSandbox
-        | forge_domain::runtime::SurfaceSpec::GitWorktree { .. } => "/workspace/worktree",
+        | forge_domain::runtime::SurfaceSpec::GitWorktree { .. }
+        | forge_domain::runtime::SurfaceSpec::GitCandidateSnapshot { .. } => "/workspace/worktree",
     }
 }
 
 fn materialize(
     execution: &ExecutionRuntime,
     run: &RunProjection,
-    spec: &SandboxRunSpec,
+    spec: &RuntimeLaunchSpec,
     prepared: PreparedInvocation,
     secret: &SecretBytes,
     secret_name: &str,
@@ -253,6 +293,18 @@ fn materialize(
             .collect(),
         max_output_bytes: spec.binding.budget.max_output_bytes,
         stop_grace_seconds: spec.binding.limits.stop_grace_seconds,
+        runtime_input: (matches!(spec.schema_version, 2 | 3)
+            && spec
+                .binding
+                .execution_profile
+                .capability_profile()
+                .capabilities
+                .contains(&forge_domain::RuntimeCapability::LiveInput))
+        .then(|| forge_protocol::runtime::RuntimeInputConfig {
+            run_id: run.id.to_string(),
+            fencing_token: run.lease_fencing_token,
+            environment_epoch: run.environment_epoch,
+        }),
     };
     invocation
         .env
@@ -265,6 +317,16 @@ fn materialize(
             "-c".into(),
             format!("mcp_servers.forge.http_headers.traceparent={quoted}"),
         ]);
+    } else if invocation.adapter_id == "claude_code_cli" {
+        let file = invocation
+            .managed_files
+            .iter_mut()
+            .find(|file| file.relative_path == "claude-mcp.json")
+            .ok_or_else(credential_error)?;
+        let mut config: serde_json::Value =
+            serde_json::from_str(&file.contents).map_err(|_| credential_error())?;
+        config["mcpServers"]["forge"]["headers"] = serde_json::json!({"traceparent": traceparent});
+        file.contents = serde_json::to_string(&config).map_err(|_| credential_error())?;
     } else if invocation.adapter_id == "opencode_runtime" {
         let raw = invocation
             .env

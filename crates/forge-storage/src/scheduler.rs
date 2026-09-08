@@ -59,7 +59,7 @@ impl StorageTransaction<'_> {
         input: &QueueEntryInput,
     ) -> Result<Option<QueueEntry>, StorageError> {
         let row = sqlx::query(
-            "INSERT INTO queue_entries (id, project_id, task_id, task_sequence, pipeline_id, pipeline_version_id, stage_id, task_revision, attempt_number, priority_level_id, priority_rank, resource_profile, eligible_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, $13) ON CONFLICT (project_id, task_id, stage_id, task_revision) DO NOTHING RETURNING id, project_id, task_id, task_sequence, pipeline_id, pipeline_version_id, stage_id, task_revision, attempt_number, priority_level_id, priority_rank, resource_profile::text AS resource_profile, eligible_at, queue_state",
+            "INSERT INTO queue_entries (id, project_id, task_id, task_sequence, pipeline_id, pipeline_version_id, stage_id, task_revision, attempt_number, priority_level_id, priority_rank, resource_profile, eligible_at) SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, $13 WHERE NOT EXISTS(SELECT 1 FROM queue_entries owned WHERE owned.project_id=$2 AND owned.task_id=$3 AND owned.queue_state='leased') ON CONFLICT (project_id, task_id, stage_id, task_revision) DO NOTHING RETURNING id, project_id, task_id, task_sequence, pipeline_id, pipeline_version_id, stage_id, task_revision, attempt_number, priority_level_id, priority_rank, resource_profile::text AS resource_profile, eligible_at, queue_state",
         )
         .bind(Uuid::now_v7())
         .bind(input.project_id.as_uuid())
@@ -88,7 +88,36 @@ impl StorageTransaction<'_> {
         project_id: ProjectId,
     ) -> Result<Option<QueueEntry>, StorageError> {
         let row = sqlx::query(
-            "WITH candidate AS (SELECT q.id FROM queue_entries q JOIN projects p ON p.id = q.project_id JOIN tasks t ON t.id = q.task_id AND t.project_id = q.project_id WHERE q.project_id = $1 AND q.queue_state = 'queued' AND q.eligible_at <= clock_timestamp() AND p.execution_enabled AND (NOT EXISTS (SELECT 1 FROM project_recovery_settings prs WHERE prs.project_id=p.id AND prs.hold) OR EXISTS (SELECT 1 FROM run_recovery_decisions rd WHERE rd.recovery_queue_entry_id=q.id AND rd.assessment='not_started_confirmed')) AND t.lifecycle IN ('ready', 'in_progress') AND t.revision = q.task_revision AND t.current_stage_id = q.stage_id AND NOT EXISTS (SELECT 1 FROM run_environment_reservations r WHERE r.task_id=t.id AND r.released_at IS NULL) AND NOT EXISTS (SELECT 1 FROM task_dependencies d JOIN tasks blocker ON blocker.id = d.blocker_task_id AND blocker.project_id = d.project_id WHERE d.project_id = q.project_id AND d.blocked_task_id = q.task_id AND blocker.lifecycle <> d.required_blocker_lifecycle) ORDER BY q.priority_rank DESC, q.eligible_at ASC, q.task_sequence ASC, q.id ASC FOR UPDATE OF p, t, q SKIP LOCKED LIMIT 1) UPDATE queue_entries q SET queue_state = 'leased', claimed_at = clock_timestamp() FROM candidate WHERE q.id = candidate.id RETURNING q.id, q.project_id, q.task_id, q.task_sequence, q.pipeline_id, q.pipeline_version_id, q.stage_id, q.task_revision, q.attempt_number, q.priority_level_id, q.priority_rank, q.resource_profile::text AS resource_profile, q.eligible_at, q.queue_state",
+            r#"WITH candidate AS (
+                SELECT q.id FROM queue_entries q JOIN projects p ON p.id=q.project_id
+                JOIN tasks t ON t.id=q.task_id AND t.project_id=q.project_id
+                WHERE q.project_id=$1 AND q.queue_state='queued' AND q.eligible_at<=clock_timestamp()
+                  AND p.execution_enabled
+                  AND (NOT EXISTS (SELECT 1 FROM project_recovery_settings prs WHERE prs.project_id=p.id AND prs.hold)
+                    OR EXISTS (SELECT 1 FROM run_recovery_decisions rd WHERE rd.recovery_queue_entry_id=q.id AND rd.assessment='not_started_confirmed'))
+                  AND t.lifecycle IN ('ready','in_progress') AND t.revision=q.task_revision AND t.current_stage_id=q.stage_id
+                  AND NOT EXISTS (SELECT 1 FROM run_environment_reservations r WHERE r.task_id=t.id AND r.released_at IS NULL)
+                  AND NOT EXISTS (SELECT 1 FROM git_integrations i WHERE i.task_id=t.id AND i.state NOT IN ('completed','retired'))
+                  AND NOT EXISTS (SELECT 1 FROM task_dependencies d JOIN tasks blocker ON blocker.id=d.blocker_task_id AND blocker.project_id=d.project_id
+                    WHERE d.project_id=q.project_id AND d.blocked_task_id=q.task_id AND blocker.lifecycle<>d.required_blocker_lifecycle)
+                  AND NOT EXISTS (
+                    SELECT 1 FROM task_next_run_constraints c JOIN employees e ON e.id=c.employee_id AND e.project_id=c.project_id
+                    WHERE c.project_id=t.project_id AND c.task_id=t.id AND c.pipeline_version_id=t.pipeline_version_id
+                      AND c.stage_id=t.current_stage_id AND c.stage_visit=(t.canonical_snapshot->>'current_stage_visit')::bigint
+                      AND (c.constraint_state='blocked' OR (c.constraint_state='pending' AND e.employee_state='active'
+                        AND ((SELECT count(*) FROM (
+                          SELECT l.id FROM leases l WHERE l.employee_id=e.id AND l.lease_state='active'
+                          UNION SELECT r.lease_id FROM runs r JOIN run_environment_reservations er ON er.run_id=r.id
+                            WHERE er.employee_id=e.id AND er.released_at IS NULL
+                        ) held)>=e.max_concurrent_runs
+                        OR EXISTS(SELECT 1 FROM employee_runtime_bindings b WHERE b.employee_id=e.id
+                          AND b.project_id=e.project_id AND NOT forge_admission_available(q.project_id,b.binding->'execution_profile'))))))
+                ORDER BY q.priority_rank DESC,q.eligible_at ASC,q.task_sequence ASC,q.id ASC
+                FOR UPDATE OF p,t,q SKIP LOCKED LIMIT 1
+            ) UPDATE queue_entries q SET queue_state='leased',claimed_at=clock_timestamp() FROM candidate
+              WHERE q.id=candidate.id RETURNING q.id,q.project_id,q.task_id,q.task_sequence,q.pipeline_id,
+                q.pipeline_version_id,q.stage_id,q.task_revision,q.attempt_number,q.priority_level_id,
+                q.priority_rank,q.resource_profile::text AS resource_profile,q.eligible_at,q.queue_state"#,
         )
         .bind(project_id.as_uuid())
         .fetch_optional(&mut *self.transaction)
@@ -110,13 +139,13 @@ impl StorageTransaction<'_> {
         Ok(result.rows_affected() == 1)
     }
 
-    /// Finds currently unleased active Employees under row locks; Core applies stage policy.
+    /// Finds enabled Employees with free capacity under row locks; Core applies stage policy.
     pub async fn lock_available_employees(
         &mut self,
         project_id: ProjectId,
     ) -> Result<Vec<StoredEmployee>, StorageError> {
         let values: Vec<String> = sqlx::query_scalar(
-            "SELECT e.canonical_snapshot::text FROM employees e WHERE e.project_id = $1 AND e.employee_state = 'active' AND NOT EXISTS (SELECT 1 FROM leases l WHERE l.employee_id = e.id AND l.lease_state = 'active') AND NOT EXISTS (SELECT 1 FROM run_environment_reservations r WHERE r.employee_id=e.id AND r.released_at IS NULL) ORDER BY e.name ASC FOR UPDATE OF e SKIP LOCKED",
+            "SELECT e.canonical_snapshot::text FROM employees e WHERE e.project_id = $1 AND e.employee_state = 'active' AND (SELECT count(*) FROM (SELECT l.id FROM leases l WHERE l.employee_id=e.id AND l.lease_state='active' UNION SELECT r.lease_id FROM runs r JOIN run_environment_reservations e2 ON e2.run_id=r.id WHERE e2.employee_id=e.id AND e2.released_at IS NULL) held) < e.max_concurrent_runs ORDER BY e.name ASC FOR UPDATE OF e SKIP LOCKED",
         )
         .bind(project_id.as_uuid())
         .fetch_all(&mut *self.transaction)
@@ -182,6 +211,26 @@ impl StorageTransaction<'_> {
                 aggregate: "task dispatch state",
             });
         }
+        let integrating:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM git_integrations WHERE project_id=$1 AND task_id=$2 AND state NOT IN ('completed','retired'))")
+            .bind(request.queue_entry.input.project_id.as_uuid()).bind(request.queue_entry.input.task_id.as_uuid()).fetch_one(&mut *self.transaction).await?;
+        if integrating {
+            return Err(StorageError::InvalidInput {
+                reason: "Task has an unresolved Git integration".into(),
+            });
+        }
+        let assignee_conflict: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM task_next_run_constraints c JOIN tasks t ON t.id=c.task_id AND t.project_id=c.project_id WHERE c.project_id=$1 AND c.task_id=$2 AND c.constraint_state IN ('pending','blocked') AND c.pipeline_version_id=t.pipeline_version_id AND c.stage_id=t.current_stage_id AND c.stage_visit=(t.canonical_snapshot->>'current_stage_visit')::bigint AND (c.constraint_state='blocked' OR c.employee_id<>$3))",
+        )
+        .bind(request.queue_entry.input.project_id.as_uuid())
+        .bind(request.queue_entry.input.task_id.as_uuid())
+        .bind(request.employee_id.as_uuid())
+        .fetch_one(&mut *self.transaction)
+        .await?;
+        if assignee_conflict {
+            return Err(StorageError::InvalidInput {
+                reason: "next Run Employee constraint does not permit this assignment".into(),
+            });
+        }
         let blocked: bool = sqlx::query_scalar(
             "SELECT EXISTS (SELECT 1 FROM task_dependencies d JOIN tasks blocker ON blocker.id = d.blocker_task_id AND blocker.project_id = d.project_id WHERE d.project_id = $1 AND d.blocked_task_id = $2 AND blocker.lifecycle <> d.required_blocker_lifecycle)",
         )
@@ -218,18 +267,20 @@ impl StorageTransaction<'_> {
                 aggregate: "queue entry",
             });
         }
-        let employee_active: Option<Uuid> = sqlx::query_scalar(
-            "SELECT e.id FROM employees e WHERE e.id = $1 AND e.project_id = $2 AND e.employee_state = 'active' AND NOT EXISTS (SELECT 1 FROM leases l WHERE l.employee_id = e.id AND l.lease_state = 'active') FOR UPDATE OF e",
-        )
-        .bind(request.employee_id.as_uuid())
-        .bind(request.queue_entry.input.project_id.as_uuid())
-        .fetch_optional(&mut *self.transaction)
-        .await?;
-        if employee_active.is_none() {
+        if !self
+            .lock_employee_capacity(request.queue_entry.input.project_id, request.employee_id)
+            .await?
+        {
             return Err(StorageError::StaleRevision {
                 aggregate: "employee",
             });
         }
+        self.require_run_admission(
+            request.queue_entry.input.project_id,
+            request.run_spec_version,
+            &request.run_spec,
+        )
+        .await?;
         let row = sqlx::query(
             "INSERT INTO leases (id, project_id, task_id, queue_entry_id, employee_id, task_work_surface_id, lease_scope, resource_reservation, expires_at) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9) RETURNING fencing_token, environment_epoch",
         )
@@ -272,11 +323,15 @@ impl StorageTransaction<'_> {
             run: RunProjection {
                 id: request.run_id,
                 project_id: request.queue_entry.input.project_id,
-                task_id: request.queue_entry.input.task_id,
-                queue_entry_id: request.queue_entry.id,
+                assignment: forge_domain::ExecutionAssignment::TaskStage(
+                    forge_domain::TaskStageAssignment {
+                        task_id: request.queue_entry.input.task_id,
+                        queue_entry_id: request.queue_entry.id,
+                        stage_id: request.queue_entry.input.stage_id.clone(),
+                    },
+                ),
                 lease_id: request.lease_id,
-                employee_id: request.employee_id,
-                stage_id: request.queue_entry.input.stage_id.as_str().to_owned(),
+                employee_id: Some(request.employee_id),
                 attempt_number: request.queue_entry.input.attempt_number,
                 lease_fencing_token: fencing_token,
                 environment_epoch,
@@ -294,7 +349,7 @@ impl StorageTransaction<'_> {
     /// Reads a current Run projection under the scheduler transaction.
     pub async fn load_run(&mut self, run_id: Uuid) -> Result<Option<RunProjection>, StorageError> {
         let row = sqlx::query(
-            "SELECT id, project_id, task_id, queue_entry_id, lease_id, employee_id, stage_id, attempt_number, lease_fencing_token, environment_epoch, last_sequence, desired_state, observed_state, run_spec_version, run_spec::text AS run_spec, context_manifest::text AS context_manifest, observed_details::text AS observed_details FROM runs WHERE id = $1",
+            "SELECT id, project_id, purpose, communication_assignment_id, resolution_assignment_id, hook_invocation_id, task_id, queue_entry_id, lease_id, employee_id, stage_id, attempt_number, lease_fencing_token, environment_epoch, last_sequence, desired_state, observed_state, run_spec_version, run_spec::text AS run_spec, context_manifest::text AS context_manifest, observed_details::text AS observed_details FROM runs WHERE id = $1",
         )
         .bind(run_id)
         .fetch_optional(&mut *self.transaction)

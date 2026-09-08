@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "description": "Pinned image-only CLI dependencies; never installed into the host agent home",
   "dependencies": {
+    "@anthropic-ai/claude-code": "2.1.263",
     "@openai/codex": "0.153.2",
     "opencode-ai": "1.18.29"
   }

@@ -27,6 +27,13 @@ pub struct RunningTask {
 }
 
 pub async fn running_task(kind: BackendKind) -> Result<RunningTask> {
+    running_task_with_visit(kind, None).await
+}
+
+pub async fn running_task_with_visit(
+    kind: BackendKind,
+    stage_visit: Option<forge_domain::StageVisit>,
+) -> Result<RunningTask> {
     let fixture = Fixture::create(kind).await?;
     let pipeline = fixture.pipeline(single_stage_pipeline()).await?;
     let employee: EmployeeId = fixture
@@ -64,7 +71,15 @@ pub async fn running_task(kind: BackendKind) -> Result<RunningTask> {
             let run = ActiveRun {
                 id: run_id,
                 project_id: fixture.project_id,
-                task_id: task,
+                assignment: forge_domain::ExecutionAssignment::TaskStage(
+                    forge_domain::TaskStageAssignment {
+                        task_id: task,
+                        queue_entry_id: queue_id,
+                        stage_id: forge_domain::StageId::new("work")?,
+                    },
+                ),
+                stage_visit,
+                employee_id: Some(employee),
                 lease_fencing_token: 7,
                 environment_epoch: 1,
             };
@@ -121,7 +136,32 @@ pub async fn running_task(kind: BackendKind) -> Result<RunningTask> {
                 resource_reservation: json!({}),
                 run_spec_version: 1,
                 run_spec: json!({}),
-                context_manifest: json!({}),
+                context_manifest: match stage_visit {
+                    None => json!({}),
+                    Some(visit) => serde_json::to_value(forge_domain::ContextSnapshot::new(
+                        forge_domain::ContextSnapshotInput {
+                            context_snapshot_id: Uuid::now_v7(),
+                            project_id: fixture.project_id,
+                            task_id: task,
+                            run_id,
+                            employee_id: employee,
+                            pipeline_version_id: pipeline,
+                            stage_id: forge_domain::StageId::new("work")?,
+                            stage_visit: Some(visit.get()),
+                            task_revision_before_dispatch: stored.task.revision().get(),
+                            task_spec: stored.task.spec().clone(),
+                            system_policy_revision: "fixture/v1".into(),
+                            employee_prompt_revision: "employee/v1".into(),
+                            capability_grants: vec![],
+                            tool_catalog_revision: "fixture/v1".into(),
+                            run_spec_id: Uuid::now_v7(),
+                            prior_handoff: None,
+                            artifacts: vec![],
+                            control_instruction: None,
+                            created_at: fixture.clock.now(),
+                        },
+                    )?)?,
+                },
             };
             let provisioned = tx.create_lease_and_run(&request).await?;
             tx.reserve_environment(run_id, None).await?;
@@ -131,7 +171,15 @@ pub async fn running_task(kind: BackendKind) -> Result<RunningTask> {
                 ActiveRun {
                     id: run_id,
                     project_id: fixture.project_id,
-                    task_id: task,
+                    assignment: forge_domain::ExecutionAssignment::TaskStage(
+                        forge_domain::TaskStageAssignment {
+                            task_id: task,
+                            queue_entry_id: queue_id,
+                            stage_id: forge_domain::StageId::new("work")?,
+                        },
+                    ),
+                    stage_visit,
+                    employee_id: Some(employee),
                     lease_fencing_token: provisioned.lease_fencing_token,
                     environment_epoch: provisioned.environment_epoch,
                 },

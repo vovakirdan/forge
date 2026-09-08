@@ -5,7 +5,7 @@
 
 use forge_application::{CommandTransaction, RepositoryError, ports::*};
 use forge_domain::{
-    Actor, Artifact, ArtifactId, DomainEvent, Employee, EventId, Pipeline, PipelineId,
+    Actor, Artifact, ArtifactId, DomainEvent, Employee, EmployeeId, EventId, Pipeline, PipelineId,
     PipelineVersion, PipelineVersionId, Project, ProjectId, Task, TaskDependency, TaskId,
 };
 use uuid::Uuid;
@@ -28,7 +28,24 @@ impl From<&RunProjection> for ActiveRun {
         Self {
             id: run.id,
             project_id: run.project_id,
-            task_id: run.task_id,
+            assignment: run.assignment.clone(),
+            stage_visit: serde_json::from_value::<forge_domain::ContextSnapshot>(
+                run.context_manifest.clone(),
+            )
+            .ok()
+            .filter(|context| {
+                run.assignment.task_stage().is_some_and(|owner| {
+                    let data = context.data();
+                    data.run_id == run.id
+                        && data.project_id == run.project_id
+                        && Some(data.employee_id) == run.employee_id
+                        && data.task_id == owner.task_id
+                        && data.stage_id == owner.stage_id
+                })
+            })
+            .and_then(|context| context.data().stage_visit)
+            .and_then(|visit| serde_json::from_value(serde_json::json!(visit)).ok()),
+            employee_id: run.employee_id,
             lease_fencing_token: run.lease_fencing_token,
             environment_epoch: run.environment_epoch,
         }
@@ -36,6 +53,254 @@ impl From<&RunProjection> for ActiveRun {
 }
 
 impl CommandTransaction for StorageTransaction<'_> {
+    async fn insert_command_handoff(
+        &mut self,
+        handoff: &forge_domain::TaskHandoff,
+    ) -> Result<(), RepositoryError> {
+        Ok(StorageTransaction::insert_command_handoff(self, handoff).await?)
+    }
+    async fn required_hooks_satisfied(
+        &mut self,
+        task: &Task,
+        version: &PipelineVersion,
+        candidate_override: Option<Uuid>,
+    ) -> Result<bool, RepositoryError> {
+        Ok(
+            StorageTransaction::required_hooks_satisfied(self, task, version, candidate_override)
+                .await?,
+        )
+    }
+    async fn communication_escalation_is_current(
+        &mut self,
+        escalation: &forge_domain::resolution::Escalation,
+    ) -> Result<bool, RepositoryError> {
+        StorageTransaction::communication_escalation_is_current(self, escalation)
+            .await
+            .map_err(Into::into)
+    }
+    async fn load_escalation_for_wait(
+        &mut self,
+        project: ProjectId,
+        task: TaskId,
+        wait: forge_domain::WaitConditionId,
+    ) -> Result<Option<forge_domain::resolution::Escalation>, RepositoryError> {
+        StorageTransaction::load_escalation_for_wait(self, project, task, wait)
+            .await
+            .map_err(Into::into)
+    }
+    async fn load_resolver_route(
+        &mut self,
+        project: ProjectId,
+        key: &str,
+    ) -> Result<Option<forge_domain::resolution::ResolverRoute>, RepositoryError> {
+        StorageTransaction::load_resolver_route(self, project, key)
+            .await
+            .map_err(Into::into)
+    }
+    async fn save_resolver_route(
+        &mut self,
+        route: &forge_domain::resolution::ResolverRoute,
+        expected: Option<u64>,
+    ) -> Result<(), RepositoryError> {
+        StorageTransaction::save_resolver_route(self, route, expected)
+            .await
+            .map_err(Into::into)
+    }
+    async fn load_escalation(
+        &mut self,
+        id: Uuid,
+    ) -> Result<Option<forge_domain::resolution::Escalation>, RepositoryError> {
+        StorageTransaction::load_escalation(self, id)
+            .await
+            .map_err(Into::into)
+    }
+    async fn save_escalation(
+        &mut self,
+        value: &forge_domain::resolution::Escalation,
+        expected: Option<u64>,
+    ) -> Result<(), RepositoryError> {
+        StorageTransaction::save_escalation(self, value, expected)
+            .await
+            .map_err(Into::into)
+    }
+    async fn load_resolution_assignment(
+        &mut self,
+        id: Uuid,
+    ) -> Result<Option<forge_domain::resolution::ResolutionAssignment>, RepositoryError> {
+        StorageTransaction::load_resolution_assignment(self, id)
+            .await
+            .map_err(Into::into)
+    }
+    async fn insert_resolution_assignment(
+        &mut self,
+        value: &forge_domain::resolution::ResolutionAssignment,
+    ) -> Result<(), RepositoryError> {
+        StorageTransaction::insert_resolution_assignment(self, value)
+            .await
+            .map_err(Into::into)
+    }
+    async fn update_resolution_assignment(
+        &mut self,
+        value: &forge_domain::resolution::ResolutionAssignment,
+    ) -> Result<(), RepositoryError> {
+        StorageTransaction::update_resolution_assignment(self, value)
+            .await
+            .map_err(Into::into)
+    }
+    async fn lock_finding(
+        &mut self,
+        id: Uuid,
+    ) -> Result<Option<forge_domain::finding::Finding>, RepositoryError> {
+        Ok(StorageTransaction::lock_finding(self, id).await?)
+    }
+    async fn insert_finding(
+        &mut self,
+        finding: &forge_domain::finding::Finding,
+    ) -> Result<(), RepositoryError> {
+        Ok(StorageTransaction::insert_finding(self, finding).await?)
+    }
+    async fn update_finding(
+        &mut self,
+        finding: &forge_domain::finding::Finding,
+        expected: u64,
+    ) -> Result<(), RepositoryError> {
+        Ok(StorageTransaction::update_finding(self, finding, expected).await?)
+    }
+    async fn lock_task_resume_schedule(
+        &mut self,
+        id: Uuid,
+    ) -> Result<Option<forge_domain::TaskResumeSchedule>, RepositoryError> {
+        StorageTransaction::lock_task_resume_schedule(self, id)
+            .await
+            .map_err(Into::into)
+    }
+    async fn insert_task_resume_schedule(
+        &mut self,
+        schedule: &forge_domain::TaskResumeSchedule,
+    ) -> Result<(), RepositoryError> {
+        StorageTransaction::insert_task_resume_schedule(self, schedule)
+            .await
+            .map_err(Into::into)
+    }
+    async fn update_task_resume_schedule(
+        &mut self,
+        schedule: &forge_domain::TaskResumeSchedule,
+    ) -> Result<(), RepositoryError> {
+        StorageTransaction::update_task_resume_schedule(self, schedule)
+            .await
+            .map_err(Into::into)
+    }
+    async fn load_task_dispatch_constraint(
+        &mut self,
+        project: ProjectId,
+        task: TaskId,
+    ) -> Result<Option<forge_domain::NextRunEmployeeConstraint>, RepositoryError> {
+        StorageTransaction::load_task_dispatch_constraint(self, project, task)
+            .await
+            .map_err(Into::into)
+    }
+    async fn insert_task_dispatch_constraint(
+        &mut self,
+        constraint: &forge_domain::NextRunEmployeeConstraint,
+    ) -> Result<(), RepositoryError> {
+        StorageTransaction::insert_task_dispatch_constraint(self, constraint)
+            .await
+            .map_err(Into::into)
+    }
+    async fn update_task_dispatch_constraint(
+        &mut self,
+        constraint: &forge_domain::NextRunEmployeeConstraint,
+        expected: &forge_domain::NextRunConstraintState,
+    ) -> Result<(), RepositoryError> {
+        StorageTransaction::update_task_dispatch_constraint(self, constraint, expected)
+            .await
+            .map_err(Into::into)
+    }
+    async fn lock_active_runs_for_employee(
+        &mut self,
+        project: ProjectId,
+        employee: EmployeeId,
+    ) -> Result<Vec<ActiveRun>, RepositoryError> {
+        StorageTransaction::lock_active_runs_for_employee(self, project, employee)
+            .await
+            .map(|runs| runs.iter().map(ActiveRun::from).collect())
+            .map_err(Into::into)
+    }
+    async fn revoke_run_lease(
+        &mut self,
+        run: Uuid,
+        fence: u64,
+        epoch: u64,
+    ) -> Result<bool, RepositoryError> {
+        StorageTransaction::revoke_run_lease(self, run, fence, epoch)
+            .await
+            .map_err(Into::into)
+    }
+    async fn insert_message_requirement_waiver(
+        &mut self,
+        waiver: &forge_domain::communication::MessageRequirementWaiver,
+    ) -> Result<(), RepositoryError> {
+        StorageTransaction::insert_message_requirement_waiver(self, waiver)
+            .await
+            .map_err(Into::into)
+    }
+    async fn load_project_repository(
+        &mut self,
+        id: Uuid,
+    ) -> Result<Option<forge_domain::ProjectRepository>, RepositoryError> {
+        StorageTransaction::load_project_repository(self, id)
+            .await
+            .map_err(Into::into)
+    }
+    async fn insert_project_repository(
+        &mut self,
+        repository: &forge_domain::ProjectRepository,
+    ) -> Result<(), RepositoryError> {
+        StorageTransaction::insert_project_repository(self, repository)
+            .await
+            .map_err(Into::into)
+    }
+    async fn lock_employee_thread(
+        &mut self,
+        id: Uuid,
+    ) -> Result<Option<forge_domain::communication::EmployeeThread>, RepositoryError> {
+        StorageTransaction::lock_employee_thread(self, id)
+            .await
+            .map_err(Into::into)
+    }
+    async fn insert_employee_thread(
+        &mut self,
+        thread: &forge_domain::communication::EmployeeThread,
+    ) -> Result<(), RepositoryError> {
+        StorageTransaction::insert_employee_thread(self, thread)
+            .await
+            .map_err(Into::into)
+    }
+    async fn update_employee_thread(
+        &mut self,
+        thread: &forge_domain::communication::EmployeeThread,
+        expected_revision: u64,
+    ) -> Result<(), RepositoryError> {
+        StorageTransaction::update_employee_thread(self, thread, expected_revision)
+            .await
+            .map_err(Into::into)
+    }
+    async fn load_employee_message(
+        &mut self,
+        id: Uuid,
+    ) -> Result<Option<forge_domain::communication::EmployeeMessage>, RepositoryError> {
+        StorageTransaction::load_employee_message(self, id)
+            .await
+            .map_err(Into::into)
+    }
+    async fn insert_employee_message(
+        &mut self,
+        message: &forge_domain::communication::EmployeeMessage,
+    ) -> Result<(), RepositoryError> {
+        StorageTransaction::insert_employee_message(self, message)
+            .await
+            .map_err(Into::into)
+    }
     async fn lock_project_creation(&mut self, id: ProjectId) -> Result<(), RepositoryError> {
         StorageTransaction::lock_project_creation(self, id)
             .await
@@ -94,8 +359,35 @@ impl CommandTransaction for StorageTransaction<'_> {
             .map_err(Into::into)
     }
 
+    async fn update_pipeline(
+        &mut self,
+        pipeline: &Pipeline,
+        expected_revision: u64,
+    ) -> Result<(), RepositoryError> {
+        StorageTransaction::update_pipeline(self, pipeline, expected_revision)
+            .await
+            .map_err(Into::into)
+    }
+
     async fn insert_employee(&mut self, employee: &Employee) -> Result<(), RepositoryError> {
         StorageTransaction::insert_employee(self, employee)
+            .await
+            .map_err(Into::into)
+    }
+
+    async fn lock_employee(&mut self, id: EmployeeId) -> Result<Option<Employee>, RepositoryError> {
+        StorageTransaction::lock_employee(self, id)
+            .await
+            .map(|stored| stored.map(|stored| stored.employee))
+            .map_err(Into::into)
+    }
+
+    async fn update_employee(
+        &mut self,
+        employee: &Employee,
+        expected_revision: u64,
+    ) -> Result<(), RepositoryError> {
+        StorageTransaction::update_employee(self, employee, expected_revision)
             .await
             .map_err(Into::into)
     }

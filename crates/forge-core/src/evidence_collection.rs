@@ -106,9 +106,9 @@ impl CoreService {
                     .join(run.id.to_string())
                     .join(run.environment_epoch.to_string())
                     .join(file);
-                let spec: forge_domain::runtime::SandboxRunSpec =
+                let spec: forge_domain::runtime::SandboxLaunchSpec =
                     serde_json::from_value(run.run_spec.clone()).map_err(|_| credential_error())?;
-                let limit = spec.binding.budget.max_output_bytes;
+                let limit = spec.max_output_bytes();
                 let bytes = if !unsafe_auth && path.try_exists().map_err(|_| credential_error())? {
                     let trusted_root = execution.root.clone();
                     Some(
@@ -164,7 +164,7 @@ impl CoreService {
                                 .start_stream(
                                     EvidenceScope {
                                         project_id: run.project_id,
-                                        task_id: run.task_id,
+                                        task_id: run.task_id(),
                                         run_id: run.id,
                                     },
                                     stream,

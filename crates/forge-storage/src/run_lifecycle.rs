@@ -172,7 +172,7 @@ impl StorageTransaction<'_> {
         };
 
         let row = sqlx::query(
-            "SELECT project_id, task_id, employee_id, lease_id, lease_fencing_token, environment_epoch, last_sequence, desired_state, observed_state FROM runs WHERE id = $1 FOR UPDATE",
+            "SELECT project_id, task_id, employee_id, lease_id, lease_fencing_token, environment_epoch, last_sequence, desired_state, observed_state FROM runs WHERE id = $1 AND purpose='task_stage' FOR UPDATE",
         )
         .bind(submission.run_id)
         .fetch_optional(&mut *self.transaction)
@@ -268,7 +268,7 @@ impl StorageTransaction<'_> {
             RunDesiredState::StopRequested
         };
         let result = sqlx::query(
-            "UPDATE runs SET desired_state = $2, revision = revision + 1 WHERE id = $1 AND lease_fencing_token = $3 AND environment_epoch = $4 AND (desired_state IN ('provision_requested', 'running') OR ($5 AND desired_state = 'stop_requested'))",
+            "UPDATE runs SET desired_state = $2, revision = revision + 1 WHERE id = $1 AND lease_fencing_token = $3 AND environment_epoch = $4 AND (desired_state IN ('provision_requested', 'running') OR ($5 AND desired_state = 'stop_requested') OR ($5 AND desired_state IN ('failed','stopped') AND EXISTS(SELECT 1 FROM run_environment_reservations e WHERE e.run_id=runs.id AND e.released_at IS NULL)))",
         )
         .bind(run_id)
         .bind(enum_text(&desired, "run.desired_state")?)

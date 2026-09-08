@@ -3,6 +3,11 @@
 **Milestone:** M2 — Engineering Pipeline и provider matrix
 **Источник:** ../IMPLEMENTATION_PLAN.md, TASK-20–23
 
+**Уточнение M2:** актуальны [specification](../2026-09-06-m2-specs.md) и
+[execution ledger](../2026-09-06-m2-tasks.md). Текущая матрица: Codex CLI,
+Claude CLI, OpenRouter API и OpenAI API. Cursor, Gemini и **Grok Build CLI**
+отложены; отсутствие настройки не подменяется другим провайдером.
+
 ## Цель
 
 Расширить native CLI catalog без размножения логики Core и без ложного обещания
@@ -10,7 +15,8 @@
 
 ## В границах
 
-- Claude Code, Cursor, Gemini и Grok adapter crates;
+- Claude Code adapter и native session drivers Codex/Claude/OpenCode;
+- четыре явных immutable runtime profiles с разными credential contracts;
 - pinned fixtures, preflight/config/credential delivery и capability matrices;
 - общий fake-CLI conformance suite и opt-in real CLI smoke.
 
@@ -24,9 +30,9 @@
 | Task | Результат |
 |---|---|
 | TASK-20 | Claude Code adapter |
-| TASK-21 | Cursor adapter |
-| TASK-22 | Gemini adapter |
-| TASK-23 | Grok adapter |
+| TASK-21 | Cursor adapter — отложено |
+| TASK-22 | Gemini adapter — отложено |
+| TASK-23 | Grok Build CLI adapter — отложено |
 
 ## Exit gate
 

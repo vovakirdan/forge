@@ -79,6 +79,7 @@ pub(super) struct ParsedArtifactSubmission {
 /// Parsed Pipeline outcome submission.
 #[derive(Clone, Debug)]
 pub(super) struct ParsedStageOutcomeSubmission {
+    pub(super) candidate_commit: Option<forge_domain::git::GitObjectId>,
     pub(super) scope: SubmissionScope,
     pub(super) stage_id: StageId,
     pub(super) outcome: OutcomeKey,
@@ -285,6 +286,15 @@ pub(super) fn parse_stage_outcome_submission(
             )
         })?;
     Ok(ParsedStageOutcomeSubmission {
+        candidate_commit: (!outcome.candidate_commit.is_empty())
+            .then(|| forge_domain::git::GitObjectId::new(outcome.candidate_commit))
+            .transpose()
+            .map_err(|_| {
+                TransportRejection::new(
+                    "invalid_candidate_commit",
+                    "candidate commit must be a full Git object identity",
+                )
+            })?,
         scope,
         stage_id: StageId::new(outcome.stage_id).map_err(|_| {
             TransportRejection::new("invalid_stage_id", "Stage id is not a stable key")

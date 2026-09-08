@@ -150,10 +150,10 @@ impl Task {
         self.resume_to
     }
 
-    /// Returns the M0 work-surface shape.
+    /// Returns the immutable Task-owned source binding, if configured.
     #[must_use]
-    pub const fn work_surface(&self) -> TaskWorkSurface {
-        self.work_surface
+    pub const fn work_surface(&self) -> &TaskWorkSurface {
+        &self.work_surface
     }
 
     /// Returns links to immutable Task evidence in attachment order.
@@ -202,6 +202,9 @@ impl Task {
         self.pipeline.validate_snapshot()?;
         self.spec.validate_snapshot()?;
         self.created_by.validate_snapshot()?;
+        if let TaskWorkSurface::Git(binding) = &self.work_surface {
+            binding.validate_snapshot()?;
+        }
         if self.updated_at < self.created_at {
             return Err(DomainError::NonMonotonicTimestamp);
         }

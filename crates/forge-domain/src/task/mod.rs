@@ -19,7 +19,8 @@ pub use model::{
 pub use pipeline::{
     ArtifactRequirement, ArtifactRequirementScope, ExecutorKind, OutcomeKey, Pipeline,
     PipelineStage, PipelineTransition, PipelineTransitionTarget, PipelineVersion,
-    PipelineVersionInput, StageOutcomeSubmission, StageTransitionEffect,
+    PipelineVersionInput, StageOutcomeSubmission, StageTransitionEffect, StageWorkspaceKind,
+    StageWorkspaceRequirements,
 };
 pub use priority::{
     CancellationReason, CancellationReasonCatalog, CancellationReasonId, PriorityLevel,

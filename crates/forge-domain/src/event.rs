@@ -165,6 +165,27 @@ impl AggregateRef {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DomainEventKind {
+    FindingReported,
+    FindingTriaged,
+    FindingPromoted,
+    /// One immutable deferred Task-resume instruction or its terminal result.
+    TaskResumeScheduleChanged,
+    ResolverRouteConfigured,
+    EscalationRaised,
+    ResolutionAssigned,
+    ResolutionSubmitted,
+    EscalationRerouted,
+    /// An operator registered an immutable local source allowlist entry.
+    ProjectRepositoryRegistered,
+    /// A draft Task pinned its repository, initial base and persistent surface.
+    TaskGitRepositoryBound,
+    /// A Project-scoped Employee conversation was opened.
+    EmployeeThreadOpened,
+    /// An immutable input message was accepted for delivery.
+    EmployeeMessageSent,
+    EmployeeMessageAcknowledged,
+    EmployeeMessageAnswered,
+    EmployeeMessageRequirementWaived,
     /// A human explicitly configured the Project's host reboot behavior.
     BootRecoveryPolicyConfigured,
     /// Core reconciled a changed local execution host generation.
@@ -179,6 +200,8 @@ pub enum DomainEventKind {
     RunProxyKeyChanged,
     /// Operator selected a validated runtime snapshot for future work.
     EmployeeRuntimeConfigured,
+    /// Owner registered a new immutable project command version.
+    ProjectHookConfigured,
     /// Runtime uncertainty or failure requires an explicit management decision.
     RunIncidentRaised,
     /// A credential was enrolled or its encrypted auth version changed.
@@ -195,6 +218,10 @@ pub enum DomainEventKind {
     PipelineCreated,
     /// An immutable Pipeline version was published.
     PipelineVersionPublished,
+    /// The default changed without migrating historical Tasks.
+    PipelineDefaultVersionChanged,
+    /// Soft deletion preserves all versions and Task bindings.
+    PipelineDeleted,
     /// A Task was created in draft.
     TaskCreated,
     /// A draft Task specification was amended.
@@ -223,10 +250,26 @@ pub enum DomainEventKind {
     TaskRetryExhausted,
     /// Immutable evidence was attached to a Task.
     TaskArtifactAttached,
+    /// A writer proposed a Git outcome; no stage transition is implied.
+    GitStageProposed,
+    /// Exact post-quiescence Git inspection was retained.
+    GitCandidateInspected,
+    /// Audited deterministic Git integration intent, observation or management action.
+    GitIntegrationChanged,
+    /// A Pipeline-authorized Employee assessed an exact candidate revision.
+    CandidateReviewed,
+    /// Git acceptance requires an explicit management decision.
+    GitProposalNeedsAttention,
     /// An immutable Artifact was submitted.
     ArtifactCreated,
     /// Core durably issued a fenced Lease and fake Run for queued work.
     RunProvisioned,
+    /// Employee explicitly completed its bounded conversation assignment.
+    CommunicationCompleted,
+    /// Operator explicitly admitted another attempt of a held conversation.
+    CommunicationRetryRequested,
+    RuntimeInputRequested,
+    RuntimeInputObserved,
     /// Core accepted a fenced runtime observation.
     RunObserved,
     /// Core rejected a stale runtime observation without mutating the Run.
@@ -239,10 +282,18 @@ pub enum DomainEventKind {
     ToolGatewayCallDenied,
     /// An Employee identity was created.
     EmployeeCreated,
+    /// Employee catalog configuration changed for future assignments.
+    EmployeeAmended,
     /// An Employee became eligible for new work.
     EmployeeEnabled,
     /// An Employee was disabled for new work.
     EmployeeDisabled,
+    /// A manager stopped an Employee without claiming physical quiescence.
+    EmployeeStopRequested,
+    /// A manager requested an individual Task pause and explicit stop policy.
+    TaskPauseRequested,
+    /// One-shot next-Run Employee intent was created, held, consumed or cleared.
+    TaskDispatchConstraintChanged,
     /// An Employee was retired while retaining its history.
     EmployeeRetired,
 }

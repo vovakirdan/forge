@@ -1,0 +1,17 @@
+{
+  "id": "forge-thread",
+  "result": {
+    "model": "gpt-5.4",
+    "modelProvider": "openai",
+    "cwd": "/tmp",
+    "approvalPolicy": "never",
+    "sandbox": { "type": "dangerFullAccess" },
+    "thread": {
+      "id": "01a07830-0b30-7582-8eeb-7a1e254800dd",
+      "sessionId": "01a07830-0b30-7582-8eeb-7a1e254800dd",
+      "ephemeral": true,
+      "cliVersion": "0.153.2"
+    },
+    "instructionSources": []
+  }
+}

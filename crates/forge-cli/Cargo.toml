@@ -11,7 +11,11 @@ workspace = true
 [dependencies]
 anyhow.workspace = true
 clap.workspace = true
+forge-domain = { path = "../forge-domain" }
 forge-protocol = { path = "../forge-protocol" }
+forge-provider-claude = { path = "../forge-provider-claude" }
+forge-provider-codex = { path = "../forge-provider-codex" }
+forge-provider-opencode = { path = "../forge-provider-opencode" }
 nix = { version = "0.30", default-features = false, features = ["user"] }
 serde.workspace = true
 serde_json.workspace = true

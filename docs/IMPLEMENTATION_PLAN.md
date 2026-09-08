@@ -1,7 +1,7 @@
 # Forge: Implementation Plan
 
-**Статус:** M0 и M1 закрыты, включая TASK-05 и повторный live Codex gate; M2–M4 остаются roadmap
-**Дата обновления:** 6 сентября 2026
+**Статус:** M0 и M1 закрыты; код M2 и keyless-регрессия завершены, четыре live-gate ещё не выполнены; M3–M4 остаются roadmap
+**Дата обновления:** 7 сентября 2026
 **Граница:** local Linux-first MVP. План покрывает control plane, execution
 runtime, provider boundary, local install и knowledge loop. Existing `frontend/`
 не является его workstream: UI подключается позднее к стабильным HTTP/SSE
@@ -505,8 +505,18 @@ TaskWorkSurface, выдаёт наблюдаемое evidence и может бы
 
 ### Milestone 2 — Полный engineering Pipeline и provider matrix
 
-**Exit gate:** delivery Task проходит реальный Git worktree, verification,
-independent review и Integration; каждый заявленный provider lane либо проходит
+**Актуальный scope:** [спецификация M2](2026-09-06-m2-specs.md) и
+[execution ledger](2026-09-06-m2-tasks.md) уточняют этот исходный план.
+Provider matrix ограничена Codex CLI, Claude CLI, OpenRouter API и OpenAI API;
+TASK-21–23 перенесены за пределы текущего M2. Grok означает Grok Build CLI.
+Git-чистота и exact-candidate snapshot предшествуют передаче работы. QA — работа
+Employee; автоматические hooks выполняются только при явной настройке владельца.
+Добавлены taskless Communication, native input, shared-purpose capacity и
+Resolution Run. Реальные ключи и платные проверки требуют отдельного opt-in.
+
+**Exit gate:** delivery Task проходит реальный Git worktree,
+independent review и Integration, а настроенный hook следует своему Pipeline;
+каждый заявленный provider lane либо проходит
 один adapter contract, либо явно недоступен с объяснением capability/preflight.
 
 #### [Epic M2.1 — Расширение provider catalog по единому contract](epics/m2-e1-provider-catalog.md)
@@ -530,6 +540,8 @@ independent review и Integration; каждый заявленный provider la
 
 ##### TASK-21 — Cursor CLI adapter
 
+Отложена: не входит в согласованную четырёхпровайдерную матрицу M2.
+
 - **Type / priority:** integration / P1.
 - **Goal / scope:** add Cursor CLI using the pinned adapter contract and
   isolated credential delivery.
@@ -545,6 +557,8 @@ independent review и Integration; каждый заявленный provider la
 
 ##### TASK-22 — Gemini CLI adapter
 
+Отложена: не входит в согласованную четырёхпровайдерную матрицу M2.
+
 - **Type / priority:** integration / P1.
 - **Goal / scope:** add Gemini CLI through the established adapter contract.
 - **Non-goals:** provider switching or unscoped network credentials.
@@ -557,7 +571,9 @@ independent review и Integration; каждый заявленный provider la
 - **Parallelizable / delegate:** yes after TASK-19; да.
 - **Risk:** provider setup variability belongs in profile preflight, not Core.
 
-##### TASK-23 — Grok CLI adapter
+##### TASK-23 — Grok Build CLI adapter
+
+Отложена: требуется настройка настоящего Grok Build CLI, не подмена API lane.
 
 - **Type / priority:** integration / P1.
 - **Goal / scope:** add Grok CLI via the established adapter contract.
@@ -577,9 +593,9 @@ independent review и Integration; каждый заявленный provider la
 
 - **Type / priority:** capability / P0.
 - **Goal:** replace fake delivery stages with a safe real Git engineering loop.
-- **Scope:** Task Git surface creation, base/final SHA, versioned verification
-  profiles, deterministic command runner, Integration lock, rebase/merge and
-  final verification.
+- **Scope:** Task Git binding, commit/tree candidate, quiescent clean inspection,
+  immutable owner-selected project hooks, candidate snapshots, durable Integration
+  intent, target CAS and recovery. Forge не делает commit или rebase за Employee.
 - **Non-goals:** external CI import, arbitrary deployment stage or bypassing a
   protected branch.
 - **Depends on:** TASK-12, TASK-13, TASK-15, TASK-19.
@@ -588,8 +604,9 @@ independent review и Integration; каждый заявленный provider la
 - **Definition of Done:** one Task retains one worktree across retry; failed
   verification returns through its configured Pipeline transition; only
   Integration changes protected `main` and records final SHA.
-- **Validation:** isolated Git repository end-to-end test with failed test,
-  retry, merge conflict and successful final merge.
+- **Validation:** isolated Git repository with explicit hook failure, same-Task
+  rework, stale-base handling and successful exact-candidate integration;
+  отсутствие hooks также является нормальным acceptance-сценарием.
 - **Parallelizable / delegate:** after TASK-19; да.
 - **Risk:** no task ownership transfer or new FixTask for review feedback.
 
@@ -777,15 +794,19 @@ Workspace tests, strict Clippy, общий integration target и CLI smoke та�
 моделей и provider lanes. Одиночный Run с принятым Artifact/outcome и API lane
 с локальным upstream stub проверены отдельно. Evidence и ограничения —
 в [M1_RUNTIME.md](M1_RUNTIME.md).
-TASK-20–29 остаются roadmap; наличие их описаний не означает реализацию.
+M2 реализуется по [уточнённой спецификации](2026-09-06-m2-specs.md) и
+[execution ledger](2026-09-06-m2-tasks.md). Они фиксируют текущий объём,
+выполненные проверки и оставшиеся live-gates. TASK-21/22/23 и M3–M4 остаются
+roadmap; наличие их описаний не означает реализацию.
 
 ## 8. Task readiness notes
 
 ### Ready now
 
 M0–M1 прошли acceptance, включая завершённую TASK-05 и operator-approved live
-проверку после refactoring. Следующий продуктовый этап — M2; выбор стека
-не переоткрывается. Память Employee и knowledge loop относятся к M3.
+проверку после refactoring. Текущий продуктовый этап — реализация и acceptance
+M2; выбор стека не переоткрывается. Память Employee и knowledge loop относятся
+к M3. Четыре M2 provider lanes требуют отдельных разрешённых live-проверок.
 
 ### Explicit configuration work, not architecture blockers
 

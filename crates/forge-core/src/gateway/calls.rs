@@ -43,6 +43,8 @@ fn empty_object() -> Value {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct OutcomeArguments {
+    #[serde(default)]
+    candidate_commit: String,
     stage_id: String,
     outcome: String,
     #[serde(default)]
@@ -76,6 +78,27 @@ impl RunGateway {
         digest: [u8; 32],
     ) -> Result<Value, CoreError> {
         let message_id = request.message_id;
+        if request.tool == "escalation.raise" {
+            return self.raise_escalation(request, digest).await;
+        }
+        if matches!(
+            request.tool.as_str(),
+            "resolution.read" | "resolution.submit" | "resolution.decline"
+        ) {
+            return self.execute_resolution(request, digest).await;
+        }
+        if request.tool == "finding.report" {
+            return self.report_finding(request, digest).await;
+        }
+        if request.tool == "communication.complete" {
+            return self.execute_communication(request, digest).await;
+        }
+        if matches!(
+            request.tool.as_str(),
+            "inbox.list" | "inbox.acknowledge" | "inbox.reply"
+        ) {
+            return self.execute_inbox(request, digest).await;
+        }
         let payload = match request.tool.as_str() {
             "board.list" => {
                 let args: BoardArguments = decode(request.arguments)?;
@@ -132,6 +155,7 @@ impl RunGateway {
             "outcome.submit" => {
                 let args: OutcomeArguments = decode(request.arguments)?;
                 Payload::StageOutcome(StageOutcomeSubmission {
+                    candidate_commit: args.candidate_commit,
                     stage_id: args.stage_id,
                     outcome: args.outcome,
                     artifact_ids: args.artifact_ids.iter().map(Uuid::to_string).collect(),

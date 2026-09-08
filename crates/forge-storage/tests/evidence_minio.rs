@@ -63,7 +63,7 @@ async fn uploads_redacted_evidence_to_minio_and_reads_immutable_bytes_back() {
         .expect("open spool");
     let scope = EvidenceScope {
         project_id: ProjectId::new(),
-        task_id: TaskId::new(),
+        task_id: Some(TaskId::new()),
         run_id: Uuid::now_v7(),
     };
     let redaction = EvidenceRedaction::new(

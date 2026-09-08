@@ -9,7 +9,8 @@ use crate::{DomainError, ProjectId, TaskId, Timestamp};
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct EvidenceScope {
     pub project_id: ProjectId,
-    pub task_id: TaskId,
+    /// Present only for TaskStage-owned evidence. Taskless bytes are scoped by Run.
+    pub task_id: Option<TaskId>,
     pub run_id: Uuid,
 }
 
@@ -17,7 +18,9 @@ impl EvidenceScope {
     /// Validates canonical identities before filesystem or object-store access.
     pub fn validate(&self) -> Result<(), DomainError> {
         self.project_id.validate_v7("evidence.project_id")?;
-        self.task_id.validate_v7("evidence.task_id")?;
+        if let Some(task_id) = self.task_id {
+            task_id.validate_v7("evidence.task_id")?;
+        }
         validate_uuid(self.run_id, "evidence.run_id")
     }
 }
@@ -105,10 +108,16 @@ impl EvidenceObject {
     /// Stable collision-resistant object key derived exclusively from canonical metadata.
     pub fn object_key(&self) -> String {
         let scope = self.0.scope;
-        format!(
-            "evidence/{}/{}/{}/{}/{}",
-            scope.project_id, scope.task_id, scope.run_id, self.0.id, self.0.sha256
-        )
+        match scope.task_id {
+            Some(task_id) => format!(
+                "evidence/{}/{}/{}/{}/{}",
+                scope.project_id, task_id, scope.run_id, self.0.id, self.0.sha256
+            ),
+            None => format!(
+                "evidence/{}/runs/{}/{}/{}",
+                scope.project_id, scope.run_id, self.0.id, self.0.sha256
+            ),
+        }
     }
 
     /// Returns a new receipt after the adapter has confirmed durable upload.

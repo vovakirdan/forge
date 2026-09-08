@@ -18,7 +18,7 @@ impl PostgresStore {
         &self,
         only_run: Option<Uuid>,
     ) -> Result<Vec<Uuid>, StorageError> {
-        Ok(sqlx::query_scalar("SELECT r.id FROM runs r JOIN run_environment_reservations e ON e.run_id=r.id WHERE ($1::uuid IS NULL OR r.id=$1) AND e.released_at IS NOT NULL AND r.run_spec_version=2 AND ((SELECT count(*) FROM run_evidence_streams s WHERE s.run_id=r.id)<2 OR NOT EXISTS(SELECT 1 FROM run_runtime_reports rr WHERE rr.run_id=r.id)) ORDER BY e.released_at LIMIT 32")
+        Ok(sqlx::query_scalar("SELECT r.id FROM runs r JOIN run_environment_reservations e ON e.run_id=r.id WHERE ($1::uuid IS NULL OR r.id=$1) AND e.released_at IS NOT NULL AND r.run_spec_version IN (2,3,4,5) AND ((SELECT count(*) FROM run_evidence_streams s WHERE s.run_id=r.id)<2 OR (r.purpose<>'hook' AND NOT EXISTS(SELECT 1 FROM run_runtime_reports rr WHERE rr.run_id=r.id))) ORDER BY e.released_at LIMIT 32")
             .bind(only_run).fetch_all(&self.pool).await?)
     }
     pub async fn list_run_evidence(&self, run_id: Uuid) -> Result<Vec<Value>, StorageError> {
@@ -79,6 +79,14 @@ impl StorageTransaction<'_> {
             aggregate: "evidence",
             source,
         })?;
+        let scope = receipt.data().scope;
+        let owns:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM runs WHERE id=$1 AND project_id=$2 AND ((purpose='task_stage' AND task_id=$3) OR (purpose IN ('communication','resolution','hook') AND $3::uuid IS NULL)))")
+            .bind(scope.run_id).bind(scope.project_id.as_uuid()).bind(scope.task_id.map(|id|id.as_uuid())).fetch_one(&mut *self.transaction).await?;
+        if !owns {
+            return Err(StorageError::InvalidInput {
+                reason: "evidence scope differs from Run owner".into(),
+            });
+        }
         let result=sqlx::query("INSERT INTO run_evidence_objects(id,run_id,receipt,stored) VALUES($1,$2,$3::jsonb,$4) ON CONFLICT(id) DO UPDATE SET receipt=EXCLUDED.receipt,stored=EXCLUDED.stored WHERE NOT run_evidence_objects.stored AND EXCLUDED.stored RETURNING id")
             .bind(receipt.data().id).bind(receipt.data().scope.run_id).bind(encode_object(&data,"evidence")?).bind(stored).fetch_optional(&mut *self.transaction).await?;
         Ok(result.is_some())

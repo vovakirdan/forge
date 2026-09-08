@@ -29,6 +29,8 @@ allowed=(
     infra/runtime/package-lock.json
     target/debug/forge-runner
     target/debug/forge-opencode-driver
+    target/debug/forge-claude-driver
+    target/debug/forge-codex-driver
 )
 blocked=(
     infra/runtime/unlisted.env
@@ -60,10 +62,10 @@ tar -tf "$CASE_ROOT/rootfs.tar" | while IFS= read -r path; do
     esac
 done | LC_ALL=C sort >"$CASE_ROOT/actual"
 if ! cmp -s "$CASE_ROOT/expected" "$CASE_ROOT/actual"; then
-    printf 'Build context differs from the seven-file allowlist. Expected:\n' >&2
+    printf 'Build context differs from the nine-file allowlist. Expected:\n' >&2
     sort "$CASE_ROOT/expected" >&2
     printf 'Actual synthetic paths:\n' >&2
     sort "$CASE_ROOT/actual" >&2
     exit 1
 fi
-printf 'runtime-build-context-test: passed (seven allowed files; all sentinels excluded)\n'
+printf 'runtime-build-context-test: passed (nine allowed files; all sentinels excluded)\n'

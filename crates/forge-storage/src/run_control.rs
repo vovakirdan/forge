@@ -38,17 +38,27 @@ impl StorageTransaction<'_> {
         &mut self,
         project_id: ProjectId,
     ) -> Result<Vec<RunProjection>, StorageError> {
-        lock_active_runs(&mut self.transaction, project_id, None).await
+        lock_active_runs(&mut self.transaction, project_id, None, None).await
     }
 
-    /// Locks active Lease-backed Runs for one Task and returns their exact
-    /// fencing scope to Core for subsequent `StopRun` requests.
+    /// Locks TaskStage writers and Hooks for this Task, including retired
+    /// logical Leases with unresolved physical reservations. Hook context grants
+    /// stop authority only; it never becomes a Task writer identity.
     pub async fn lock_active_runs_for_task(
         &mut self,
         project_id: ProjectId,
         task_id: TaskId,
     ) -> Result<Vec<RunProjection>, StorageError> {
-        lock_active_runs(&mut self.transaction, project_id, Some(task_id)).await
+        lock_active_runs(&mut self.transaction, project_id, Some(task_id), None).await
+    }
+
+    /// Includes logically revoked executions until physical quiescence is proven.
+    pub async fn lock_active_runs_for_employee(
+        &mut self,
+        project_id: ProjectId,
+        employee_id: forge_domain::EmployeeId,
+    ) -> Result<Vec<RunProjection>, StorageError> {
+        lock_active_runs(&mut self.transaction, project_id, None, Some(employee_id)).await
     }
 
     /// Marks the queue entry that belongs to this fenced Run as cancelled.
@@ -76,7 +86,15 @@ impl StorageTransaction<'_> {
         )?)
         .execute(&mut *self.transaction)
         .await?;
-        fenced_result(&mut self.transaction, run_id, result.rows_affected()).await
+        let communication = sqlx::query("UPDATE communication_assignments c SET state='held',updated_at=clock_timestamp() FROM runs r JOIN leases l ON forge_lease_owns_run(l,r) WHERE r.id=$1 AND r.lease_fencing_token=$2 AND r.environment_epoch=$3 AND r.purpose='communication' AND c.id=r.communication_assignment_id AND c.attempt_number=r.attempt_number AND c.state='leased'")
+            .bind(run_id).bind(crate::u64_to_i64(lease_fencing_token,"run.fence")?).bind(crate::u64_to_i64(environment_epoch,"run.epoch")?)
+            .execute(&mut *self.transaction).await?;
+        fenced_result(
+            &mut self.transaction,
+            run_id,
+            result.rows_affected() + communication.rows_affected(),
+        )
+        .await
     }
 }
 
@@ -108,22 +126,11 @@ async fn lock_active_runs(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     project_id: ProjectId,
     task_id: Option<TaskId>,
+    employee_id: Option<forge_domain::EmployeeId>,
 ) -> Result<Vec<RunProjection>, StorageError> {
-    let rows = if let Some(task_id) = task_id {
-        sqlx::query(
-            "SELECT r.id, r.project_id, r.task_id, r.queue_entry_id, r.lease_id, r.employee_id, r.stage_id, r.attempt_number, r.lease_fencing_token, r.environment_epoch, r.last_sequence, r.desired_state, r.observed_state, r.run_spec_version, r.run_spec::text AS run_spec, r.context_manifest::text AS context_manifest, r.observed_details::text AS observed_details FROM runs AS r JOIN leases AS l ON l.id = r.lease_id AND l.project_id = r.project_id AND l.task_id = r.task_id AND l.employee_id = r.employee_id AND l.fencing_token = r.lease_fencing_token AND l.environment_epoch = r.environment_epoch WHERE r.project_id = $1 AND r.task_id = $2 AND l.lease_state = 'active' ORDER BY r.created_at ASC FOR UPDATE OF r, l",
-        )
-        .bind(project_id.as_uuid())
-        .bind(task_id.as_uuid())
-        .fetch_all(&mut **transaction)
-        .await?
-    } else {
-        sqlx::query(
-            "SELECT r.id, r.project_id, r.task_id, r.queue_entry_id, r.lease_id, r.employee_id, r.stage_id, r.attempt_number, r.lease_fencing_token, r.environment_epoch, r.last_sequence, r.desired_state, r.observed_state, r.run_spec_version, r.run_spec::text AS run_spec, r.context_manifest::text AS context_manifest, r.observed_details::text AS observed_details FROM runs AS r JOIN leases AS l ON l.id = r.lease_id AND l.project_id = r.project_id AND l.task_id = r.task_id AND l.employee_id = r.employee_id AND l.fencing_token = r.lease_fencing_token AND l.environment_epoch = r.environment_epoch WHERE r.project_id = $1 AND l.lease_state = 'active' ORDER BY r.created_at ASC FOR UPDATE OF r, l",
-        )
-        .bind(project_id.as_uuid())
-        .fetch_all(&mut **transaction)
-        .await?
-    };
+    let rows = sqlx::query(
+        "SELECT r.id, r.project_id, r.purpose, r.communication_assignment_id, r.resolution_assignment_id, r.hook_invocation_id, r.task_id, r.queue_entry_id, r.lease_id, r.employee_id, r.stage_id, r.attempt_number, r.lease_fencing_token, r.environment_epoch, r.last_sequence, r.desired_state, r.observed_state, r.run_spec_version, r.run_spec::text AS run_spec, r.context_manifest::text AS context_manifest, r.observed_details::text AS observed_details FROM runs r JOIN leases l ON forge_lease_owns_run(l,r) WHERE r.project_id=$1 AND ($2::uuid IS NULL OR (r.purpose='task_stage' AND r.task_id=$2) OR (r.purpose='hook' AND EXISTS(SELECT 1 FROM hook_invocations h WHERE h.id=r.hook_invocation_id AND h.project_id=r.project_id AND h.run_id=r.id AND h.task_id=$2))) AND ($3::uuid IS NULL OR r.employee_id=$3) AND (l.lease_state='active' OR EXISTS(SELECT 1 FROM run_environment_reservations e WHERE e.run_id=r.id AND e.released_at IS NULL)) ORDER BY r.created_at ASC,r.id ASC FOR UPDATE OF r,l"
+    ).bind(project_id.as_uuid()).bind(task_id.map(|id| id.as_uuid()))
+        .bind(employee_id.map(|id| id.as_uuid())).fetch_all(&mut **transaction).await?;
     rows.into_iter().map(run_projection_from_row).collect()
 }

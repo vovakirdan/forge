@@ -3,6 +3,9 @@
 **Milestone:** M2 — Engineering Pipeline и provider matrix
 **Источник:** ../IMPLEMENTATION_PLAN.md, TASK-26
 
+**Уточнение M2:** [specification](../2026-09-06-m2-specs.md) и
+[execution ledger](../2026-09-06-m2-tasks.md) задают текущие границы и проверки.
+
 ## Цель
 
 Сделать операционное управление и эскалации управляемыми named commands и
@@ -16,6 +19,12 @@
   Project gate и recovery acceptance;
 - resolver queues, ResolutionLease, human/employee resolution submission и
   escalation routing/failover.
+- Employee capacity, taskless Communication, адресный Inbox/native input,
+  точная next-Run constraint и durable resume alarm.
+
+Resolution Run не получает права исполнять контекстную Task. Ответ продолжает
+только источник вопроса; изменение Pipeline outcome или cancellation требует
+своего разрешённого действия. Task и Communication имеют разные typed sources.
 
 ## Не в границах
 

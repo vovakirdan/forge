@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{DomainError, PipelineId, PipelineVersionId, ProjectId, Timestamp};
+use crate::{DomainError, PipelineId, PipelineVersion, PipelineVersionId, ProjectId, Timestamp};
 
 /// Named Pipeline catalog entry. The graph itself lives only in immutable versions.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -10,6 +10,10 @@ pub struct Pipeline {
     name: String,
     default_version_id: PipelineVersionId,
     deleted_at: Option<Timestamp>,
+    #[serde(default = "initial_revision")]
+    revision: u64,
+    #[serde(default = "initial_version")]
+    latest_version: u32,
 }
 
 impl Pipeline {
@@ -32,6 +36,8 @@ impl Pipeline {
             name,
             default_version_id,
             deleted_at: None,
+            revision: 1,
+            latest_version: 1,
         })
     }
 
@@ -71,14 +77,62 @@ impl Pipeline {
         self.deleted_at
     }
 
+    /// Monotonic catalog revision, separate from immutable graph version numbers.
+    #[must_use]
+    pub const fn revision(&self) -> u64 {
+        self.revision
+    }
+
+    /// Highest published version, even when an older graph is the default.
+    #[must_use]
+    pub const fn latest_version(&self) -> u32 {
+        self.latest_version
+    }
+
+    /// Reserves the next graph number without mutating this catalog.
+    pub fn next_version(&self) -> Result<u32, DomainError> {
+        self.ensure_active()?;
+        self.latest_version
+            .checked_add(1)
+            .ok_or_else(|| invalid("pipeline version exhausted"))
+    }
+
+    /// Records an already validated new immutable graph and optionally selects it.
+    pub fn publish_version(
+        &mut self,
+        version: &PipelineVersion,
+        make_default: bool,
+    ) -> Result<(), DomainError> {
+        self.ensure_version_scope(version)?;
+        if version.version() != self.next_version()? {
+            return Err(invalid("publication must use the next pipeline version"));
+        }
+        self.advance()?;
+        self.latest_version = version.version();
+        if make_default {
+            self.default_version_id = version.id();
+        }
+        Ok(())
+    }
+
     /// Switches the default only; it never mutates a historical version.
-    pub fn set_default_version(&mut self, version_id: PipelineVersionId) {
-        self.default_version_id = version_id;
+    pub fn set_default_version(&mut self, version: &PipelineVersion) -> Result<(), DomainError> {
+        self.ensure_active()?;
+        self.ensure_version_scope(version)?;
+        if version.version() > self.latest_version {
+            return Err(invalid("default version has not been published"));
+        }
+        self.advance()?;
+        self.default_version_id = version.id();
+        Ok(())
     }
 
     /// Soft-deletes the catalog entry while preserving existing Task bindings.
-    pub fn soft_delete(&mut self, deleted_at: Timestamp) {
+    pub fn soft_delete(&mut self, deleted_at: Timestamp) -> Result<(), DomainError> {
+        self.ensure_active()?;
+        self.advance()?;
         self.deleted_at = Some(deleted_at);
+        Ok(())
     }
 
     /// Revalidates a deserialized catalog snapshot before storage exposes it.
@@ -98,9 +152,14 @@ impl Pipeline {
             self.name.clone(),
             self.default_version_id,
         )?;
-        if let Some(deleted_at) = self.deleted_at {
-            restored.soft_delete(deleted_at);
+        if self.revision == 0 || self.latest_version == 0 {
+            return Err(invalid(
+                "pipeline revision and latest version must be positive",
+            ));
         }
+        restored.deleted_at = self.deleted_at;
+        restored.revision = self.revision;
+        restored.latest_version = self.latest_version;
         if restored == *self {
             Ok(())
         } else {
@@ -108,5 +167,41 @@ impl Pipeline {
                 reason: "pipeline snapshot is not canonical".to_owned(),
             })
         }
+    }
+
+    fn ensure_active(&self) -> Result<(), DomainError> {
+        if self.is_deleted() {
+            Err(invalid("deleted pipeline cannot be changed"))
+        } else {
+            Ok(())
+        }
+    }
+
+    fn ensure_version_scope(&self, version: &PipelineVersion) -> Result<(), DomainError> {
+        if version.pipeline_id() != self.id || version.project_id() != self.project_id {
+            Err(invalid("version does not belong to the pipeline"))
+        } else {
+            Ok(())
+        }
+    }
+
+    fn advance(&mut self) -> Result<(), DomainError> {
+        self.revision = self
+            .revision
+            .checked_add(1)
+            .ok_or_else(|| invalid("pipeline revision exhausted"))?;
+        Ok(())
+    }
+}
+
+const fn initial_revision() -> u64 {
+    1
+}
+const fn initial_version() -> u32 {
+    1
+}
+fn invalid(reason: &str) -> DomainError {
+    DomainError::InvalidPipeline {
+        reason: reason.into(),
     }
 }

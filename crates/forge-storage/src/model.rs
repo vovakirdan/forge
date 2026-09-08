@@ -140,19 +140,15 @@ pub enum RunObservedState {
 pub struct RunProjection {
     /// Run identity.
     pub id: Uuid,
-    /// Owning Project and Task identities.
+    /// Owning Project identity.
     pub project_id: ProjectId,
-    /// Task whose stage is being executed.
-    pub task_id: TaskId,
-    /// Queue and Lease identities that fenced this Run.
-    pub queue_entry_id: Uuid,
+    /// Purpose-specific owner, never inferred from optional context.
+    pub assignment: forge_domain::ExecutionAssignment,
     /// Lease identity.
     pub lease_id: Uuid,
-    /// Assigned Employee.
-    pub employee_id: EmployeeId,
-    /// Pipeline stage identity.
-    pub stage_id: String,
-    /// Stage attempt ordinal.
+    /// Provider owner. A provider-free Hook has no Employee identity.
+    pub employee_id: Option<EmployeeId>,
+    /// Attempt ordinal within the purpose-specific assignment.
     pub attempt_number: u32,
     /// Fencing token copied from the Lease.
     pub lease_fencing_token: u64,
@@ -172,6 +168,33 @@ pub struct RunProjection {
     pub context_manifest: Value,
     /// Non-authoritative Supervisor details object.
     pub observed_details: Value,
+}
+
+impl RunProjection {
+    /// Agent-only operations must not manufacture an identity for a Hook.
+    pub fn require_employee_id(&self) -> Result<EmployeeId, StorageError> {
+        self.employee_id
+            .filter(|_| self.assignment.hook().is_none())
+            .ok_or_else(|| StorageError::InvalidInput {
+                reason: "operation requires an Employee-owned execution assignment".into(),
+            })
+    }
+    /// Task-only consumers fail closed for all other execution purposes.
+    pub fn require_task_stage(&self) -> Result<&forge_domain::TaskStageAssignment, StorageError> {
+        self.assignment
+            .task_stage()
+            .ok_or_else(|| StorageError::InvalidInput {
+                reason: "operation requires a TaskStage execution assignment".into(),
+            })
+    }
+
+    pub fn require_task_id(&self) -> Result<TaskId, StorageError> {
+        Ok(self.require_task_stage()?.task_id)
+    }
+
+    pub fn task_id(&self) -> Option<TaskId> {
+        self.assignment.task_stage().map(|owner| owner.task_id)
+    }
 }
 
 /// Domain revalidation required before a decoded canonical snapshot is exposed.

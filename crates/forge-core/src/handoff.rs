@@ -19,7 +19,7 @@ pub(crate) async fn persist_handoff(
     incident_id: Option<Uuid>,
     now: Timestamp,
 ) -> Result<(), CoreError> {
-    let source = StageId::new(run.stage_id.clone())?;
+    let source = StageId::new(run.require_task_stage()?.stage_id.to_string())?;
     let accepted = outcome.is_some();
     let target = if accepted {
         task.current_stage_id()
@@ -36,7 +36,7 @@ pub(crate) async fn persist_handoff(
     let handoff = TaskHandoff::new(TaskHandoffInput {
         id: Uuid::now_v7(),
         project_id: run.project_id,
-        task_id: run.task_id,
+        task_id: run.require_task_id()?,
         actor,
         producer: HandoffProducer::Run { run_id: run.id },
         outcome: outcome.map_or(HandoffOutcome::Interrupted, |outcome| {
@@ -64,7 +64,13 @@ pub(crate) async fn persist_handoff(
         reason: "cannot serialize canonical handoff".into(),
     })?;
     transaction
-        .insert_run_handoff(run.project_id, run.task_id, run.id, accepted, &body)
+        .insert_run_handoff(
+            run.project_id,
+            run.require_task_id()?,
+            run.id,
+            accepted,
+            &body,
+        )
         .await?;
     Ok(())
 }

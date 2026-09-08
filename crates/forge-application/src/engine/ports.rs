@@ -2,7 +2,7 @@
 use super::RepositoryError;
 pub use super::records::*;
 use forge_domain::{
-    Actor, Artifact, ArtifactId, DomainEvent, Employee, EventId, Pipeline, PipelineId,
+    Actor, Artifact, ArtifactId, DomainEvent, Employee, EmployeeId, EventId, Pipeline, PipelineId,
     PipelineVersion, PipelineVersionId, Project, ProjectId, Task, TaskDependency, TaskId,
 };
 use std::future::Future;
@@ -13,6 +13,151 @@ use uuid::Uuid;
 /// dropping an uncommitted transaction publishes nothing. No method commits or dispatches.
 /// Project locks serialize all child writes; adapters must not reimplement command decisions.
 pub trait CommandTransaction: Send {
+    fn insert_command_handoff(
+        &mut self,
+        handoff: &forge_domain::TaskHandoff,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn required_hooks_satisfied(
+        &mut self,
+        task: &Task,
+        version: &PipelineVersion,
+        candidate_override: Option<Uuid>,
+    ) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
+    fn communication_escalation_is_current(
+        &mut self,
+        escalation: &forge_domain::resolution::Escalation,
+    ) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
+    fn load_escalation_for_wait(
+        &mut self,
+        project: ProjectId,
+        task: TaskId,
+        wait: forge_domain::WaitConditionId,
+    ) -> impl Future<Output = Result<Option<forge_domain::resolution::Escalation>, RepositoryError>> + Send;
+    fn load_resolver_route(
+        &mut self,
+        project: ProjectId,
+        key: &str,
+    ) -> impl Future<
+        Output = Result<Option<forge_domain::resolution::ResolverRoute>, RepositoryError>,
+    > + Send;
+    fn save_resolver_route(
+        &mut self,
+        route: &forge_domain::resolution::ResolverRoute,
+        expected: Option<u64>,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn load_escalation(
+        &mut self,
+        id: Uuid,
+    ) -> impl Future<Output = Result<Option<forge_domain::resolution::Escalation>, RepositoryError>> + Send;
+    fn save_escalation(
+        &mut self,
+        value: &forge_domain::resolution::Escalation,
+        expected: Option<u64>,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn load_resolution_assignment(
+        &mut self,
+        id: Uuid,
+    ) -> impl Future<
+        Output = Result<Option<forge_domain::resolution::ResolutionAssignment>, RepositoryError>,
+    > + Send;
+    fn insert_resolution_assignment(
+        &mut self,
+        value: &forge_domain::resolution::ResolutionAssignment,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn update_resolution_assignment(
+        &mut self,
+        value: &forge_domain::resolution::ResolutionAssignment,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn lock_finding(
+        &mut self,
+        id: Uuid,
+    ) -> impl Future<Output = Result<Option<forge_domain::finding::Finding>, RepositoryError>> + Send;
+    fn insert_finding(
+        &mut self,
+        finding: &forge_domain::finding::Finding,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn update_finding(
+        &mut self,
+        finding: &forge_domain::finding::Finding,
+        expected: u64,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    /// Locks one durable alarm after its Project gate is held.
+    fn lock_task_resume_schedule(
+        &mut self,
+        id: Uuid,
+    ) -> impl Future<Output = Result<Option<forge_domain::TaskResumeSchedule>, RepositoryError>> + Send;
+    /// Stages a single pending alarm for an exact wait.
+    fn insert_task_resume_schedule(
+        &mut self,
+        schedule: &forge_domain::TaskResumeSchedule,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    /// Advances pending to exactly one immutable terminal result.
+    fn update_task_resume_schedule(
+        &mut self,
+        schedule: &forge_domain::TaskResumeSchedule,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    /// Load the current retained one-shot constraint under the Project lock.
+    fn load_task_dispatch_constraint(
+        &mut self,
+        project: ProjectId,
+        task: TaskId,
+    ) -> impl Future<
+        Output = Result<Option<forge_domain::NextRunEmployeeConstraint>, RepositoryError>,
+    > + Send;
+    fn insert_task_dispatch_constraint(
+        &mut self,
+        constraint: &forge_domain::NextRunEmployeeConstraint,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    fn update_task_dispatch_constraint(
+        &mut self,
+        constraint: &forge_domain::NextRunEmployeeConstraint,
+        expected: &forge_domain::NextRunConstraintState,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    /// Persists an explicit operator waiver without modifying the original message.
+    fn insert_message_requirement_waiver(
+        &mut self,
+        waiver: &forge_domain::communication::MessageRequirementWaiver,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    /// Reads an immutable operator-registered source under the Project lock.
+    fn load_project_repository(
+        &mut self,
+        id: Uuid,
+    ) -> impl Future<Output = Result<Option<forge_domain::ProjectRepository>, RepositoryError>> + Send;
+    /// Registers a new immutable source; duplicate Project names are rejected.
+    fn insert_project_repository(
+        &mut self,
+        repository: &forge_domain::ProjectRepository,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    /// Locks a conversation under its already-locked Project.
+    fn lock_employee_thread(
+        &mut self,
+        id: Uuid,
+    ) -> impl Future<
+        Output = Result<Option<forge_domain::communication::EmployeeThread>, RepositoryError>,
+    > + Send;
+    /// Stages a new independently addressed conversation.
+    fn insert_employee_thread(
+        &mut self,
+        thread: &forge_domain::communication::EmployeeThread,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    /// Advances the conversation sequence with optimistic revision protection.
+    fn update_employee_thread(
+        &mut self,
+        thread: &forge_domain::communication::EmployeeThread,
+        expected_revision: u64,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    /// Reads a prior immutable message for reply-scope validation.
+    fn load_employee_message(
+        &mut self,
+        id: Uuid,
+    ) -> impl Future<
+        Output = Result<Option<forge_domain::communication::EmployeeMessage>, RepositoryError>,
+    > + Send;
+    /// Stages one immutable message; duplicate IDs/sequences are rejected.
+    fn insert_employee_message(
+        &mut self,
+        message: &forge_domain::communication::EmployeeMessage,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
     /// Serializes the reserved Project identity, including before its row exists.
     fn lock_project_creation(
         &mut self,
@@ -49,6 +194,12 @@ pub trait CommandTransaction: Send {
         &mut self,
         pipeline: &Pipeline,
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    /// Stages exactly the next mutable catalog revision, retaining every graph.
+    fn update_pipeline(
+        &mut self,
+        pipeline: &Pipeline,
+        expected_revision: u64,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
     /// Stages a new immutable Pipeline graph version.
     fn insert_pipeline_version(
         &mut self,
@@ -58,6 +209,17 @@ pub trait CommandTransaction: Send {
     fn insert_employee(
         &mut self,
         employee: &Employee,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    /// Locks an Employee catalog row without acquiring authority over its Runs.
+    fn lock_employee(
+        &mut self,
+        id: EmployeeId,
+    ) -> impl Future<Output = Result<Option<Employee>, RepositoryError>> + Send;
+    /// Stages the next Employee revision only when the observed revision still matches.
+    fn update_employee(
+        &mut self,
+        employee: &Employee,
+        expected_revision: u64,
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
     /// Loads and locks the Task and its retained scheduler fields.
     fn lock_task(
@@ -123,6 +285,12 @@ pub trait CommandTransaction: Send {
         &mut self,
         project: ProjectId,
     ) -> impl Future<Output = Result<Vec<ActiveRun>, RepositoryError>> + Send;
+    /// Locks every Employee-owned execution whose logical or physical ownership remains.
+    fn lock_active_runs_for_employee(
+        &mut self,
+        project: ProjectId,
+        employee: forge_domain::EmployeeId,
+    ) -> impl Future<Output = Result<Vec<ActiveRun>, RepositoryError>> + Send;
     /// Locks nonterminal Runs for the exact Project-scoped Task.
     fn lock_active_runs_for_task(
         &mut self,
@@ -136,6 +304,13 @@ pub trait CommandTransaction: Send {
         fence: u64,
         epoch: u64,
         force: bool,
+    ) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
+    /// Revokes authority only after a matching forced stop; physical reservations remain held.
+    fn revoke_run_lease(
+        &mut self,
+        run: Uuid,
+        fence: u64,
+        epoch: u64,
     ) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
     /// Cancels a fenced Run's leased queue entry, retaining Lease and reservation until confirmed exit.
     fn cancel_leased_queue_for_fenced_run(

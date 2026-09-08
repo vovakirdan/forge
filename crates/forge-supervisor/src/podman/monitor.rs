@@ -2,7 +2,7 @@
 
 use super::{PodmanBackend, valid_environment_id};
 use crate::{RunControl, SupervisorError, registry::RunRegistry};
-use forge_domain::runtime::SandboxRunSpec;
+use forge_domain::runtime::SandboxLaunchSpec;
 use forge_protocol::supervisor::v1::{ProvisionRun, RunEventKind, StopMode};
 use serde_json::json;
 use std::time::Duration;
@@ -12,7 +12,7 @@ impl PodmanBackend {
     pub(super) async fn observe(
         &self,
         provision: &ProvisionRun,
-        spec: &SandboxRunSpec,
+        spec: &SandboxLaunchSpec,
         registry: &RunRegistry,
         control: &RunControl,
     ) -> Result<(), SupervisorError> {
@@ -20,7 +20,7 @@ impl PodmanBackend {
         let mut announced = false;
         let mut exited = false;
         let mut unknown = false;
-        let mut last_identity = registry
+        let retained = registry
             .journal
             .lock()
             .await
@@ -28,12 +28,24 @@ impl PodmanBackend {
             .into_iter()
             .find(|record| {
                 crate::journal::scope_key(&record.provision) == crate::journal::scope_key(provision)
-            })
+            });
+        if matches!(spec, SandboxLaunchSpec::Hook(_))
+            && retained
+                .as_ref()
+                .is_some_and(|record| record.stop_reason.is_some())
+        {
+            control.request_stop();
+        }
+        let mut last_identity = retained
             .map(|record| record.environment_id)
             .filter(|id| valid_environment_id(id));
         let mut wall_deadline = None;
         let mut heartbeat = Instant::now();
         loop {
+            // Receipt collection is observational and may fail without disabling stop.
+            if matches!(spec, SandboxLaunchSpec::Provider(_)) {
+                let _ = crate::runtime_input::collect(&self.config, registry, provision).await;
+            }
             let inspection = match self.inspect(provision).await {
                 Ok(Some(inspection)) => inspection,
                 _ => {
@@ -72,8 +84,23 @@ impl PodmanBackend {
                     || (inspection.state.status == "created" && control.stopped())
                 {
                     if !exited {
-                        exited = registry.emit(provision, RunEventKind::Stopped,
-                            json!({"reason_code":"container_exited", "exit_code":inspection.state.exit_code})).await.is_ok();
+                        let mut details = json!({"reason_code":"container_exited", "exit_code":inspection.state.exit_code});
+                        if let SandboxLaunchSpec::Hook(hook) = spec {
+                            details["hook_result"] = serde_json::to_value(
+                                self.hook_result(
+                                    provision,
+                                    hook,
+                                    registry,
+                                    control,
+                                    inspection.state.exit_code,
+                                )
+                                .await,
+                            )?;
+                        }
+                        exited = registry
+                            .emit(provision, RunEventKind::Stopped, details)
+                            .await
+                            .is_ok();
                     }
                     if exited && registry.finish(provision, true).await.is_ok() {
                         return Ok(());
@@ -104,7 +131,7 @@ impl PodmanBackend {
                 wall_deadline = Some(
                     wall_deadline_from_started_at(
                         &inspection.state.started_at,
-                        spec.binding.limits.wall_seconds,
+                        spec.limits().wall_seconds,
                     )
                     .unwrap_or_else(|_| Instant::now()),
                 );
@@ -140,7 +167,7 @@ impl PodmanBackend {
     async fn apply_stop(
         &self,
         provision: &ProvisionRun,
-        spec: &SandboxRunSpec,
+        spec: &SandboxLaunchSpec,
         registry: &RunRegistry,
         control: &RunControl,
         id: &str,
@@ -152,7 +179,7 @@ impl PodmanBackend {
         if stopping.is_none() && (requested.is_some() || elapsed_limit) {
             let (mode, grace) = requested.unwrap_or((
                 StopMode::Graceful,
-                Duration::from_secs(u64::from(spec.binding.limits.stop_grace_seconds)),
+                Duration::from_secs(u64::from(spec.limits().stop_grace_seconds)),
             ));
             // Journal failure cannot prevent the physical kill switch. Keep
             // observing until Stopped can be persisted and replayed to Core.

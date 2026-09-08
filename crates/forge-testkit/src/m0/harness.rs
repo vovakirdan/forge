@@ -206,13 +206,14 @@ impl M0Harness {
         project_id: ProjectId,
         payload: Value,
     ) -> Result<PipelineVersionId> {
-        self.execute(project_id, CommandName::CreatePipeline, payload)
+        let receipt = self
+            .execute(project_id, CommandName::CreatePipeline, payload)
             .await?;
-        let versions = self.store.list_pipeline_versions(project_id).await?;
-        versions
-            .into_iter()
-            .next()
-            .map(|version| version.id())
+        let pipeline_id = resource_id(&receipt, "pipeline")?;
+        self.store
+            .load_pipeline(pipeline_id)
+            .await?
+            .map(|pipeline| pipeline.default_version_id())
             .context("created Pipeline version is missing")
     }
 

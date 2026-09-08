@@ -1,4 +1,43 @@
 use super::*;
+
+#[test]
+fn new_private_credential_parents_are_owner_only() {
+    use std::os::unix::fs::MetadataExt;
+    let root = std::env::temp_dir().join(format!("forge-private-parent-{}", crate::new_id()));
+    create_parent(&root.join("claude-home/setup-token")).unwrap();
+    assert_eq!(
+        fs::metadata(root.join("claude-home")).unwrap().mode() & 0o777,
+        0o700
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn claude_invocation_requires_exact_non_writeback_subscription_delivery() {
+    let mut invocation = RunnerInvocation {
+        runtime_input: None,
+        adapter_id: "claude_code_cli".into(),
+        program: "forge-claude-driver".into(),
+        args: vec![],
+        env: Default::default(),
+        managed_files: vec![],
+        credential_files: vec![forge_protocol::runtime::RunnerCredentialFile {
+            source: "/run/forge-secrets/claude-setup-token".into(),
+            target: "/run/forge/claude-home/setup-token".into(),
+            writeback: false,
+        }],
+        max_output_bytes: 4096,
+        stop_grace_seconds: 2,
+    };
+    assert!(validate(&invocation).is_ok());
+    invocation.credential_files[0].writeback = true;
+    assert!(validate(&invocation).is_err());
+    invocation.credential_files[0].writeback = false;
+    invocation.credential_files[0].source = "/run/forge-secrets/api-key".into();
+    assert!(validate(&invocation).is_err());
+    invocation.credential_files.clear();
+    assert!(validate(&invocation).is_err());
+}
 #[test]
 fn secret_crossing_read_chunks_is_redacted_as_one_complete_line() {
     let token = b"synthetic-refresh-secret".to_vec();

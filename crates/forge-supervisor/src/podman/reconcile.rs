@@ -21,7 +21,7 @@ impl PodmanBackend {
             .records()
             .into_iter()
             .filter(|record| {
-                record.provision.run_spec_version == 2
+                record.provision.run_spec_version != 1
                     && record.presence != EnvironmentPresence::Quiescent
             })
             .map(|record| record.provision)
@@ -29,11 +29,15 @@ impl PodmanBackend {
         // A corrupted retained contract cannot safely restore a stop controller
         // with guessed limits. Fail startup before any identity becomes Active.
         for provision in &provisions {
-            let spec: forge_domain::runtime::SandboxRunSpec =
+            crate::execution_assignment::validate(provision)?;
+            let spec: forge_domain::runtime::SandboxLaunchSpec =
                 serde_json::from_str(&provision.run_spec_json)
                     .map_err(|_| SupervisorError::InvalidRunSpec)?;
             spec.validate()
                 .map_err(|_| SupervisorError::InvalidRunSpec)?;
+            if u32::from(spec.schema_version()) != provision.run_spec_version {
+                return Err(SupervisorError::InvalidRunSpec);
+            }
         }
         let parallelism = Arc::new(Semaphore::new(INITIAL_INSPECTION_PARALLELISM));
         let mut inspections = JoinSet::new();

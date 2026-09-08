@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, num::NonZeroU16};
 
 use serde::{Deserialize, Serialize};
 
@@ -153,15 +153,17 @@ pub struct Employee {
     role: EmployeeRole,
     state: EmployeeState,
     stage_eligibility: StageEligibility,
+    #[serde(default = "initial_employee_revision")]
+    revision: u64,
+    #[serde(default = "default_employee_capacity")]
+    max_concurrent_runs: NonZeroU16,
     created_by: Actor,
     created_at: Timestamp,
     updated_at: Timestamp,
 }
 
 impl Employee {
-    /// First and only aggregate revision for the immutable M0 Employee
-    /// catalog entry. Later employee-management commands must introduce a
-    /// durable aggregate revision before they can mutate this snapshot.
+    /// Initial aggregate revision, also used when reading historical M0 snapshots.
     pub const INITIAL_REVISION: u64 = 1;
 
     /// Creates an enabled Employee identity.
@@ -188,6 +190,8 @@ impl Employee {
             role,
             state: EmployeeState::Enabled,
             stage_eligibility,
+            revision: Self::INITIAL_REVISION,
+            max_concurrent_runs: default_employee_capacity(),
             created_by,
             created_at,
             updated_at: created_at,
@@ -224,6 +228,45 @@ impl Employee {
         self.state
     }
 
+    /// Returns the durable optimistic-concurrency revision.
+    #[must_use]
+    pub const fn revision(&self) -> u64 {
+        self.revision
+    }
+
+    /// Maximum concurrently reserved Runs, including not-yet-quiescent environments.
+    #[must_use]
+    pub const fn max_concurrent_runs(&self) -> u16 {
+        self.max_concurrent_runs.get()
+    }
+
+    /// Replaces selected catalog fields for future assignments only.
+    pub fn amend(
+        &mut self,
+        amendment: &EmployeeAmendment,
+        changed_at: Timestamp,
+    ) -> Result<(), DomainError> {
+        self.require_not_retired()?;
+        amendment.validate_nonempty()?;
+        let mut next = self.clone();
+        if let Some(name) = &amendment.name {
+            next.name.clone_from(name);
+        }
+        if let Some(role) = &amendment.role {
+            next.role.clone_from(role);
+        }
+        if let Some(eligibility) = &amendment.stage_eligibility {
+            next.stage_eligibility.clone_from(eligibility);
+        }
+        if let Some(capacity) = amendment.max_concurrent_runs {
+            next.max_concurrent_runs = capacity;
+        }
+        next.touch(changed_at)?;
+        next.validate_snapshot()?;
+        *self = next;
+        Ok(())
+    }
+
     /// Returns the stage eligibility rule.
     #[must_use]
     pub fn stage_eligibility(&self) -> &StageEligibility {
@@ -249,11 +292,9 @@ impl Employee {
     /// Returns [`DomainError::InvalidValue`] if a caller supplies a timestamp
     /// before the most recently recorded Employee change.
     pub fn disable(&mut self, changed_at: Timestamp) -> Result<(), DomainError> {
-        self.ensure_monotonic_timestamp(changed_at)?;
-        if self.state != EmployeeState::Retired {
-            self.state = EmployeeState::Disabled;
-            self.updated_at = changed_at;
-        }
+        self.require_not_retired()?;
+        self.touch(changed_at)?;
+        self.state = EmployeeState::Disabled;
         Ok(())
     }
 
@@ -264,15 +305,9 @@ impl Employee {
     /// Returns [`DomainError::InvalidValue`] if the Employee is retired or the
     /// timestamp predates the current state.
     pub fn enable(&mut self, changed_at: Timestamp) -> Result<(), DomainError> {
-        self.ensure_monotonic_timestamp(changed_at)?;
-        if self.state == EmployeeState::Retired {
-            return Err(DomainError::InvalidValue {
-                field: "employee.state",
-                reason: "a retired employee cannot be re-enabled".to_owned(),
-            });
-        }
+        self.require_not_retired()?;
+        self.touch(changed_at)?;
         self.state = EmployeeState::Enabled;
-        self.updated_at = changed_at;
         Ok(())
     }
 
@@ -283,9 +318,8 @@ impl Employee {
     /// Returns [`DomainError::NonMonotonicTimestamp`] if the timestamp predates
     /// the current state.
     pub fn retire(&mut self, changed_at: Timestamp) -> Result<(), DomainError> {
-        self.ensure_monotonic_timestamp(changed_at)?;
+        self.touch(changed_at)?;
         self.state = EmployeeState::Retired;
-        self.updated_at = changed_at;
         Ok(())
     }
 
@@ -309,6 +343,12 @@ impl Employee {
 
     /// Revalidates a deserialized Employee snapshot before storage exposes it.
     pub fn validate_snapshot(&self) -> Result<(), DomainError> {
+        if self.revision == 0 {
+            return Err(DomainError::InvalidValue {
+                field: "employee.revision",
+                reason: "must be positive".to_owned(),
+            });
+        }
         self.id.validate_v7("employee.id")?;
         self.project_id.validate_v7("employee.project_id")?;
         self.role.validate()?;
@@ -335,6 +375,68 @@ impl Employee {
         }
         Ok(())
     }
+
+    fn touch(&mut self, changed_at: Timestamp) -> Result<(), DomainError> {
+        self.ensure_monotonic_timestamp(changed_at)?;
+        self.revision = self
+            .revision
+            .checked_add(1)
+            .ok_or(DomainError::InvalidValue {
+                field: "employee.revision",
+                reason: "revision exhausted".to_owned(),
+            })?;
+        self.updated_at = changed_at;
+        Ok(())
+    }
+
+    fn require_not_retired(&self) -> Result<(), DomainError> {
+        if self.state == EmployeeState::Retired {
+            return Err(DomainError::InvalidValue {
+                field: "employee.state",
+                reason: "retired employee configuration is immutable".to_owned(),
+            });
+        }
+        Ok(())
+    }
+}
+
+const fn initial_employee_revision() -> u64 {
+    Employee::INITIAL_REVISION
+}
+
+const fn default_employee_capacity() -> NonZeroU16 {
+    NonZeroU16::MIN
+}
+
+/// Selected Employee catalog replacements. No field changes an already issued Run.
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EmployeeAmendment {
+    /// Optional new display name.
+    pub name: Option<String>,
+    /// Optional new specialization.
+    pub role: Option<EmployeeRole>,
+    /// Optional version-scoped eligibility policy.
+    pub stage_eligibility: Option<StageEligibility>,
+    /// Optional strictly positive physical Run capacity.
+    pub max_concurrent_runs: Option<NonZeroU16>,
+}
+
+impl EmployeeAmendment {
+    /// Rejects empty changes rather than manufacturing a catalog mutation.
+    pub fn validate_nonempty(&self) -> Result<(), DomainError> {
+        if self.name.is_none()
+            && self.role.is_none()
+            && self.stage_eligibility.is_none()
+            && self.max_concurrent_runs.is_none()
+        {
+            return Err(DomainError::InvalidValue {
+                field: "employee.patch",
+                reason: "must contain at least one replacement".to_owned(),
+            });
+        }
+        Ok(())
+    }
 }
 
 fn validate_non_blank(field: &'static str, value: &str, max_len: usize) -> Result<(), DomainError> {
@@ -352,6 +454,10 @@ fn validate_non_blank(field: &'static str, value: &str, max_len: usize) -> Resul
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "employee_management_tests.rs"]
+mod management_tests;
 
 #[cfg(test)]
 mod tests {

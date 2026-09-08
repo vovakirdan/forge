@@ -163,10 +163,25 @@ pub struct ActiveRun {
     pub id: Uuid,
     /// Owning Project scope.
     pub project_id: ProjectId,
-    /// Canonical Task currently served by this Run.
-    pub task_id: TaskId,
+    /// Purpose-specific owner; context does not imply Task authority.
+    pub assignment: forge_domain::ExecutionAssignment,
+    /// Exact Task visit pinned by the immutable context; absent for legacy/taskless Runs.
+    pub stage_visit: Option<forge_domain::StageVisit>,
+    /// Provider owner; absent only for a provider-free Hook.
+    pub employee_id: Option<forge_domain::EmployeeId>,
     /// Lease generation required by every stop-side compare-and-set.
     pub lease_fencing_token: u64,
     /// Runtime environment generation paired with the Lease fence.
     pub environment_epoch: u64,
+}
+
+impl ActiveRun {
+    /// Agent-only callers fail closed for ownerless System execution.
+    pub fn require_employee_id(&self) -> Result<forge_domain::EmployeeId, super::RepositoryError> {
+        self.employee_id
+            .filter(|_| self.assignment.hook().is_none())
+            .ok_or_else(|| super::RepositoryError::InvalidInput {
+                reason: "operation requires an Employee-owned execution assignment".into(),
+            })
+    }
 }

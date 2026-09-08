@@ -6,7 +6,7 @@ use forge_domain::{
 };
 use forge_protocol::supervisor::v1::CoreToSupervisor;
 use forge_protocol::supervisor::v1::{ProvisionRun, core_to_supervisor};
-use forge_storage::{LeaseRunRequest, QueueEntry, StorageTransaction};
+use forge_storage::LeaseRunRequest;
 use serde_json::{Value, json};
 use time::Duration;
 use tracing::warn;
@@ -14,6 +14,7 @@ use uuid::Uuid;
 
 use crate::{
     CoreError, CoreService,
+    dispatch_constraint::{EmployeeSelection, persist_constraint_result, select_employee},
     event::{event, event_payload},
     task_support::{
         current_stage_executor, load_scoped_task, persist_task_and_project,
@@ -53,10 +54,24 @@ impl CoreService {
         }
 
         let mut delivered = 0_usize;
-        while let Some(mut provision) = self.claim_and_provision(project_id).await? {
+        loop {
+            let next = match self.claim_and_provision(project_id).await? {
+                Some(provision) => Some(provision),
+                None => match self.claim_hook_provision(project_id).await? {
+                    Some(provision) => Some(provision),
+                    None => match self.claim_resolution_provision(project_id).await? {
+                        Some(provision) => Some(provision),
+                        None => self.claim_communication_provision(project_id).await?,
+                    },
+                },
+            };
+            let Some(mut provision) = next else {
+                break;
+            };
             if !self.fake_runtime_enabled
                 && let Some(core_to_supervisor::Message::ProvisionRun(request)) =
                     &mut provision.message
+                && request.run_spec_version != 5
             {
                 let run_id = Uuid::parse_str(&request.run_id)
                     .map_err(|_| crate::credentials::credential_error())?;
@@ -80,21 +95,32 @@ impl CoreService {
                     fencing_token: request.lease_fencing_token,
                     environment_epoch: request.environment_epoch,
                 };
-                if !delivery.gateway_scope_is_active(scope).await? {
+                let active = if request.run_spec_version == 5 {
+                    delivery
+                        .hook_scope_is_active(scope, self.instance_id)
+                        .await?
+                } else {
+                    delivery.gateway_scope_is_active(scope).await?
+                };
+                if !active {
                     delivery.commit().await?;
                     self.fail_preparation(scope.run_id).await?;
                     continue;
                 }
             }
-            let sent = self.supervisor.send(provision).await;
+            let sent = tokio::time::timeout(
+                std::time::Duration::from_secs(2),
+                self.supervisor.send(provision),
+            )
+            .await;
             delivery.commit().await?;
             match sent {
-                Ok(()) => delivered = delivered.saturating_add(1),
-                Err(error) => {
+                Ok(Ok(())) => delivered = delivered.saturating_add(1),
+                error => {
                     // The Run remains durably provision-requested. Recovery will
                     // reconcile it after a Supervisor reconnect; never undo a
                     // committed fence merely because local delivery raced a drop.
-                    warn!(error = %error, "could not deliver committed Run provision to Supervisor");
+                    warn!(error = ?error, "could not deliver committed Run provision to Supervisor");
                     break;
                 }
             }
@@ -106,53 +132,101 @@ impl CoreService {
         &self,
         project_id: ProjectId,
     ) -> Result<Option<CoreToSupervisor>, CoreError> {
-        let mut transaction = self.store.begin().await?;
-        let Some(mut project) = transaction.lock_project(project_id).await? else {
-            return Ok(None);
-        };
-        let observed_wall = Timestamp::now_utc();
-        let now = crate::canonical_clock::project_mutation_time_at(&project, observed_wall);
-        let Some(queue_entry) = transaction.claim_next(project_id).await? else {
-            transaction.commit().await?;
-            return Ok(None);
-        };
-        let scoped =
-            load_scoped_task(&mut transaction, &project, queue_entry.input.task_id).await?;
-        let expected_task_revision = scoped.task.revision().get();
-        if expected_task_revision != queue_entry.input.task_revision {
-            transaction.release_queue_claim(queue_entry.id).await?;
-            transaction.commit().await?;
-            return Ok(None);
-        }
-        let version = pinned_pipeline_version(&mut transaction, &project, &scoped.task).await?;
-        let executor = current_stage_executor(&version, &scoped.task)?;
-        if executor != ExecutorKind::Employee {
-            transaction.release_queue_claim(queue_entry.id).await?;
-            transaction.commit().await?;
-            return Ok(None);
-        }
-        let Some(employee) = select_employee(&mut transaction, &queue_entry).await? else {
-            transaction.release_queue_claim(queue_entry.id).await?;
-            transaction.commit().await?;
-            return Ok(None);
-        };
-        let stage =
-            version
-                .stage(&queue_entry.input.stage_id)
-                .ok_or(CoreError::InvalidTransport {
-                    field: "queue.stage_id",
-                    reason: "is absent from the task pinned pipeline version".to_owned(),
-                })?;
-        let surface_id = scoped
-            .persistence
-            .task_work_surface_id
-            .unwrap_or_else(Uuid::now_v7);
-        let mut pinned_credential = None;
-        let (run_spec_version, run_spec) = if self.fake_runtime_enabled {
-            (1_u16, fake_run_spec(stage, &scoped.task)?)
-        } else {
-            let binding =
-                transaction
+        loop {
+            let mut transaction = self.store.begin().await?;
+            let Some(mut project) = transaction.lock_project(project_id).await? else {
+                return Ok(None);
+            };
+            let observed_wall = Timestamp::now_utc();
+            let now = crate::canonical_clock::project_mutation_time_at(&project, observed_wall);
+            let Some(queue_entry) = transaction.claim_next(project_id).await? else {
+                transaction.commit().await?;
+                return Ok(None);
+            };
+            let scoped =
+                load_scoped_task(&mut transaction, &project, queue_entry.input.task_id).await?;
+            let expected_task_revision = scoped.task.revision().get();
+            if expected_task_revision != queue_entry.input.task_revision {
+                transaction.release_queue_claim(queue_entry.id).await?;
+                transaction.commit().await?;
+                return Ok(None);
+            }
+            let version = pinned_pipeline_version(&mut transaction, &project, &scoped.task).await?;
+            let executor = current_stage_executor(&version, &scoped.task)?;
+            if executor != ExecutorKind::Employee {
+                transaction.release_queue_claim(queue_entry.id).await?;
+                transaction.commit().await?;
+                return Ok(None);
+            }
+            let (employee, dispatch_constraint) =
+                match select_employee(&mut transaction, &queue_entry, &scoped.task).await? {
+                    EmployeeSelection::Ready {
+                        employee,
+                        constraint,
+                    } => (employee, constraint),
+                    EmployeeSelection::Unavailable => {
+                        transaction.release_queue_claim(queue_entry.id).await?;
+                        transaction.commit().await?;
+                        return Ok(None);
+                    }
+                    EmployeeSelection::ChangeConstraint { constraint, result } => {
+                        persist_constraint_result(
+                            &mut transaction,
+                            &mut project,
+                            &scoped.task,
+                            constraint,
+                            result,
+                            self.actors.core,
+                            CommandId::new(),
+                            now,
+                        )
+                        .await?;
+                        transaction.release_queue_claim(queue_entry.id).await?;
+                        transaction.commit().await?;
+                        // A held/expired constraint changes only its own admission result;
+                        // continue this pass so another Task is not stranded behind it.
+                        continue;
+                    }
+                };
+            let stage =
+                version
+                    .stage(&queue_entry.input.stage_id)
+                    .ok_or(CoreError::InvalidTransport {
+                        field: "queue.stage_id",
+                        reason: "is absent from the task pinned pipeline version".to_owned(),
+                    })?;
+            let surface_id = scoped
+                .persistence
+                .task_work_surface_id
+                .unwrap_or_else(Uuid::now_v7);
+            if let forge_domain::TaskWorkSurface::Git(git) = scoped.task.work_surface() {
+                if self.fake_runtime_enabled
+                    || scoped.persistence.task_work_surface_id != Some(git.surface_id)
+                {
+                    return Err(CoreError::InvalidTransport {
+                        field: "task.work_surface",
+                        reason: "Git-bound Tasks require their pinned real execution surface"
+                            .into(),
+                    });
+                }
+                let repository = transaction
+                    .load_project_repository(git.repository_id)
+                    .await?
+                    .filter(|repository| {
+                        repository.project_id == project_id && git.matches_repository(repository)
+                    })
+                    .ok_or(CoreError::InvalidTransport {
+                        field: "task.work_surface",
+                        reason: "Task source does not match its registered Project repository"
+                            .into(),
+                    })?;
+                repository.validate_snapshot()?;
+            }
+            let mut pinned_credential = None;
+            let (run_spec_version, run_spec) = if self.fake_runtime_enabled {
+                (1_u16, fake_run_spec(stage, &scoped.task)?)
+            } else {
+                let mut binding = transaction
                     .runtime_binding(employee.id())
                     .await?
                     .ok_or(CoreError::InvalidTransport {
@@ -161,246 +235,291 @@ impl CoreService {
                         "an explicit sandbox runtime profile is required; fake fallback is disabled"
                             .into(),
                 })?;
-            binding
-                .validate()
-                .map_err(|error| CoreError::InvalidTransport {
-                    field: "runtime_binding",
-                    reason: error.to_string(),
-                })?;
-            if self.execution.is_none() {
-                return Err(crate::credentials::credential_error());
-            }
-            let record = transaction
-                .load_credential(
-                    project_id,
-                    binding.execution_profile.credential_binding().secret_id,
-                )
-                .await?
-                .ok_or_else(crate::credentials::credential_error)?;
-            let _checked = self
-                .open_runtime_credential(&record, binding.execution_profile.credential_binding())?;
-            pinned_credential = Some(record);
-            let instruction = serde_json::to_string(&json!({
+                if let forge_domain::TaskWorkSurface::Git(git) = scoped.task.work_surface() {
+                    let repository = git.source.as_path().to_string_lossy().into_owned();
+                    let base_ref = git.initial_base.as_str().to_owned();
+                    binding.surface = if binding.access
+                        == forge_domain::runtime::SurfaceAccess::ReadOnly
+                    {
+                        let accepted = transaction.latest_accepted_git_candidate(project_id, scoped.task.id()).await?
+                        .filter(|candidate| candidate.surface_id == git.surface_id)
+                        .ok_or(CoreError::InvalidTransport {
+                            field: "task.work_surface",
+                            reason: "read-only Git execution requires an accepted candidate for this Task surface".into(),
+                        })?;
+                        forge_domain::runtime::SurfaceSpec::GitCandidateSnapshot {
+                            repository,
+                            base_ref,
+                            candidate: accepted.candidate,
+                        }
+                    } else {
+                        forge_domain::runtime::SurfaceSpec::GitWorktree {
+                            repository,
+                            base_ref,
+                        }
+                    };
+                }
+                binding
+                    .validate()
+                    .map_err(|error| CoreError::InvalidTransport {
+                        field: "runtime_binding",
+                        reason: error.to_string(),
+                    })?;
+                if stage.workspace().is_some_and(|requirement| {
+                    !requirement.is_compatible(&binding.surface, binding.access)
+                }) {
+                    return Err(CoreError::InvalidTransport {
+                    field: "stage.workspace",
+                    reason: "the assigned runtime does not satisfy the pinned stage workspace requirement".into(),
+                });
+                }
+                if self.execution.is_none() {
+                    return Err(crate::credentials::credential_error());
+                }
+                let record = transaction
+                    .load_credential(
+                        project_id,
+                        binding.execution_profile.credential_binding().secret_id,
+                    )
+                    .await?
+                    .ok_or_else(crate::credentials::credential_error)?;
+                let _checked = self.open_runtime_credential(
+                    &record,
+                    binding.execution_profile.credential_binding(),
+                    binding.execution_profile.adapter_id(),
+                )?;
+                pinned_credential = Some(record);
+                let instruction = serde_json::to_string(&json!({
                 "task": scoped.task.spec(), "stage": stage,
                 "previous_handoff": transaction.latest_handoff(scoped.task.id()).await?,
-                "submission_policy": "Use Forge Gateway to attach artifacts and explicitly submit one of the permitted stage outcomes. Exit status alone does not complete the task.",
+                "submission_policy": if matches!(scoped.task.work_surface(), forge_domain::TaskWorkSurface::Git(_))
+                    && binding.access == forge_domain::runtime::SurfaceAccess::ReadWrite {
+                    "Use Forge Gateway to attach artifacts and explicitly submit a permitted stage outcome with candidate_commit set to the full committed HEAD SHA. Commit the intended changes yourself and leave tracked/untracked work clean before submitting; Forge never automatically adds, commits, or discards your files. Submission is a proposal: final acceptance follows physical stop and exact clean-HEAD inspection. Exit status alone does not complete the Task."
+                } else {
+                    "Use Forge Gateway to attach artifacts and explicitly submit one of the permitted stage outcomes. Exit status alone does not complete the task."
+                },
             })).map_err(|_| CoreError::InvalidTransport { field: "context", reason: "cannot serialize task contract".into() })?;
-            let spec = forge_domain::runtime::SandboxRunSpec {
-                schema_version: forge_domain::runtime::SANDBOX_RUN_SPEC_VERSION,
-                project_id,
-                surface_id,
-                binding,
-                instruction,
-            };
-            spec.validate()
-                .map_err(|error| CoreError::InvalidTransport {
-                    field: "run_spec",
-                    reason: error.to_string(),
-                })?;
-            (
-                spec.schema_version,
-                serde_json::to_value(spec).map_err(|_| CoreError::InvalidTransport {
-                    field: "run_spec",
-                    reason: "cannot serialize runtime intent".into(),
-                })?,
-            )
-        };
-        let context_snapshot_id = Uuid::now_v7();
-        let run_id = Uuid::now_v7();
-        let previous_handoff = transaction
-            .latest_handoff(scoped.task.id())
-            .await?
-            .map(serde_json::from_value::<forge_domain::TaskHandoff>)
-            .transpose()
-            .map_err(|_| CoreError::InvalidTransport {
-                field: "handoff",
-                reason: "stored handoff violates its domain contract".into(),
-            })?;
-        let profile_revision = run_spec
-            .get("binding")
-            .and_then(|value| value.get("execution_profile"))
-            .map(|value| {
-                format!(
-                    "{}:{}",
-                    value["id"].as_str().unwrap_or("unknown"),
-                    value["revision"]
+                let spec = forge_domain::runtime::SandboxRunSpec {
+                    schema_version: forge_domain::runtime::SANDBOX_RUN_SPEC_VERSION,
+                    project_id,
+                    surface_id,
+                    binding,
+                    instruction,
+                };
+                spec.validate()
+                    .map_err(|error| CoreError::InvalidTransport {
+                        field: "run_spec",
+                        reason: error.to_string(),
+                    })?;
+                (
+                    spec.schema_version,
+                    serde_json::to_value(spec).map_err(|_| CoreError::InvalidTransport {
+                        field: "run_spec",
+                        reason: "cannot serialize runtime intent".into(),
+                    })?,
                 )
-            })
-            .unwrap_or_else(|| "fake_m0:1".into());
-        let context = forge_domain::ContextSnapshot::new(forge_domain::ContextSnapshotInput {
-            context_snapshot_id,
-            project_id,
-            task_id: scoped.task.id(),
-            run_id,
-            employee_id: employee.id(),
-            pipeline_version_id: queue_entry.input.pipeline_version_id,
-            stage_id: queue_entry.input.stage_id.clone(),
-            task_revision_before_dispatch: expected_task_revision,
-            task_spec: scoped.task.spec().clone(),
-            system_policy_revision: profile_revision.clone(),
-            employee_prompt_revision: profile_revision,
-            capability_grants: [
-                "board.list",
-                "task.read",
-                "artifact.submit",
-                "outcome.submit",
-                "progress.report",
-                "human.request",
-            ]
-            .into_iter()
-            .map(str::to_owned)
-            .collect(),
-            tool_catalog_revision: "forge_task_tools_v1".into(),
-            run_spec_id: run_id,
-            prior_handoff: previous_handoff,
-            artifacts: vec![],
-            control_instruction: None,
-            created_at: now,
-        })?;
-        let lease_request = LeaseRunRequest {
-            queue_entry: queue_entry.clone(),
-            employee_id: employee.id(),
-            lease_id: Uuid::now_v7(),
-            run_id,
-            lease_expires_at: Timestamp::from_offset_date_time(
-                observed_wall.as_offset_date_time() + M0_LEASE_DURATION,
-            ),
-            task_work_surface_id: (!self.fake_runtime_enabled).then_some(surface_id),
-            lease_scope: json!({"simulator": self.fake_runtime_enabled}),
-            resource_reservation: json!({}),
-            run_spec_version,
-            run_spec: run_spec.clone(),
-            context_manifest: serde_json::to_value(context).map_err(|_| {
-                CoreError::InvalidTransport {
-                    field: "context",
-                    reason: "cannot serialize context snapshot".into(),
-                }
-            })?,
-        };
-        // Storage validates the claimed queue snapshot against the Task's old
-        // revision. Starting the Task before this call would invalidate the
-        // exact queue item that authorizes the Lease.
-        let provisioned = transaction.create_lease_and_run(&lease_request).await?;
-        if !self.fake_runtime_enabled {
-            transaction
-                .reserve_environment(provisioned.run.id, Some(surface_id))
-                .await?;
-            if let Some(record) = pinned_credential {
+            };
+            let context_snapshot_id = Uuid::now_v7();
+            let run_id = Uuid::now_v7();
+            let previous_handoff = transaction
+                .latest_handoff(scoped.task.id())
+                .await?
+                .map(serde_json::from_value::<forge_domain::TaskHandoff>)
+                .transpose()
+                .map_err(|_| CoreError::InvalidTransport {
+                    field: "handoff",
+                    reason: "stored handoff violates its domain contract".into(),
+                })?;
+            let profile_revision = run_spec
+                .get("binding")
+                .and_then(|value| value.get("execution_profile"))
+                .map(|value| {
+                    format!(
+                        "{}:{}",
+                        value["id"].as_str().unwrap_or("unknown"),
+                        value["revision"]
+                    )
+                })
+                .unwrap_or_else(|| "fake_m0:1".into());
+            let context = forge_domain::ContextSnapshot::new(forge_domain::ContextSnapshotInput {
+                context_snapshot_id,
+                project_id,
+                task_id: scoped.task.id(),
+                run_id,
+                employee_id: employee.id(),
+                pipeline_version_id: queue_entry.input.pipeline_version_id,
+                stage_id: queue_entry.input.stage_id.clone(),
+                stage_visit: scoped.task.current_stage_visit().map(|visit| visit.get()),
+                task_revision_before_dispatch: expected_task_revision,
+                task_spec: scoped.task.spec().clone(),
+                system_policy_revision: profile_revision.clone(),
+                employee_prompt_revision: profile_revision,
+                capability_grants: [
+                    "board.list",
+                    "task.read",
+                    "artifact.submit",
+                    "outcome.submit",
+                    "progress.report",
+                    "human.request",
+                    "escalation.raise",
+                    "finding.report",
+                    "inbox.list",
+                    "inbox.acknowledge",
+                    "inbox.reply",
+                ]
+                .into_iter()
+                .map(str::to_owned)
+                .collect(),
+                tool_catalog_revision: "forge_task_tools_v2".into(),
+                run_spec_id: run_id,
+                prior_handoff: previous_handoff,
+                artifacts: vec![],
+                control_instruction: None,
+                created_at: now,
+            })?;
+            let lease_request = LeaseRunRequest {
+                queue_entry: queue_entry.clone(),
+                employee_id: employee.id(),
+                lease_id: Uuid::now_v7(),
+                run_id,
+                lease_expires_at: Timestamp::from_offset_date_time(
+                    observed_wall.as_offset_date_time() + M0_LEASE_DURATION,
+                ),
+                task_work_surface_id: (!self.fake_runtime_enabled).then_some(surface_id),
+                lease_scope: json!({"simulator": self.fake_runtime_enabled}),
+                resource_reservation: json!({}),
+                run_spec_version,
+                run_spec: run_spec.clone(),
+                context_manifest: serde_json::to_value(context).map_err(|_| {
+                    CoreError::InvalidTransport {
+                        field: "context",
+                        reason: "cannot serialize context snapshot".into(),
+                    }
+                })?,
+            };
+            // Storage validates the claimed queue snapshot against the Task's old
+            // revision. Starting the Task before this call would invalidate the
+            // exact queue item that authorizes the Lease.
+            let provisioned = transaction.create_lease_and_run(&lease_request).await?;
+            if !self.fake_runtime_enabled {
                 transaction
-                    .pin_run_credential(provisioned.run.id, &record)
+                    .reserve_environment(provisioned.run.id, Some(surface_id))
                     .await?;
+                if let Some(record) = pinned_credential {
+                    transaction
+                        .pin_run_credential(provisioned.run.id, &record)
+                        .await?;
+                }
             }
-        }
 
-        let mut task = scoped.task;
-        let starts_task = task.lifecycle() == LifecycleStatus::Ready;
-        if starts_task {
-            version.start_entry_employee_stage(&mut task, now)?;
-        }
-        task.record_run_attempt(now)?;
-        let next_attempt_count =
-            scoped
-                .persistence
-                .attempt_count
-                .checked_add(1)
-                .ok_or(CoreError::InvalidTransport {
+            let mut task = scoped.task;
+            let starts_task = task.lifecycle() == LifecycleStatus::Ready;
+            if starts_task {
+                version.start_entry_employee_stage(&mut task, now)?;
+            }
+            task.record_run_attempt(now)?;
+            let next_attempt_count = scoped.persistence.attempt_count.checked_add(1).ok_or(
+                CoreError::InvalidTransport {
                     field: "task.attempt_count",
                     reason: "cannot exceed u32::MAX".to_owned(),
-                })?;
-        let mut persistence =
-            crate::scheduler::task_persistence(&project, &task, next_attempt_count)?;
-        persistence.task_work_surface_id = lease_request.task_work_surface_id;
-        persist_task_and_project(
-            &mut transaction,
-            &mut project,
-            &task,
-            persistence,
-            expected_task_revision,
-            now,
-        )
-        .await?;
+                },
+            )?;
+            let mut persistence =
+                crate::scheduler::task_persistence(&project, &task, next_attempt_count)?;
+            persistence.task_work_surface_id = lease_request.task_work_surface_id;
+            persist_task_and_project(
+                &mut transaction,
+                &mut project,
+                &task,
+                persistence,
+                expected_task_revision,
+                now,
+            )
+            .await?;
 
-        let command_id = CommandId::new();
-        if starts_task {
-            let started = event(
+            let command_id = CommandId::new();
+            if let Some(constraint) = dispatch_constraint {
+                persist_constraint_result(
+                    &mut transaction,
+                    &mut project,
+                    &task,
+                    constraint,
+                    forge_domain::NextRunConstraintState::Consumed {
+                        run_id: provisioned.run.id,
+                    },
+                    self.actors.core,
+                    command_id,
+                    now,
+                )
+                .await?;
+            }
+            if starts_task {
+                let started = event(
+                    project.id(),
+                    AggregateRef::Task(task.id()),
+                    task.revision().get(),
+                    DomainEventKind::TaskStarted,
+                    self.actors.core,
+                    command_id,
+                    None,
+                    stage_payload(&task),
+                    now,
+                )?;
+                transaction.append_event_and_outbox(&started).await?;
+            }
+            let provisioned_event = event(
                 project.id(),
                 AggregateRef::Task(task.id()),
                 task.revision().get(),
-                DomainEventKind::TaskStarted,
+                DomainEventKind::RunProvisioned,
                 self.actors.core,
                 command_id,
                 None,
-                stage_payload(&task),
+                event_payload([
+                    ("run_id", json!(provisioned.run.id)),
+                    ("employee_id", json!(employee.id().as_uuid())),
+                    (
+                        "stage_id",
+                        json!(&provisioned.run.require_task_stage()?.stage_id),
+                    ),
+                    ("attempt", json!(provisioned.run.attempt_number)),
+                    (
+                        "lease_fencing_token",
+                        json!(provisioned.lease_fencing_token),
+                    ),
+                    ("environment_epoch", json!(provisioned.environment_epoch)),
+                ]),
                 now,
             )?;
-            transaction.append_event_and_outbox(&started).await?;
+            transaction
+                .append_event_and_outbox(&provisioned_event)
+                .await?;
+            transaction.commit().await?;
+
+            let run_spec_json =
+                serde_json::to_string(&run_spec).map_err(|error| CoreError::InvalidTransport {
+                    field: "m0_run_spec",
+                    reason: error.to_string(),
+                })?;
+            return Ok(Some(CoreToSupervisor {
+                message: Some(core_to_supervisor::Message::ProvisionRun(ProvisionRun {
+                    command_id: command_id.as_uuid().to_string(),
+                    run_id: provisioned.run.id.to_string(),
+                    task_id: task.id().as_uuid().to_string(),
+                    employee_id: employee.id().as_uuid().to_string(),
+                    stage_id: provisioned.run.require_task_stage()?.stage_id.to_string(),
+                    attempt: provisioned.run.attempt_number,
+                    lease_fencing_token: provisioned.lease_fencing_token,
+                    environment_epoch: provisioned.environment_epoch,
+                    context_snapshot_id: context_snapshot_id.to_string(),
+                    run_spec_json,
+                    run_spec_version: u32::from(run_spec_version),
+                    traceparent: crate::observability::current_traceparent(),
+                    assignment: None,
+                })),
+            }));
         }
-        let provisioned_event = event(
-            project.id(),
-            AggregateRef::Task(task.id()),
-            task.revision().get(),
-            DomainEventKind::RunProvisioned,
-            self.actors.core,
-            command_id,
-            None,
-            event_payload([
-                ("run_id", json!(provisioned.run.id)),
-                ("employee_id", json!(employee.id().as_uuid())),
-                ("stage_id", json!(&provisioned.run.stage_id)),
-                ("attempt", json!(provisioned.run.attempt_number)),
-                (
-                    "lease_fencing_token",
-                    json!(provisioned.lease_fencing_token),
-                ),
-                ("environment_epoch", json!(provisioned.environment_epoch)),
-            ]),
-            now,
-        )?;
-        transaction
-            .append_event_and_outbox(&provisioned_event)
-            .await?;
-        transaction.commit().await?;
-
-        let run_spec_json =
-            serde_json::to_string(&run_spec).map_err(|error| CoreError::InvalidTransport {
-                field: "m0_run_spec",
-                reason: error.to_string(),
-            })?;
-        Ok(Some(CoreToSupervisor {
-            message: Some(core_to_supervisor::Message::ProvisionRun(ProvisionRun {
-                command_id: command_id.as_uuid().to_string(),
-                run_id: provisioned.run.id.to_string(),
-                task_id: task.id().as_uuid().to_string(),
-                employee_id: employee.id().as_uuid().to_string(),
-                stage_id: provisioned.run.stage_id,
-                attempt: provisioned.run.attempt_number,
-                lease_fencing_token: provisioned.lease_fencing_token,
-                environment_epoch: provisioned.environment_epoch,
-                context_snapshot_id: context_snapshot_id.to_string(),
-                run_spec_json,
-                run_spec_version: u32::from(run_spec_version),
-                traceparent: crate::observability::current_traceparent(),
-            })),
-        }))
     }
-}
-
-async fn select_employee(
-    transaction: &mut StorageTransaction<'_>,
-    queue_entry: &QueueEntry,
-) -> Result<Option<forge_domain::Employee>, CoreError> {
-    let employees = transaction
-        .lock_available_employees(queue_entry.input.project_id)
-        .await?;
-    Ok(employees.into_iter().find_map(|stored| {
-        stored
-            .employee
-            .is_eligible_for(
-                queue_entry.input.pipeline_version_id,
-                &queue_entry.input.stage_id,
-            )
-            .then_some(stored.employee)
-    }))
 }
 
 fn fake_run_spec(stage: &PipelineStage, task: &Task) -> Result<Value, CoreError> {

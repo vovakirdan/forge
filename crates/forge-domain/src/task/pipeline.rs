@@ -5,6 +5,7 @@ mod definition;
 mod engine;
 mod validation;
 mod version;
+mod workspace;
 
 #[cfg(test)]
 mod tests;
@@ -16,3 +17,4 @@ pub use definition::{
 };
 pub use engine::{StageOutcomeSubmission, StageTransitionEffect};
 pub use version::{PipelineVersion, PipelineVersionInput};
+pub use workspace::{StageWorkspaceKind, StageWorkspaceRequirements};

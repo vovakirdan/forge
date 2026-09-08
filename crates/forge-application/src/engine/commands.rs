@@ -2,14 +2,12 @@
 use super::{
     CommandError, CommandTransaction, Engine,
     event::{event, event_payload},
-    pipeline_access::{ensure_assignable_pipeline, validate_employee_stage_eligibility},
+    pipeline_access::validate_employee_stage_eligibility,
     receipt::{finish_command, resource},
-    scheduler::task_persistence,
 };
 use crate::{CommandEnvelope, CommandPayload};
 use forge_domain::{
-    AggregateRef, CommandId, DomainEventKind, PipelineId, PipelineVersionId, Project,
-    TaskPipelineBinding, Timestamp,
+    AggregateRef, CommandId, DomainEventKind, PipelineId, PipelineVersionId, Project, Timestamp,
 };
 use forge_protocol::wire::CommandReceipt;
 use serde_json::json;
@@ -63,9 +61,113 @@ impl Engine<'_> {
         now: Timestamp,
     ) -> Result<CommandReceipt, CommandError> {
         match &envelope.payload {
+            CommandPayload::ConfigureResolverRoute(_)
+            | CommandPayload::RaiseEscalation(_)
+            | CommandPayload::SubmitHumanResolution(_)
+            | CommandPayload::RerouteEscalation(_) => {
+                self.manage_resolution(
+                    transaction,
+                    project,
+                    envelope,
+                    request_hash,
+                    command_id,
+                    now,
+                )
+                .await
+            }
+            CommandPayload::ReportFinding(_)
+            | CommandPayload::TriageFinding(_)
+            | CommandPayload::PromoteFinding(_) => {
+                self.manage_finding(
+                    transaction,
+                    project,
+                    envelope,
+                    request_hash,
+                    command_id,
+                    now,
+                )
+                .await
+            }
+            CommandPayload::ScheduleTaskResume { .. } | CommandPayload::CancelTaskResume { .. } => {
+                self.manage_scheduled_resume(
+                    transaction,
+                    project,
+                    envelope,
+                    request_hash,
+                    command_id,
+                    now,
+                )
+                .await
+            }
+            CommandPayload::SetNextRunEmployee { .. }
+            | CommandPayload::ClearNextRunEmployee { .. } => {
+                self.manage_dispatch_constraint(
+                    transaction,
+                    project,
+                    envelope,
+                    request_hash,
+                    command_id,
+                    now,
+                )
+                .await
+            }
+            CommandPayload::StopEmployee { .. } | CommandPayload::PauseTask { .. } => {
+                self.manage_execution(
+                    transaction,
+                    project,
+                    envelope,
+                    request_hash,
+                    command_id,
+                    now,
+                )
+                .await
+            }
+            CommandPayload::RegisterProjectRepository { .. }
+            | CommandPayload::BindTaskGitRepository { .. } => {
+                self.manage_repository(
+                    transaction,
+                    project,
+                    envelope,
+                    request_hash,
+                    command_id,
+                    now,
+                )
+                .await
+            }
+            CommandPayload::OpenEmployeeThread(_)
+            | CommandPayload::SendEmployeeMessage(_)
+            | CommandPayload::WaiveMessageRequirement(_) => {
+                self.apply_communication_command(
+                    transaction,
+                    project,
+                    envelope,
+                    request_hash,
+                    command_id,
+                    now,
+                )
+                .await
+            }
+            CommandPayload::AmendEmployee { .. }
+            | CommandPayload::EnableEmployee { .. }
+            | CommandPayload::DisableEmployee { .. }
+            | CommandPayload::RetireEmployee { .. } => {
+                self.manage_employee(
+                    transaction,
+                    project,
+                    envelope,
+                    request_hash,
+                    command_id,
+                    now,
+                )
+                .await
+            }
             CommandPayload::ConfigureBootRecoveryPolicy { .. }
             | CommandPayload::AcceptRunRecoveryAssessment { .. }
+            | CommandPayload::RetryCommunication { .. }
+            | CommandPayload::RetryGitIntegration { .. }
+            | CommandPayload::AcceptGitIntegrationResult { .. }
             | CommandPayload::EnrollCredential { .. }
+            | CommandPayload::ConfigureProjectHook(_)
             | CommandPayload::ConfigureEmployeeRuntime { .. } => {
                 Err(CommandError::UnsupportedCommand)
             }
@@ -73,6 +175,19 @@ impl Engine<'_> {
                 field: "create_project.project_id",
                 reason: "already exists".to_owned(),
             }),
+            CommandPayload::PublishPipelineVersion { .. }
+            | CommandPayload::SetPipelineDefaultVersion { .. }
+            | CommandPayload::DeletePipeline { .. } => {
+                self.manage_pipeline(
+                    transaction,
+                    project,
+                    envelope,
+                    request_hash,
+                    command_id,
+                    now,
+                )
+                .await
+            }
             CommandPayload::CreatePipeline(input) => {
                 let pipeline_id = PipelineId::new();
                 let version_id = PipelineVersionId::new();
@@ -94,7 +209,7 @@ impl Engine<'_> {
                     event(
                         project.id(),
                         AggregateRef::Pipeline(pipeline.id()),
-                        1,
+                        pipeline.revision(),
                         DomainEventKind::PipelineCreated,
                         self.actors.human,
                         command_id,
@@ -150,12 +265,19 @@ impl Engine<'_> {
                 let audit = event(
                     project.id(),
                     AggregateRef::Employee(employee.id()),
-                    forge_domain::Employee::INITIAL_REVISION,
+                    employee.revision(),
                     DomainEventKind::EmployeeCreated,
                     self.actors.human,
                     command_id,
                     None,
-                    event_payload([("name", json!(employee.name()))]),
+                    event_payload([
+                        ("employee_id", json!(employee.id())),
+                        ("name", json!(employee.name())),
+                        ("role", json!(employee.role())),
+                        ("stage_eligibility", json!(employee.stage_eligibility())),
+                        ("state", json!(employee.state())),
+                        ("max_concurrent_runs", json!(employee.max_concurrent_runs())),
+                    ]),
                     now,
                 )?;
                 finish_command(
@@ -171,59 +293,16 @@ impl Engine<'_> {
                 .await
             }
             CommandPayload::CreateTask(input) => {
-                let version_id = input.pipeline_version_id()?;
-                let version = transaction.lock_pipeline_version(version_id).await?.ok_or(
-                    CommandError::NotFound {
-                        aggregate: "pipeline version",
-                    },
-                )?;
-                let pipeline = transaction
-                    .lock_pipeline(version.pipeline_id())
-                    .await?
-                    .ok_or(CommandError::NotFound {
-                        aggregate: "pipeline",
-                    })?;
-                ensure_assignable_pipeline(&project, &pipeline, &version)?;
-                if !version.supports_task_kind(input.kind) {
-                    return Err(CommandError::InvalidTransport {
-                        field: "kind",
-                        reason: "is not supported by the selected pipeline version".to_owned(),
-                    });
-                }
-                let original_project_revision = project.revision();
-                let key = project.allocate_task_key(now)?;
-                let task = input.build(crate::TaskDraftContext {
-                    id: forge_domain::TaskId::new(),
-                    project_id: project.id(),
-                    key,
-                    pipeline: TaskPipelineBinding::new(
-                        pipeline.id(),
-                        version.id(),
-                        version.entry_stage_id().clone(),
-                    ),
-                    created_by: self.actors.human,
-                    created_at: now,
-                    priority_scheme: project.priority_scheme(),
-                })?;
-                let persistence = task_persistence(&project, &task, 0)?;
-                transaction.insert_task(&task, persistence).await?;
-                transaction
-                    .update_project(&project, original_project_revision)
+                let (task, audit) = self
+                    .create_draft(
+                        transaction,
+                        &mut project,
+                        input,
+                        forge_domain::TaskSource::Human,
+                        command_id,
+                        now,
+                    )
                     .await?;
-                let audit = event(
-                    project.id(),
-                    AggregateRef::Task(task.id()),
-                    task.revision().get(),
-                    DomainEventKind::TaskCreated,
-                    self.actors.human,
-                    command_id,
-                    None,
-                    event_payload([
-                        ("task_key", json!(task.key().to_string())),
-                        ("title", json!(task.spec().title())),
-                    ]),
-                    now,
-                )?;
                 finish_command(
                     transaction,
                     &project,

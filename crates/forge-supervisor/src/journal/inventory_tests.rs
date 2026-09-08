@@ -4,6 +4,49 @@ use forge_protocol::{
     supervisor::v1::{ObservedRunEvent, RunEventKind},
 };
 
+#[test]
+fn dropping_journal_releases_lock_even_while_a_duplicate_descriptor_survives() {
+    let directory = Directory::new();
+    let journal = directory.open();
+    // try_clone shares the open-file description just as fork inheritance does,
+    // making the close-before-child-exec race deterministic without forking.
+    let inherited = journal._lock.try_clone().unwrap();
+    assert!(matches!(
+        Journal::open(&directory.0, "test-host", 16 * 1024 * 1024),
+        Err(SupervisorError::JournalInUse)
+    ));
+    drop(journal);
+    let successor = directory.open();
+    drop(inherited);
+    assert!(matches!(
+        Journal::open(&directory.0, "test-host", 16 * 1024 * 1024),
+        Err(SupervisorError::JournalInUse)
+    ));
+    drop(successor);
+    let _next_owner = directory.open();
+}
+
+#[test]
+fn legacy_task_provision_serialization_and_dedupe_hash_are_unchanged() {
+    let canonical = r#"{"command_id":"","run_id":"01900000-0000-7000-8000-000000000001","task_id":"01900000-0000-7000-8000-000000000002","employee_id":"01900000-0000-7000-8000-000000000003","stage_id":"work","attempt":1,"lease_fencing_token":42,"environment_epoch":7,"context_snapshot_id":"01900000-0000-7000-8000-000000000004","run_spec_json":"{}","run_spec_version":1,"traceparent":""}"#;
+    let mut provision: ProvisionRun = serde_json::from_str(canonical).expect("legacy provision");
+    assert!(provision.assignment.is_none());
+    assert_eq!(serde_json::to_string(&provision).unwrap(), canonical);
+    let expected = format!("{:x}", Sha256::digest(canonical.as_bytes()));
+    provision.command_id = new_id();
+    assert_eq!(provision_hash(&provision).unwrap(), expected);
+    provision.assignment = Some(
+        forge_protocol::supervisor::v1::provision_run::Assignment::TaskStage(
+            forge_protocol::supervisor::v1::TaskStageExecutionAssignment {
+                task_id: provision.task_id.clone(),
+                stage_id: provision.stage_id.clone(),
+                queue_entry_id: new_id(),
+            },
+        ),
+    );
+    assert_ne!(provision_hash(&provision).unwrap(), expected);
+}
+
 struct Directory(PathBuf);
 impl Directory {
     fn new() -> Self {
@@ -40,6 +83,7 @@ fn record(presence: EnvironmentPresence, confirmed: bool) -> RunRecord {
     let provision = crate::tests::provision();
     let payload_hash = provision_hash(&provision).expect("fixture hash");
     let mut record = RunRecord {
+        git_source: None,
         provision,
         payload_hash,
         environment_id: "a".repeat(64),
@@ -48,6 +92,7 @@ fn record(presence: EnvironmentPresence, confirmed: bool) -> RunRecord {
         last_sequence: 1,
         pending: Vec::new(),
         quiescence_confirmed: confirmed,
+        stop_reason: None,
     };
     record.compact();
     record

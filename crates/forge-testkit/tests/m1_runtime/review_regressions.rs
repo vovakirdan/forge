@@ -135,7 +135,7 @@ async fn orphan_stdout_prefix_is_incomplete_and_cannot_trigger_secret_cleanup() 
     let mut collector = spool.start_stream(
         EvidenceScope {
             project_id: project,
-            task_id: task,
+            task_id: Some(task),
             run_id: run.id,
         },
         EvidenceStream::Stdout,

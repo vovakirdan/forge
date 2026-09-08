@@ -19,7 +19,7 @@ impl CoreService {
         transaction.commit().await?;
         let mut delivered = 0_usize;
         for run in runs {
-            let Some(stop) = stop_message(&run) else {
+            let Some(stop) = stop_message(&run)? else {
                 continue;
             };
             self.supervisor.send(stop).await?;
@@ -48,13 +48,34 @@ pub(crate) fn run_stop_event(
     .map_err(Into::into)
 }
 
-fn stop_message(run: &RunProjection) -> Option<CoreToSupervisor> {
+pub(crate) fn stop_grace_seconds(
+    run: &RunProjection,
+    legacy_default: u32,
+) -> Result<u32, CoreError> {
+    if run.run_spec_version == 1 {
+        return Ok(legacy_default);
+    }
+    let spec: forge_domain::runtime::SandboxLaunchSpec =
+        serde_json::from_value(run.run_spec.clone()).map_err(|_| CoreError::InvalidTransport {
+            field: "run.run_spec",
+            reason: "invalid immutable sandbox execution contract".into(),
+        })?;
+    if spec.schema_version() != run.run_spec_version {
+        return Err(CoreError::InvalidTransport {
+            field: "run.run_spec_version",
+            reason: "does not match execution contract".into(),
+        });
+    }
+    Ok(spec.limits().stop_grace_seconds)
+}
+
+fn stop_message(run: &RunProjection) -> Result<Option<CoreToSupervisor>, CoreError> {
     let mode = match run.desired_state {
         RunDesiredState::StopRequested => StopMode::Graceful,
         RunDesiredState::ForceStopRequested => StopMode::Force,
-        _ => return None,
+        _ => return Ok(None),
     };
-    Some(CoreToSupervisor {
+    Ok(Some(CoreToSupervisor {
         message: Some(core_to_supervisor::Message::StopRun(StopRun {
             command_id: Uuid::now_v7().to_string(),
             run_id: run.id.to_string(),
@@ -62,14 +83,9 @@ fn stop_message(run: &RunProjection) -> Option<CoreToSupervisor> {
             environment_epoch: run.environment_epoch,
             mode: mode as i32,
             reason_code: "core_stop_requested".to_owned(),
-            grace_period_ms: run
-                .run_spec
-                .pointer("/binding/limits/stop_grace_seconds")
-                .and_then(serde_json::Value::as_u64)
-                .map(|seconds| seconds.saturating_mul(1_000))
-                .unwrap_or(2_000),
+            grace_period_ms: u64::from(stop_grace_seconds(run, 2)?) * 1_000,
         })),
-    })
+    }))
 }
 
 #[cfg(test)]
@@ -84,11 +100,15 @@ mod tests {
         let run = RunProjection {
             id: uuid::Uuid::now_v7(),
             project_id: forge_domain::ProjectId::new(),
-            task_id: forge_domain::TaskId::new(),
-            queue_entry_id: uuid::Uuid::now_v7(),
+            assignment: forge_domain::ExecutionAssignment::TaskStage(
+                forge_domain::TaskStageAssignment {
+                    task_id: forge_domain::TaskId::new(),
+                    queue_entry_id: uuid::Uuid::now_v7(),
+                    stage_id: forge_domain::StageId::new("work").unwrap(),
+                },
+            ),
             lease_id: uuid::Uuid::now_v7(),
-            employee_id: forge_domain::EmployeeId::new(),
-            stage_id: "work".to_owned(),
+            employee_id: Some(forge_domain::EmployeeId::new()),
             attempt_number: 1,
             lease_fencing_token: 7,
             environment_epoch: 2,
@@ -101,7 +121,7 @@ mod tests {
             observed_details: json!({}),
         };
 
-        let message = stop_message(&run);
+        let message = stop_message(&run).unwrap();
 
         assert!(message.is_some());
     }

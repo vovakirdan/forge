@@ -157,6 +157,6 @@ impl PostgresStore {
         &self,
         only_run: Option<Uuid>,
     ) -> Result<Vec<Uuid>, StorageError> {
-        Ok(sqlx::query_scalar("SELECT r.id FROM runs r JOIN run_environment_reservations e ON e.run_id=r.id WHERE ($1::uuid IS NULL OR r.id=$1) AND r.run_spec_version=2 AND e.released_at IS NOT NULL AND (SELECT count(*) FROM run_evidence_streams s WHERE s.run_id=r.id AND NOT s.incomplete)=2 AND NOT EXISTS(SELECT 1 FROM run_secret_cleanup c WHERE c.run_id=r.id) ORDER BY e.released_at LIMIT 32").bind(only_run).fetch_all(&self.pool).await?)
+        Ok(sqlx::query_scalar("SELECT r.id FROM runs r JOIN run_environment_reservations e ON e.run_id=r.id WHERE ($1::uuid IS NULL OR r.id=$1) AND r.run_spec_version IN (2,3,4) AND e.released_at IS NOT NULL AND (SELECT count(*) FROM run_evidence_streams s WHERE s.run_id=r.id AND NOT s.incomplete)=2 AND NOT EXISTS(SELECT 1 FROM run_secret_cleanup c WHERE c.run_id=r.id) ORDER BY e.released_at LIMIT 32").bind(only_run).fetch_all(&self.pool).await?)
     }
 }

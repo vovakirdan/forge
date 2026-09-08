@@ -3,6 +3,21 @@
 Forge is a local-first control plane for durable AI engineering work. M0 provides
 the deterministic Core simulator. M1 adds isolated rootless Podman execution,
 scoped tools, encrypted credentials, recovery, and Codex/OpenCode provider lanes.
+
+M2 implements the local Git delivery loop, candidate-bound review, optional
+project hooks, integration, Employee capacity, Inbox and resolver queues. Its
+four explicit profiles are Codex CLI, Claude CLI, OpenRouter API and OpenAI API.
+The [execution ledger](docs/2026-09-06-m2-tasks.md) records verification status;
+synthetic tests and registration do not establish authenticated live behavior.
+
+Start with the [M2 walkthrough](docs/M2_WALKTHROUGH.md),
+[provider profiles](docs/M2_PROVIDER_PROFILES.md),
+[native input](docs/M2_NATIVE_INPUT.md),
+[shared admission limits](docs/M2_ADMISSION_LIMITS.md), and
+[project hooks](docs/M2_PROJECT_HOOKS.md). Run the keyless suite with
+`just test-m2`; `just prepare-m2-repository` creates a separate toy Git source
+without editing or registering your repository. The
+[paid live gate](docs/M2_LIVE_GATE.md) requires separate explicit opt-in.
 See the [M1 operator guide](docs/M1_RUNTIME.md) for setup and verification boundaries.
 
 To try one real Codex task interactively on the local development stack:
@@ -51,6 +66,12 @@ credentials.
 Each Core acceptance fixture uses its own `forge_test_<UUID>` PostgreSQL schema
 without a `public` fallback. Test schemas and runtime evidence are retained for
 diagnosis; tests do not clear existing shared development data.
+The multi-binary integration scripts default `CARGO_BUILD_JOBS` to `2` to bound
+parallel linker memory. Set it explicitly if your host supports a different cap.
+PostgreSQL has an explicit 512 MiB shared-memory mount: its container default is
+too small for catalog plans after many retained test schemas. Run the aggregate
+service-backed suites sequentially on one development topology. Recreating the
+PostgreSQL container to apply this setting preserves its named data volume.
 
 If a synthetic local credential is exposed during development, use `just
 dev-rotate-secrets`. It rotates the PostgreSQL and NATS credentials and
@@ -59,7 +80,12 @@ volumes, and canonical data remain intact.
 
 `just migrate` applies the current canonical schema through the
 `forge-storage` `forge-migrate` binary. `just demo-m0` is a local operational
-smoke scenario. `just test-integration` covers capacity, retry, dependency,
+smoke scenario with a fresh `forge_m0_<random>` database and private Supervisor
+state, sockets and host identity. It never reuses shared queues or a personal
+Supervisor journal. The database and owner-only runtime logs are retained on
+success and failure; the launcher prints their identifiers, never a connection
+URL. Existing Runs and admission limits are not modified to make the demo pass.
+`just test-integration` covers capacity, retry, dependency,
 fences, stop, outbox, Gateway, recovery and real Podman fixture behavior. It never
 imports personal provider credentials. Build the synthetic runtime fixture first
 with `just build-runtime-fixture`.

@@ -134,6 +134,7 @@ impl CoreService {
             });
         }
         let mut report = WatchdogReport::default();
+        self.resume_due_tasks(now).await?;
         if self.fake_runtime_enabled {
             return Ok(report);
         }
@@ -162,13 +163,10 @@ impl CoreService {
                 continue;
             };
             let deadlines = WatchdogDeadlines {
-                stop_grace_seconds: run
-                    .run_spec
-                    .pointer("/binding/limits/stop_grace_seconds")
-                    .and_then(serde_json::Value::as_u64)
-                    .and_then(|value| u32::try_from(value).ok())
-                    .filter(|value| *value > 0)
-                    .unwrap_or(deadlines.stop_grace_seconds),
+                stop_grace_seconds: crate::run_control::stop_grace_seconds(
+                    &run,
+                    deadlines.stop_grace_seconds,
+                )?,
                 ..deadlines
             };
             let failure = deadline_failure(&state, run.desired_state, now, deadlines);
@@ -228,6 +226,11 @@ impl CoreService {
                     .await;
             }
         }
+        self.reconcile_git_proposals().await?;
+        self.reconcile_git_integrations().await?;
+        self.reconcile_runtime_inputs(None).await?;
+        self.reconcile_resolutions().await?;
+        self.reconcile_hook_results().await?;
         // Quiescent retired Runs are absent from the physical-watchdog query,
         // but their proxy revocation must still be retried after broker downtime.
         for run_id in self.store.pending_retired_proxy_revocations().await? {
@@ -274,56 +277,60 @@ impl CoreService {
         let (incident_id, inserted) = transaction
             .record_run_incident(project.id(), run.id, kind, RecoveryAssessment::Unknown)
             .await?;
-        let stored = load_scoped_task(transaction, project, run.task_id).await?;
-        let mut task = stored.task;
         let command_id = CommandId::new();
-        let detail = format!("recovery_run={}", run.id);
-        // An already accepted stage handoff is immutable; process retirement
-        // must not pause the next stage or replace accepted evidence.
-        let has_handoff = transaction.run_has_handoff(run.id).await?;
-        if !task.lifecycle().is_terminal()
-            && !has_handoff
-            && !task
-                .wait_conditions()
-                .any(|wait| wait.detail() == Some(detail.as_str()))
-        {
-            let previous = task.revision().get();
-            task.add_wait_condition(
-                TaskWaitCondition::new(
-                    WaitConditionId::new(),
-                    TaskWaitKind::Interrupted,
-                    Some(detail),
-                    self.actors.core,
+        if let Some(task_id) = run.task_id() {
+            let stored = load_scoped_task(transaction, project, task_id).await?;
+            let mut task = stored.task;
+            let detail = format!("recovery_run={}", run.id);
+            // An already accepted stage handoff is immutable; process retirement
+            // must not pause the next stage or replace accepted evidence.
+            let has_handoff = transaction.run_has_handoff(run.id).await?;
+            if !task.lifecycle().is_terminal()
+                && !has_handoff
+                && !task
+                    .wait_conditions()
+                    .any(|wait| wait.detail() == Some(detail.as_str()))
+            {
+                let previous = task.revision().get();
+                task.add_wait_condition(
+                    TaskWaitCondition::new(
+                        WaitConditionId::new(),
+                        TaskWaitKind::Interrupted,
+                        Some(detail),
+                        self.actors.core,
+                        now,
+                    )?,
                     now,
-                )?,
-                now,
-            )?;
-            let persistence = retained_persistence(project, &task, stored.persistence)?;
-            persist_task_and_project(transaction, project, &task, persistence, previous, now)
-                .await?;
-            transaction
-                .append_event_and_outbox(&task_event(
-                    project,
+                )?;
+                let persistence = retained_persistence(project, &task, stored.persistence)?;
+                persist_task_and_project(transaction, project, &task, persistence, previous, now)
+                    .await?;
+                transaction
+                    .append_event_and_outbox(&task_event(
+                        project,
+                        &task,
+                        DomainEventKind::TaskWaiting,
+                        self.actors.core,
+                        command_id,
+                        now,
+                        event_payload([("run_id", json!(run.id)), ("reason_code", json!(reason))]),
+                    )?)
+                    .await?;
+            }
+            if !has_handoff {
+                crate::handoff::persist_handoff(
+                    transaction,
+                    run,
                     &task,
-                    DomainEventKind::TaskWaiting,
                     self.actors.core,
-                    command_id,
+                    None,
+                    Some(incident_id),
                     now,
-                    event_payload([("run_id", json!(run.id)), ("reason_code", json!(reason))]),
-                )?)
+                )
                 .await?;
-        }
-        if !has_handoff {
-            crate::handoff::persist_handoff(
-                transaction,
-                run,
-                &task,
-                self.actors.core,
-                None,
-                Some(incident_id),
-                now,
-            )
-            .await?;
+            }
+        } else if run.assignment.communication().is_some() {
+            transaction.hold_communication_run(run.id).await?;
         }
         if inserted {
             transaction

@@ -76,6 +76,22 @@ pub struct MemoryOutbox {
 /// An isolated copy suitable for exact before/after rollback assertions.
 #[derive(Clone, Debug, Default)]
 pub struct MemorySnapshot {
+    pub command_handoffs: BTreeMap<forge_domain::CommandId, forge_domain::TaskHandoff>,
+    pub resolver_routes: BTreeMap<(ProjectId, String), forge_domain::resolution::ResolverRoute>,
+    pub escalations: BTreeMap<Uuid, forge_domain::resolution::Escalation>,
+    pub resolution_assignments: BTreeMap<Uuid, forge_domain::resolution::ResolutionAssignment>,
+    pub findings: BTreeMap<Uuid, forge_domain::finding::Finding>,
+    /// Retained one-shot Employee assignment instructions and their terminal results.
+    pub dispatch_constraints: BTreeMap<Uuid, forge_domain::NextRunEmployeeConstraint>,
+    pub resume_schedules: BTreeMap<Uuid, forge_domain::TaskResumeSchedule>,
+    /// Explicit operator waivers, separate from Employee receipts.
+    pub message_waivers: BTreeMap<Uuid, forge_domain::communication::MessageRequirementWaiver>,
+    /// Immutable operator-selected Project source allowlist.
+    pub project_repositories: BTreeMap<Uuid, forge_domain::ProjectRepository>,
+    /// Durable task-optional Employee conversations.
+    pub employee_threads: BTreeMap<Uuid, forge_domain::communication::EmployeeThread>,
+    /// Immutable messages; delivery is separate from this command reference.
+    pub employee_messages: BTreeMap<Uuid, forge_domain::communication::EmployeeMessage>,
     /// Canonical projects.
     pub projects: BTreeMap<ProjectId, Project>,
     /// Canonical tasks and scheduling projections.

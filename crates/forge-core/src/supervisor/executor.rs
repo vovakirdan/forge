@@ -58,7 +58,7 @@ impl CoreService {
             return Ok(refused);
         }
 
-        let actor = employee_actor(&context.run);
+        let actor = employee_actor(&context.run)?;
         let artifact = Artifact::new(
             ArtifactId::new(),
             NewArtifact {
@@ -77,7 +77,7 @@ impl CoreService {
             &artifact,
             ArtifactProducer::EmployeeRun,
             actor,
-            Some(context.run.employee_id),
+            Some(context.run.require_employee_id()?),
             now,
         )?;
         let stage_id = task
@@ -92,7 +92,7 @@ impl CoreService {
             run_id: Some(context.run.id),
             stage_id: Some(stage_id),
             producer: ArtifactProducer::EmployeeRun,
-            producer_id: Some(context.run.employee_id.as_uuid()),
+            producer_id: Some(context.run.require_employee_id()?.as_uuid()),
             producer_data: identity.map_or_else(
                 || json!({"ingress": "gateway"}),
                 |identity| json!({"supervisor_instance_id": identity.instance_id()}),
@@ -164,8 +164,8 @@ impl CoreService {
                 .ok_or(CoreError::NotFound {
                     aggregate: "project",
                 })?;
-        let stored_task = load_scoped_task(transaction, &project, run.task_id).await?;
-        if run.project_id != project.id() || run.task_id != stored_task.task.id() {
+        let stored_task = load_scoped_task(transaction, &project, run.require_task_id()?).await?;
+        if run.project_id != project.id() || run.require_task_id()? != stored_task.task.id() {
             return Err(CoreError::InvalidTransport {
                 field: "executor_submission.run_id",
                 reason: "does not identify the expected Project Task".to_owned(),
@@ -186,13 +186,38 @@ impl CoreService {
                     field: "task.current_stage_id",
                     reason: "is absent for an executor submission".to_owned(),
                 })?;
-        if task_stage.as_str() != run.stage_id
+        if task_stage.as_str() != run.require_task_stage()?.stage_id.as_str()
             || current_stage_executor(&version, &stored_task.task)? != ExecutorKind::Employee
         {
             return Err(CoreError::InvalidTransport {
                 field: "executor_submission.run_id",
                 reason: "does not own the current employee stage".to_owned(),
             });
+        }
+        let context: forge_domain::ContextSnapshot =
+            serde_json::from_value(run.context_manifest.clone()).map_err(|_| {
+                CoreError::InvalidTransport {
+                    field: "executor_submission.context",
+                    reason: "invalid frozen Task context".into(),
+                }
+            })?;
+        if context.data().stage_visit.is_some_and(|visit| {
+            Some(visit)
+                != stored_task
+                    .task
+                    .current_stage_visit()
+                    .map(|visit| visit.get())
+        }) {
+            return Err(CoreError::InvalidTransport {
+                field: "executor_submission.context",
+                reason: "Run does not own the current stage visit".into(),
+            });
+        }
+        if let Some(policy) = version
+            .stage(task_stage)
+            .and_then(|stage| stage.acceptance_policy())
+        {
+            policy.validate_task_surface(stored_task.task.work_surface())?;
         }
         Ok(SubmissionContext {
             project,
@@ -221,11 +246,16 @@ pub(super) async fn reserve_submission(
                     .iter()
                     .map(|byte| format!("{byte:02x}"))
                     .collect(),
-                receipt: json!({"status":"accepted", "message_id":scope.message_id, "kind":kind}),
+                receipt: json!({"status":if kind=="git_stage_proposal" {"proposal_saved"} else {"accepted"}, "message_id":scope.message_id, "kind":kind}),
             })
             .await?;
         return match result {
             forge_storage::GatewayWriteResult::Applied => Ok(None),
+            forge_storage::GatewayWriteResult::Replayed(receipt)
+                if receipt["status"] == "proposal_saved" =>
+            {
+                Ok(Some(InboundResult::ProposalSaved))
+            }
             forge_storage::GatewayWriteResult::Replayed(_) => Ok(Some(InboundResult::Accepted(
                 "Gateway submission already recorded",
             ))),
@@ -253,6 +283,8 @@ pub(super) async fn reserve_submission(
     Ok((result != FencedWrite::Applied).then(|| refused_fenced_write(result)))
 }
 
-pub(super) fn employee_actor(run: &RunProjection) -> Actor {
-    Actor::employee(ActorId::from(run.employee_id.as_uuid()))
+pub(super) fn employee_actor(run: &RunProjection) -> Result<Actor, CoreError> {
+    Ok(Actor::employee(ActorId::from(
+        run.require_employee_id()?.as_uuid(),
+    )))
 }

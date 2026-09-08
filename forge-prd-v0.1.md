@@ -1,8 +1,8 @@
 # Forge — PRD системы управляемой автономной разработки
 
 **Статус:** Draft
-**Версия:** 0.3
-**Дата:** 4 сентября 2026
+**Версия:** 0.4
+**Дата:** 6 сентября 2026
 **Рабочее название:** Forge; название не является финальным
 **Область документа:** продукт, core/runtime, пользовательские сценарии и границы MVP
 
@@ -830,24 +830,33 @@ Memory без evidence не должна автоматически попада
 - каждая Task получает branch/worktree, если её WorkSurface — Git worktree;
 - все Implementation attempts продолжают одну историю ChangeSet;
 - базовый SHA фиксируется;
-- Integration выполняет rebase/merge на актуальный `main`;
-- конфликт возвращает ту же Task в Implementation;
+- Employee сам создаёт commit; Core принимает candidate после подтверждённой
+  остановки writer и проверки HEAD/чистоты;
+- Integration сохраняет точный merge intent и меняет выбранный target ref через
+  compare-and-swap; устаревшая база возвращает ту же Task в доработку;
+- Forge не выполняет скрытые commit, reset или rebase за Employee;
 - прямой push в защищённую ветку запрещён capability model и Git policy.
 
-### 14.2. Verification profiles
+### 14.2. Необязательные project hooks и QA
 
-Pipeline stage ссылается на versioned verification profile, содержащий:
+Владелец может явно настроить immutable project hook и закрепить его версию
+в System stage Pipeline. Без такой настройки Forge ничего не запускает и не
+ищет автоматически. Это не обязательная «run all tests» функция. Hook задаёт:
 
 - команды;
 - working directory;
 - timeout;
-- environment allowlist;
-- resource class;
-- required/optional checks;
-- правила интерпретации exit codes и reports;
+- digest-pinned image и ограничения ресурсов;
+- применимость и признак required/optional;
+- outcome mapping для passed, failed, timed_out и skipped;
 - artifact retention.
 
-Проверки выполняются по возможности deterministic runner, а не LLM. LLM может объяснить failure, но не подменяет exit code своим мнением.
+Hook исполняется provider-free Run в отдельной копии конкретного Git candidate,
+без Employee и Gateway. Обязательный результат не переносится на другой
+candidate. QA — отдельная роль Employee: он исследует поведение и оставляет
+отчёт; разработка дополнительных тестов явно использует writer stage. Тесты,
+которые Employee сам запускает в ходе своей задачи, не становятся автоматически
+обязательным правилом Forge.
 
 ### 14.3. Review
 
@@ -863,13 +872,13 @@ Pipeline stage ссылается на versioned verification profile, соде�
 Integration Controller:
 
 1. блокирует параллельную integration в пределах заданного scope;
-2. обновляет base до актуального `main`;
-3. выполняет rebase/merge preparation;
-4. запускает integration verification;
-5. применяет merge;
+2. проверяет target SHA и принятый candidate;
+3. подготавливает и сохраняет точный merge intent без скрытого rebase;
+4. проверяет только настроенные required reviews/hooks для этого candidate;
+5. применяет target compare-and-swap либо возвращает ту же Task на доработку;
 6. фиксирует final SHA;
-7. переводит Task в `done`;
-8. публикует `TaskCompleted`.
+7. применяет outcome по закреплённому Pipeline, который может вести в `done`;
+8. сохраняет артефакт, handoff и соответствующие Events.
 
 ---
 
@@ -985,7 +994,8 @@ Bob обнаруживает потенциально несвязанную о�
 
 ### 16.7. Verification и Review
 
-- **FR-060:** deterministic verification запускается по versioned profile.
+- **FR-060:** deterministic project hook запускается только при явной настройке
+  владельца и pin версии в Pipeline; отсутствие hooks не блокирует обычную работу.
 - **FR-061:** Artifacts, acceptance и handoff образуют доменную историю Task; raw technical logs хранятся отдельно с redaction и retention.
 - **FR-062:** Pipeline может требовать независимого reviewer.
 - **FR-063:** reviewer не может approve собственную реализацию при включённом запрете.
@@ -1253,11 +1263,12 @@ Logs должны иметь correlation по Project, Task, Run, SystemJob и E
 - transactional state, Events, outbox и durable queues;
 - Project, optional Goal/Epic и Task;
 - Employee identity/role/skills/permissions;
-- provider surface: Codex CLI, Claude Code CLI, Cursor CLI, Gemini CLI и Grok CLI;
+- provider surface: Codex CLI, Claude Code CLI; Cursor CLI, Gemini CLI и Grok
+  Build CLI остаются расширением после текущей матрицы M2;
 - API-провайдеры OpenAI, Anthropic, Gemini, OpenRouter и xAI через единый API runtime;
 - onboarding и Context Compiler;
 - явно выбранный versioned Pipeline без обязательных встроенных stages;
-- implementation, deterministic verification, review и integration;
+- implementation, необязательные настроенные hooks, Employee QA, review и integration;
 - TaskWorkSurface backends, включая Git worktree;
 - resource profiles, priority, Lease, pause/resume, Watchdog и recovery assessment;
 - Findings и human/Manager triage;
@@ -1318,7 +1329,10 @@ Run или сверить его состояние после сбоя без d
 
 ### Milestone 2 — Полный инженерный цикл
 
-- verification profiles;
+- Codex CLI, Claude CLI, OpenRouter API и OpenAI API; другие lanes отложены;
+- явные immutable project hooks, без автоматического обнаружения тестов;
+- Inbox, native input, Employee capacity и taskless Communication;
+- Task/Communication escalation и management-owned Resolution Run;
 - independent review;
 - Integration Controller;
 - retry/waiting policies;
@@ -1326,6 +1340,10 @@ Run или сверить его состояние после сбоя без d
 - crash recovery.
 
 **Exit criterion:** реальная Task проходит несколько неудачных попыток и merge без создания служебных задач.
+
+Детальный scope и фактические проверки: `docs/2026-09-06-m2-specs.md` и
+`docs/2026-09-06-m2-tasks.md`. Эта продуктовая рамка не заменяет execution ledger
+и не утверждает, что платные live-проверки уже проведены.
 
 ### Milestone 3 — Knowledge loop
 

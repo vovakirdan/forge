@@ -62,3 +62,15 @@ impl CoreConfig {
         }
     }
 }
+
+impl crate::CoreService {
+    /// Explicit local-operator startup configuration. Changes while any Run has
+    /// logical or uncertain physical ownership fail closed; same values are safe.
+    pub async fn with_admission_limits(
+        self,
+        limits: forge_domain::admission::AdmissionLimits,
+    ) -> Result<Self, crate::CoreError> {
+        self.store.configure_local_admission(limits).await?;
+        Ok(self)
+    }
+}

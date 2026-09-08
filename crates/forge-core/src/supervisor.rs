@@ -1,15 +1,23 @@
 //! Core-owned control-channel registry and gRPC service for the local M0 Supervisor.
 
 #[path = "supervisor/bridge.rs"]
-mod bridge;
+pub(crate) mod bridge;
+#[path = "supervisor/candidate_review.rs"]
+mod candidate_review;
 #[path = "supervisor/executor.rs"]
 mod executor;
 #[path = "supervisor/gateway.rs"]
 mod gateway;
+#[path = "supervisor/git_inspection.rs"]
+mod git_inspection;
+#[path = "supervisor/git_proposal.rs"]
+mod git_proposal;
 #[path = "supervisor/inventory.rs"]
 mod inventory;
 #[path = "supervisor/outcome.rs"]
-mod outcome;
+pub(crate) mod outcome;
+#[path = "supervisor/runtime_inputs.rs"]
+mod runtime_inputs;
 #[path = "supervisor/validation.rs"]
 mod validation;
 
@@ -39,8 +47,8 @@ const OUTBOUND_CHANNEL_CAPACITY: usize = 64;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct SupervisorIdentity {
     instance_id: Uuid,
-    host_id: String,
-    boot_id: String,
+    pub(crate) host_id: String,
+    pub(crate) boot_id: String,
 }
 
 impl SupervisorIdentity {
@@ -140,6 +148,14 @@ impl Default for SupervisorHub {
 }
 
 impl SupervisorHub {
+    pub(crate) async fn reconciled_identity(&self) -> Option<SupervisorIdentity> {
+        self.active
+            .lock()
+            .await
+            .as_ref()
+            .filter(|active| active.reconciled)
+            .map(|active| active.identity.clone())
+    }
     pub(crate) fn startup_reconciliation_grace(&self, seconds: u32) -> bool {
         self.created_at.elapsed() < std::time::Duration::from_secs(u64::from(seconds))
     }

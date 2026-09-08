@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "crates/forge-provider-claude",
     "crates/forge-provider-opencode",
     "crates/forge-provider-litellm",
     "crates/forge-provider-codex",
@@ -14,6 +15,7 @@ members = [
     "crates/forge-testkit",
 ]
 default-members = [
+    "crates/forge-provider-claude",
     "crates/forge-provider-opencode",
     "crates/forge-provider-litellm",
     "crates/forge-provider-codex",

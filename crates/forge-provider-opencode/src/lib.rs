@@ -4,6 +4,7 @@
 mod client;
 pub mod driver;
 mod events;
+mod live;
 mod prepare;
 
 pub use client::{OpenCodeClient, OpenCodeError, SessionId, SessionResult};

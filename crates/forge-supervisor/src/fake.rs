@@ -190,6 +190,7 @@ async fn send_stage_outcome(
     artifact_submission_message_ids: Vec<String>,
 ) -> Result<(), SupervisorError> {
     let outcome = StageOutcomeSubmission {
+        candidate_commit: String::new(),
         stage_id: provision.stage_id.clone(),
         outcome: outcome.outcome,
         // These are already-linked TaskHistory Artifact identities deliberately

@@ -22,6 +22,7 @@ clap.workspace = true
 forge-application = { path = "../forge-application" }
 forge-domain = { path = "../forge-domain" }
 forge-protocol = { path = "../forge-protocol" }
+forge-provider-claude = { version = "0.1.0", path = "../forge-provider-claude" }
 forge-provider-codex = { version = "0.1.0", path = "../forge-provider-codex" }
 forge-provider-common = { version = "0.1.0", path = "../forge-provider-common" }
 forge-provider-litellm = { version = "0.1.0", path = "../forge-provider-litellm" }

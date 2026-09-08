@@ -216,16 +216,62 @@ fn validate_metadata_entries<'a>(
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CommandName {
+    ReportFinding,
+    TriageFinding,
+    PromoteFinding,
+    /// Register an immutable local Project repository allowlist entry.
+    RegisterProjectRepository,
+    /// Pin a draft Task to a registered source and explicit initial commit.
+    BindTaskGitRepository,
     /// Configure audited Project reboot behavior.
     ConfigureBootRecoveryPolicy,
     /// Accept a candidate assessment for one interrupted execution.
     AcceptRunRecoveryAssessment,
+    /// Explicit bounded conversation retry after physical quiescence.
+    RetryCommunication,
+    /// Authorize a retained exact Git intent only after a new read-only reconciliation.
+    RetryGitIntegration,
+    /// Accept a previously applied Git fact without repeating its physical effect.
+    AcceptGitIntegrationResult,
     /// Create a Project with the caller-reserved Project identity.
     CreateProject,
     /// Create a Pipeline and its initial immutable PipelineVersion.
     CreatePipeline,
+    /// Publish a complete immutable graph under an existing Pipeline.
+    PublishPipelineVersion,
+    /// Select an already published graph for future Task bindings.
+    SetPipelineDefaultVersion,
+    /// Soft-delete the catalog entry without deleting versions.
+    DeletePipeline,
     /// Create an enabled Employee identity in a Project.
     CreateEmployee,
+    /// Amend an Employee catalog revision without changing existing Runs.
+    AmendEmployee,
+    /// Enable an Employee for future assignments.
+    EnableEmployee,
+    /// Disable future Employee assignments without implicitly stopping Runs.
+    DisableEmployee,
+    /// Permanently retire an Employee while retaining existing Run history.
+    RetireEmployee,
+    /// Disable future admission and stop this Employee's existing executions.
+    StopEmployee,
+    /// Pin one eligible Employee for the next Run of this Task stage visit.
+    SetNextRunEmployee,
+    /// Clear an unused Employee admission constraint without restarting work.
+    ClearNextRunEmployee,
+    /// Store one explicitly scoped Task-resume alarm.
+    ScheduleTaskResume,
+    ConfigureResolverRoute,
+    RaiseEscalation,
+    SubmitHumanResolution,
+    RerouteEscalation,
+    /// Cancel one pending alarm without changing its Task.
+    CancelTaskResume,
+    /// Open a durable Employee conversation with optional Task context.
+    OpenEmployeeThread,
+    /// Append an immutable message and its delivery intent.
+    SendEmployeeMessage,
+    WaiveMessageRequirement,
     /// Create a draft Task in a Project.
     CreateTask,
     /// Update mutable draft fields before approval.
@@ -236,6 +282,8 @@ pub enum CommandName {
     CancelTask,
     /// Resume a Task from a valid waiting condition.
     ResumeTask,
+    /// Pause one Task and explicitly stop its assigned executions.
+    PauseTask,
     /// Change the Task's configured priority value.
     SetTaskPriority,
     /// Add a hard Task dependency.
@@ -250,6 +298,8 @@ pub enum CommandName {
     SubmitExternalStageOutcome,
     /// Assign a validated immutable runtime profile for future Employee Runs.
     ConfigureEmployeeRuntime,
+    /// Register a new immutable version of an explicit provider-free project hook.
+    ConfigureProjectHook,
     /// Enroll a new credential from an explicitly selected private local file.
     EnrollCredential,
 }

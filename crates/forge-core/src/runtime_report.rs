@@ -7,7 +7,7 @@ use crate::{
 };
 use forge_domain::{
     AggregateRef, CommandId, DomainEventKind, Timestamp,
-    runtime::{RecoveryAssessment, SandboxRunSpec},
+    runtime::{RecoveryAssessment, RuntimeLaunchSpec},
 };
 use forge_protocol::runtime::RunnerExit;
 use forge_provider_common::{
@@ -17,6 +17,8 @@ use forge_provider_common::{
 use forge_storage::{IncidentKind, RunProjection};
 use serde::Serialize;
 use serde_json::json;
+mod claude_live;
+mod native_live;
 
 #[derive(Default, Serialize)]
 struct RuntimeReport {
@@ -32,6 +34,9 @@ impl CoreService {
         &self,
         run: &RunProjection,
     ) -> Result<(), CoreError> {
+        if run.assignment.hook().is_some() {
+            return Ok(());
+        }
         let Some(execution) = &self.execution else {
             return Ok(());
         };
@@ -43,8 +48,20 @@ impl CoreService {
         if transaction.runtime_report_recorded(run.id).await? {
             return Ok(());
         }
-        let spec: SandboxRunSpec =
+        let spec: RuntimeLaunchSpec =
             serde_json::from_value(run.run_spec.clone()).map_err(|_| credential_error())?;
+        let live_inputs = if matches!(spec.schema_version, 2 | 3)
+            && spec
+                .binding
+                .execution_profile
+                .capability_profile()
+                .capabilities
+                .contains(&forge_domain::RuntimeCapability::LiveInput)
+        {
+            Some(transaction.runtime_input_ids(run.id).await?)
+        } else {
+            None
+        };
         let root = execution.root.clone();
         let relative = std::path::PathBuf::from("evidence")
             .join(run.id.to_string())
@@ -62,7 +79,26 @@ impl CoreService {
         .await
         .map_err(|_| credential_error())?;
         let mut report = match stdout {
-            Ok(bytes) => normalize(spec.binding.execution_profile.adapter_id(), bytes.expose()),
+            Ok(bytes)
+                if live_inputs.is_some()
+                    && spec.binding.execution_profile.adapter_id() == "claude_code_cli" =>
+            {
+                claude_live::normalize(
+                    bytes.expose(),
+                    run.id,
+                    live_inputs.as_deref().unwrap_or_default(),
+                )
+            }
+            Ok(bytes) if live_inputs.is_some() => native_live::normalize(
+                bytes.expose(),
+                run.id,
+                live_inputs.as_deref().unwrap_or_default(),
+            ),
+            Ok(bytes) => normalize(
+                spec.binding.execution_profile.adapter_id(),
+                bytes.expose(),
+                run.id,
+            ),
             Err(_) => RuntimeReport {
                 protocol_incomplete: true,
                 ..RuntimeReport::default()
@@ -139,7 +175,10 @@ impl CoreService {
     }
 }
 
-fn normalize(adapter: &str, bytes: &[u8]) -> RuntimeReport {
+fn normalize(adapter: &str, bytes: &[u8], run_id: uuid::Uuid) -> RuntimeReport {
+    if adapter == "claude_code_cli" {
+        return normalize_claude(bytes, run_id);
+    }
     let mut report = RuntimeReport::default();
     let Ok(text) = std::str::from_utf8(bytes) else {
         report.protocol_incomplete = true;
@@ -179,6 +218,52 @@ fn normalize(adapter: &str, bytes: &[u8]) -> RuntimeReport {
     report
 }
 
+/// The v2 static-input runner invokes exactly one Claude query loop. Result usage
+/// is cumulative for that loop, independent of success, and must not be summed
+/// with the usage carried on `TurnCompleted` or a second terminal frame.
+fn normalize_claude(bytes: &[u8], run_id: uuid::Uuid) -> RuntimeReport {
+    let mut report = RuntimeReport::default();
+    let Ok(text) = std::str::from_utf8(bytes) else {
+        report.protocol_incomplete = true;
+        return report;
+    };
+    let mut terminal_seen = false;
+    let mut identities = std::collections::HashSet::new();
+    for line in text.lines().filter(|line| !line.is_empty()) {
+        let Ok(event) = forge_provider_claude::parse_jsonl_event(line) else {
+            report.protocol_incomplete = true;
+            continue;
+        };
+        if event.session_id.is_some_and(|id| id != run_id)
+            || event.replayed_message_id.is_some_and(|id| id != run_id)
+            || event.event_id.is_some_and(|id| !identities.insert(id))
+        {
+            report.protocol_incomplete = true;
+            continue;
+        }
+        if let Some(end) = event.turn_end {
+            if terminal_seen {
+                report.protocol_incomplete = true;
+                continue;
+            }
+            terminal_seen = true;
+            report.usage = event.usage;
+            report.completed_turns =
+                u64::from(end == forge_provider_claude::ClaudeTurnEnd::Completed);
+        }
+        for observation in event.observations {
+            if let RuntimeObservation::Failure { kind } = observation {
+                report.failure = Some(kind);
+            }
+        }
+    }
+    report.protocol_incomplete |= !terminal_seen;
+    if report.protocol_incomplete {
+        report.usage = None;
+    }
+    report
+}
+
 fn add_usage(a: RuntimeUsage, b: RuntimeUsage) -> Option<RuntimeUsage> {
     fn optional(a: Option<u64>, b: Option<u64>) -> Option<u64> {
         a?.checked_add(b?)
@@ -197,20 +282,58 @@ mod tests {
     use super::*;
     #[test]
     fn counts_reported_usage_without_promoting_text_to_success() {
-        let report=normalize("codex_cli",b"{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":10,\"output_tokens\":3,\"cached_input_tokens\":2}}\n");
+        let report=normalize("codex_cli",b"{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":10,\"output_tokens\":3,\"cached_input_tokens\":2}}\n", uuid::Uuid::nil());
         assert_eq!(report.completed_turns, 1);
         assert_eq!(report.usage.expect("usage").input_tokens, 10);
         assert!(report.provider_exit.is_none());
     }
     #[test]
     fn missing_usage_stays_unknown_and_raw_errors_are_not_retained() {
-        let report=normalize("codex_cli",b"{\"type\":\"turn.completed\"}\n{\"type\":\"error\",\"message\":\"refresh_token_reused secret-body\"}\n");
+        let report=normalize("codex_cli",b"{\"type\":\"turn.completed\"}\n{\"type\":\"error\",\"message\":\"refresh_token_reused secret-body\"}\n", uuid::Uuid::nil());
         assert!(report.usage.is_none());
         assert_eq!(report.failure, Some(RuntimeFailureKind::AuthRefreshReused));
         assert!(
             !serde_json::to_string(&report)
                 .expect("json")
                 .contains("secret-body")
+        );
+    }
+
+    #[test]
+    fn claude_usage_survives_aborted_turn_and_cannot_be_counted_twice() {
+        let run = uuid::Uuid::now_v7();
+        let result = json!({"type":"result","session_id":run,"is_error":false,"subtype":"success","terminal_reason":"aborted_tools","usage":{"input_tokens":4,"output_tokens":2}}).to_string();
+        let report = normalize("claude_code_cli", result.as_bytes(), run);
+        assert_eq!(report.usage.unwrap().input_tokens, 4);
+        assert_eq!(report.completed_turns, 0);
+        assert!(!report.protocol_incomplete);
+        let duplicate = format!("{result}\n{result}\n");
+        let report = normalize("claude_code_cli", duplicate.as_bytes(), run);
+        assert!(report.usage.is_none());
+        assert!(report.protocol_incomplete);
+        let report = normalize("claude_code_cli", result.as_bytes(), uuid::Uuid::now_v7());
+        assert!(report.usage.is_none());
+        assert!(report.protocol_incomplete);
+    }
+
+    #[test]
+    fn claude_failure_is_sanitized_and_success_has_one_usage_counter() {
+        let run = uuid::Uuid::now_v7();
+        let error = json!({"type":"assistant","session_id":run,"is_api_error_message":true,"api_error_status":401,"message":{"role":"assistant","content":[{"type":"text","text":"private error body"}]}}).to_string();
+        let result = json!({"type":"result","session_id":run,"is_error":false,"subtype":"success","usage":{"input_tokens":4,"output_tokens":2}}).to_string();
+        let report = normalize("claude_code_cli", result.as_bytes(), run);
+        assert_eq!(report.completed_turns, 1);
+        assert_eq!(report.usage.unwrap().input_tokens, 4);
+        let report = normalize(
+            "claude_code_cli",
+            format!("{error}\n{result}").as_bytes(),
+            run,
+        );
+        assert_eq!(report.failure, Some(RuntimeFailureKind::AuthRequired));
+        assert!(
+            !serde_json::to_string(&report)
+                .unwrap()
+                .contains("private error body")
         );
     }
 }

@@ -48,6 +48,58 @@ impl CreatePipelineCommand {
         created_by: Actor,
         created_at: Timestamp,
     ) -> Result<(Pipeline, PipelineVersion), ApplicationError> {
+        let definition = PipelineDefinitionInput {
+            task_kinds: self.task_kinds.clone(),
+            entry_stage_id: self.entry_stage_id.clone(),
+            max_stage_visits: self.max_stage_visits,
+            stages: self.stages.clone(),
+            transitions: self.transitions.clone(),
+        };
+        let version = definition.build(PipelinePublication {
+            pipeline_id,
+            version_id,
+            project_id,
+            version: 1,
+            created_by,
+            created_at,
+        })?;
+        let pipeline = Pipeline::new(pipeline_id, project_id, self.name.clone(), version_id)
+            .map_err(domain_error)?;
+        Ok((pipeline, version))
+    }
+}
+
+/// Complete immutable graph supplied when publishing a new version.
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct PipelineDefinitionInput {
+    /// Supported Task categories.
+    pub task_kinds: Vec<TaskKind>,
+    /// Stable entry-stage identity.
+    pub entry_stage_id: String,
+    /// Finite total stage-entry cap required for retry cycles.
+    #[serde(default)]
+    pub max_stage_visits: Option<u32>,
+    /// Full stage definitions.
+    pub stages: Vec<PipelineStageInput>,
+    /// Full directed outcome graph.
+    pub transitions: Vec<PipelineTransitionInput>,
+}
+
+pub(crate) struct PipelinePublication {
+    pub pipeline_id: PipelineId,
+    pub version_id: PipelineVersionId,
+    pub project_id: ProjectId,
+    pub version: u32,
+    pub created_by: Actor,
+    pub created_at: Timestamp,
+}
+
+impl PipelineDefinitionInput {
+    pub(crate) fn build(
+        &self,
+        publication: PipelinePublication,
+    ) -> Result<PipelineVersion, ApplicationError> {
         self.validate_public_contract()?;
         let mut transitions_by_stage = BTreeMap::<StageId, Vec<PipelineTransition>>::new();
         for input in &self.transitions {
@@ -68,22 +120,19 @@ impl CreatePipelineCommand {
                 reason: "references a stage not listed in stages".to_owned(),
             });
         }
-        let version = PipelineVersion::new(PipelineVersionInput {
-            id: version_id,
-            pipeline_id,
-            project_id,
-            version: 1,
+        PipelineVersion::new(PipelineVersionInput {
+            id: publication.version_id,
+            pipeline_id: publication.pipeline_id,
+            project_id: publication.project_id,
+            version: publication.version,
             task_kinds: unique_set(CommandName::CreatePipeline, "task_kinds", &self.task_kinds)?,
             entry_stage_id: stage_id("entry_stage_id", &self.entry_stage_id)?,
             max_stage_visits: self.max_stage_visits,
             stages,
-            created_by,
-            created_at,
+            created_by: publication.created_by,
+            created_at: publication.created_at,
         })
-        .map_err(domain_error)?;
-        let pipeline = Pipeline::new(pipeline_id, project_id, self.name.clone(), version_id)
-            .map_err(domain_error)?;
-        Ok((pipeline, version))
+        .map_err(domain_error)
     }
 
     fn validate_public_contract(&self) -> Result<(), ApplicationError> {
@@ -141,6 +190,17 @@ pub struct PipelineStageInput {
     pub executor_kind: ExecutorKind,
     /// Complete declared outcome set for cross-checking edge input.
     pub outcomes: Vec<String>,
+    /// Explicit stage instructions; old definitions default to empty text.
+    #[serde(default)]
+    pub instructions: String,
+    /// Optional exact restrictions on the operator-configured working surface.
+    #[serde(default)]
+    pub workspace: Option<forge_domain::StageWorkspaceRequirements>,
+    /// Optional candidate assessment, independent of Project-defined stage names.
+    #[serde(default)]
+    pub acceptance_policy: Option<forge_domain::candidate_review::StageAcceptancePolicy>,
+    #[serde(default)]
+    pub system_action: Option<forge_domain::git_integration::SystemStageAction>,
 }
 
 impl PipelineStageInput {
@@ -193,6 +253,9 @@ impl PipelineStageInput {
             self.executor_kind,
             transitions,
         )
+        .and_then(|stage| stage.with_requirements(self.instructions.clone(), self.workspace))
+        .and_then(|stage| stage.with_acceptance_policy(self.acceptance_policy.clone()))
+        .and_then(|stage| stage.with_system_action(self.system_action.clone()))
         .map_err(domain_error)
     }
 }

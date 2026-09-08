@@ -2,13 +2,19 @@
 
 mod audit;
 mod calls;
+mod escalation;
+mod finding;
+mod inbox;
+pub(crate) use inbox::task_scope;
 mod catalog;
+mod communication_run;
 mod mcp;
+mod resolution;
 mod signals;
 mod socket;
 
 use crate::{CoreError, CoreService};
-use forge_domain::{ContextSnapshot, ProjectId, TaskId, runtime::RunScope};
+use forge_domain::{ContextSnapshot, ExecutionAssignment, ProjectId, runtime::RunScope};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -30,7 +36,7 @@ pub(super) struct RunGateway {
     core: CoreService,
     scope: RunScope,
     project_id: ProjectId,
-    task_id: TaskId,
+    assignment: ExecutionAssignment,
     grants: Arc<BTreeSet<String>>,
     closed: Arc<AtomicBool>,
     requests: Arc<tokio::sync::Semaphore>,
@@ -56,16 +62,30 @@ impl CoreService {
             .load_run(run_id)
             .await?
             .ok_or(CoreError::NotFound { aggregate: "run" })?;
-        let context: ContextSnapshot = serde_json::from_value(run.context_manifest.clone())
-            .map_err(|_| invalid("stored context is invalid"))?;
-        if context.data().run_id != run_id
-            || context.data().project_id != run.project_id
-            || context.data().task_id != run.task_id
-            || context.data().employee_id != run.employee_id
-            || context.data().stage_id.as_str() != run.stage_id
-        {
-            return Err(invalid("stored context scope differs from Run"));
-        }
+        let grants = match &run.assignment {
+            ExecutionAssignment::TaskStage(owner) => {
+                let context: ContextSnapshot = serde_json::from_value(run.context_manifest.clone())
+                    .map_err(|_| invalid("stored context is invalid"))?;
+                if context.data().run_id != run_id
+                    || context.data().project_id != run.project_id
+                    || context.data().task_id != owner.task_id
+                    || Some(context.data().employee_id) != run.employee_id
+                    || context.data().stage_id != owner.stage_id
+                    || !matches!(run.run_spec_version, 1 | 2)
+                {
+                    return Err(invalid("stored context scope differs from Run"));
+                }
+                context.data().capability_grants.clone()
+            }
+            ExecutionAssignment::Communication(_) => communication_run::context(&run)?
+                .data()
+                .capability_grants
+                .clone(),
+            ExecutionAssignment::Resolution(_) => {
+                resolution::context(&run)?.data().capability_grants.clone()
+            }
+            _ => return Err(invalid("unsupported Gateway assignment")),
+        };
         let gateway = RunGateway {
             core: self.clone(),
             scope: RunScope {
@@ -74,11 +94,9 @@ impl CoreService {
                 environment_epoch: run.environment_epoch,
             },
             project_id: run.project_id,
-            task_id: run.task_id,
+            assignment: run.assignment,
             grants: Arc::new(
-                context
-                    .data()
-                    .capability_grants
+                grants
                     .iter()
                     .filter(|grant| catalog::logical_tool(grant).is_some())
                     .cloned()
@@ -102,14 +120,44 @@ impl RunGateway {
             .validate_gateway_scope(&self.scope)
             .await?
             .ok_or_else(|| invalid("Run scope is no longer active"))?;
-        if run.project_id != self.project_id || run.task_id != self.task_id {
+        if run.project_id != self.project_id || run.assignment != self.assignment {
             return Err(invalid("Run scope changed"));
+        }
+        if run.assignment.resolution().is_some()
+            && !transaction.resolution_run_authorized(&run).await?
+        {
+            return Err(invalid("Resolution assignment expired or changed"));
         }
         transaction.commit().await?;
         Ok(())
     }
 
     async fn invoke(&self, request: ToolRequest) -> Result<Value, CoreError> {
+        // A successful stop-producing call can withdraw its own execution
+        // authority before its response reaches the client. Replaying that
+        // immutable receipt grants no new action and needs no live Lease.
+        if matches!(
+            request.tool.as_str(),
+            "human.request" | "escalation.raise" | "resolution.submit" | "resolution.decline"
+        ) && request.message_id.get_version_num() == 7
+            && self.grants.contains(&request.tool)
+        {
+            let bytes =
+                serde_json::to_vec(&json!({"tool":request.tool,"arguments":request.arguments}))
+                    .map_err(|_| invalid("invalid arguments"))?;
+            if bytes.len() > MAX_REQUEST_BYTES {
+                return Err(invalid("arguments exceed request limit"));
+            }
+            let digest: [u8; 32] = Sha256::digest(&bytes).into();
+            let hash: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
+            let mut tx = self.core.store.begin().await?;
+            if let Some(receipt) = tx
+                .gateway_receipt(self.scope, request.message_id, &hash)
+                .await?
+            {
+                return Ok(receipt);
+            }
+        }
         self.authorize().await?;
         self.core
             .reject_run_secrets(self.scope, &request.arguments)
@@ -160,6 +208,13 @@ fn invalid(reason: &str) -> CoreError {
 
 fn safe_error(error: &CoreError) -> Value {
     let (code, message) = match error {
+        CoreError::InvalidTransport {
+            field: "inbox.barrier",
+            ..
+        } => (
+            "instruction_pending",
+            "Read forge_list_instructions, acknowledge or answer required messages, then retry this outcome.",
+        ),
         CoreError::IdempotencyConflict => (
             "idempotency_conflict",
             "Reuse the original message and payload, or create a new message_id.",

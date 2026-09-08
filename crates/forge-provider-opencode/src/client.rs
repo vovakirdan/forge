@@ -271,7 +271,7 @@ impl OpenCodeClient {
         check_status(&response)
     }
 
-    fn request(
+    pub(crate) fn request(
         &self,
         method: Method,
         path: &str,
@@ -287,14 +287,14 @@ impl OpenCodeClient {
     }
 }
 
-fn check_status(response: &reqwest::Response) -> Result<(), OpenCodeError> {
+pub(crate) fn check_status(response: &reqwest::Response) -> Result<(), OpenCodeError> {
     if response.status().is_success() {
         Ok(())
     } else {
         Err(OpenCodeError::Http(response.status().as_u16()))
     }
 }
-async fn bounded_json<T: serde::de::DeserializeOwned>(
+pub(crate) async fn bounded_json<T: serde::de::DeserializeOwned>(
     mut response: reqwest::Response,
 ) -> Result<T, OpenCodeError> {
     let mut bytes = Zeroizing::new(Vec::new());
@@ -313,12 +313,12 @@ async fn bounded_json<T: serde::de::DeserializeOwned>(
 
 /// Bound unterminated frames *before* the standard SSE decoder buffers them.
 #[derive(Default)]
-struct SseLimit {
+pub(crate) struct SseLimit {
     frame_bytes: usize,
     line_bytes: usize,
 }
 impl SseLimit {
-    fn accept(&mut self, bytes: &[u8]) -> Result<(), OpenCodeError> {
+    pub(crate) fn accept(&mut self, bytes: &[u8]) -> Result<(), OpenCodeError> {
         for byte in bytes {
             self.frame_bytes += 1;
             if self.frame_bytes > MAX_EVENT_BYTES {

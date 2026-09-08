@@ -17,6 +17,45 @@ pub(crate) struct PipelineVersionRead {
 }
 
 impl CoreService {
+    pub(crate) async fn read_employee_threads(
+        &self,
+        project_id: ProjectId,
+        employee_id: forge_domain::EmployeeId,
+        after: Option<Uuid>,
+        limit: u32,
+    ) -> Result<Vec<forge_domain::communication::EmployeeThread>, CoreError> {
+        self.store()
+            .load_employee(employee_id)
+            .await?
+            .filter(|employee| employee.employee.project_id() == project_id)
+            .ok_or(CoreError::NotFound {
+                aggregate: "employee",
+            })?;
+        Ok(self
+            .store()
+            .list_employee_threads(project_id, employee_id, after, limit)
+            .await?)
+    }
+
+    pub(crate) async fn read_employee_messages(
+        &self,
+        project_id: ProjectId,
+        thread_id: Uuid,
+        after: u64,
+        limit: u32,
+    ) -> Result<Vec<forge_domain::communication::EmployeeMessage>, CoreError> {
+        self.store()
+            .load_employee_thread(project_id, thread_id)
+            .await?
+            .ok_or(CoreError::NotFound {
+                aggregate: "employee thread",
+            })?;
+        Ok(self
+            .store()
+            .list_employee_messages(project_id, thread_id, after, limit)
+            .await?)
+    }
+
     pub(crate) async fn read_run_diagnostics(
         &self,
         project_id: ProjectId,

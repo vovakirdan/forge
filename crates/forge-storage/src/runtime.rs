@@ -82,6 +82,7 @@ impl StorageTransaction<'_> {
         value
             .map(|value| {
                 let binding: RuntimeBinding = decode_payload(&value, "runtime binding")?;
+                reject_derived_employee_surface(&binding)?;
                 binding.validate().map_err(|_| StorageError::InvalidInput {
                     reason: "invalid stored runtime binding".into(),
                 })?;
@@ -97,6 +98,7 @@ impl StorageTransaction<'_> {
         employee_id: EmployeeId,
         binding: &RuntimeBinding,
     ) -> Result<(), StorageError> {
+        reject_derived_employee_surface(binding)?;
         binding.validate().map_err(|_| StorageError::InvalidInput {
             reason: "invalid runtime binding".into(),
         })?;
@@ -140,7 +142,7 @@ impl StorageTransaction<'_> {
         run_id: Uuid,
         surface_id: Option<Uuid>,
     ) -> Result<(), StorageError> {
-        sqlx::query("INSERT INTO run_environment_reservations(run_id,project_id,task_id,employee_id,surface_id,fencing_token,environment_epoch) SELECT id,project_id,task_id,employee_id,$2,lease_fencing_token,environment_epoch FROM runs WHERE id=$1")
+        sqlx::query("INSERT INTO run_environment_reservations(run_id,project_id,purpose,communication_assignment_id,resolution_assignment_id,hook_invocation_id,task_id,employee_id,surface_id,fencing_token,environment_epoch) SELECT id,project_id,purpose,communication_assignment_id,resolution_assignment_id,hook_invocation_id,task_id,employee_id,$2,lease_fencing_token,environment_epoch FROM runs WHERE id=$1")
             .bind(run_id).bind(surface_id).execute(&mut *self.transaction).await?;
         Ok(())
     }
@@ -196,7 +198,7 @@ impl StorageTransaction<'_> {
         accepted: bool,
         body: &Value,
     ) -> Result<bool, StorageError> {
-        let result=sqlx::query("INSERT INTO task_handoffs(run_id,project_id,task_id,kind,body) VALUES($1,$2,$3,$4,$5::jsonb) ON CONFLICT(run_id) DO NOTHING")
+        let result=sqlx::query("INSERT INTO task_handoffs(id,run_id,project_id,task_id,kind,body) VALUES(($5::jsonb->>'id')::uuid,$1,$2,$3,$4,$5::jsonb) ON CONFLICT(run_id) DO NOTHING")
             .bind(run_id).bind(project_id.as_uuid()).bind(task_id.as_uuid())
             .bind(if accepted {"accepted"} else {"interrupted"}).bind(encode_object(body,"handoff.body")?)
             .execute(&mut *self.transaction).await?;
@@ -205,12 +207,24 @@ impl StorageTransaction<'_> {
 
     /// Reads the previous canonical handoff without waiting for derived summaries.
     pub async fn latest_handoff(&mut self, task_id: TaskId) -> Result<Option<Value>, StorageError> {
-        let value:Option<String>=sqlx::query_scalar("SELECT body::text FROM task_handoffs WHERE task_id=$1 ORDER BY created_at DESC,run_id DESC LIMIT 1")
+        let value:Option<String>=sqlx::query_scalar("SELECT body::text FROM task_handoffs WHERE task_id=$1 ORDER BY created_at DESC,id DESC LIMIT 1")
             .bind(task_id.as_uuid()).fetch_optional(&mut *self.transaction).await?;
         value
             .map(|value| decode_payload(&value, "handoff"))
             .transpose()
     }
+}
+
+fn reject_derived_employee_surface(binding: &RuntimeBinding) -> Result<(), StorageError> {
+    if matches!(
+        binding.surface,
+        forge_domain::runtime::SurfaceSpec::GitCandidateSnapshot { .. }
+    ) {
+        return Err(StorageError::InvalidInput {
+            reason: "Git candidate snapshots are derived from Task acceptance, not Employee configuration".into(),
+        });
+    }
+    Ok(())
 }
 
 impl PostgresStore {

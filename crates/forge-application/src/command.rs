@@ -3,6 +3,7 @@ use forge_domain::{
     PipelineVersionId, PriorityLevelId, ProjectId, TaskId, WaitConditionId,
 };
 use forge_protocol::wire::{CommandName, CommandRequest, MAX_COMMAND_AUDIT_DETAIL_CHARACTERS};
+pub use resolver_input::RaiseEscalationInput;
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -37,6 +38,73 @@ impl IdempotencyKey {
 /// Typed intent selected by one named HTTP command path.
 #[derive(Clone, Debug, PartialEq)]
 pub enum CommandPayload {
+    ConfigureProjectHook(Box<crate::ConfigureProjectHookInput>),
+    ConfigureResolverRoute(resolver_input::ConfigureResolverRouteInput),
+    RaiseEscalation(resolver_input::RaiseEscalationInput),
+    SubmitHumanResolution(resolver_input::SubmitHumanResolutionInput),
+    RerouteEscalation(resolver_input::RerouteEscalationInput),
+    ReportFinding(crate::ReportFindingCommand),
+    TriageFinding(crate::TriageFindingCommand),
+    PromoteFinding(crate::PromoteFindingCommand),
+    /// Request one future resolution of a specific manual pause.
+    ScheduleTaskResume {
+        task_id: TaskId,
+        expected_task_revision: u64,
+        wait_condition_id: WaitConditionId,
+        not_before: forge_domain::Timestamp,
+        reason: String,
+    },
+    /// Retire pending alarm intent; this does not pause/resume its Task.
+    CancelTaskResume {
+        schedule_id: Uuid,
+        reason: Option<String>,
+    },
+    /// Pin the next Lease to one eligible Employee, not the Task owner.
+    SetNextRunEmployee {
+        task_id: TaskId,
+        expected_task_revision: u64,
+        employee_id: EmployeeId,
+        reason: Option<String>,
+    },
+    /// Remove a pending or held constraint without changing current execution.
+    ClearNextRunEmployee {
+        task_id: TaskId,
+        expected_task_revision: u64,
+        reason: Option<String>,
+    },
+    /// Disable future Employee admission and request explicit execution stops.
+    StopEmployee {
+        employee_id: EmployeeId,
+        expected_employee_revision: u64,
+        mode: forge_domain::ExecutionStopMode,
+        reason: Option<String>,
+    },
+    /// Pause the named Task independently of its processes' observed state.
+    PauseTask {
+        task_id: TaskId,
+        expected_task_revision: u64,
+        mode: forge_domain::ExecutionStopMode,
+        reason: Option<String>,
+    },
+    /// Operator-only enrollment of a local source, never a worker-supplied path.
+    RegisterProjectRepository {
+        name: String,
+        source: forge_domain::git::LocalGitPath,
+        target_ref: forge_domain::git::GitBranchRef,
+    },
+    /// Bind once before Task approval; source existence is verified at provisioning.
+    BindTaskGitRepository {
+        task_id: TaskId,
+        expected_task_revision: u64,
+        repository_id: Uuid,
+        initial_base: forge_domain::git::GitObjectId,
+    },
+    /// Open an independent durable Employee conversation.
+    OpenEmployeeThread(crate::OpenEmployeeThreadCommand),
+    /// Append a message using the authenticated command actor as sender.
+    SendEmployeeMessage(crate::SendEmployeeMessageCommand),
+    /// Explicit management resolution, never fabricated Employee acknowledgement.
+    WaiveMessageRequirement(crate::WaiveMessageRequirementCommand),
     /// Explicit Project reboot behavior.
     ConfigureBootRecoveryPolicy {
         policy: forge_domain::runtime::BootRecoveryPolicy,
@@ -45,6 +113,21 @@ pub enum CommandPayload {
     AcceptRunRecoveryAssessment {
         run_id: Uuid,
         assessment: forge_domain::runtime::RecoveryAssessment,
+    },
+    /// Explicitly retry a held conversation after physical quiescence.
+    RetryCommunication {
+        run_id: Uuid,
+        reason: String,
+    },
+    RetryGitIntegration {
+        operation_id: Uuid,
+        expected_task_revision: u64,
+        reason: String,
+    },
+    AcceptGitIntegrationResult {
+        operation_id: Uuid,
+        expected_task_revision: u64,
+        reason: String,
     },
     /// Local management enrollment: payload carries a filename, never key bytes.
     EnrollCredential {
@@ -57,8 +140,47 @@ pub enum CommandPayload {
     CreateProject(CreateProjectCommand),
     /// Create a Pipeline and initial immutable graph version.
     CreatePipeline(CreatePipelineCommand),
+    /// Publish a complete immutable graph under an exact catalog revision.
+    PublishPipelineVersion {
+        pipeline_id: PipelineId,
+        expected_pipeline_revision: u64,
+        definition: crate::PipelineDefinitionInput,
+        make_default: bool,
+    },
+    /// Change the default for future Tasks only.
+    SetPipelineDefaultVersion {
+        pipeline_id: PipelineId,
+        expected_pipeline_revision: u64,
+        pipeline_version_id: PipelineVersionId,
+    },
+    /// Preserve existing Tasks and versions while disallowing new bindings.
+    DeletePipeline {
+        pipeline_id: PipelineId,
+        expected_pipeline_revision: u64,
+    },
     /// Create an enabled Employee identity.
     CreateEmployee(CreateEmployeeCommand),
+    /// Replace selected Employee catalog fields at an exact revision.
+    AmendEmployee {
+        employee_id: EmployeeId,
+        expected_employee_revision: u64,
+        patch: forge_domain::EmployeeAmendment,
+    },
+    /// Enable future assignment without changing active Runs.
+    EnableEmployee {
+        employee_id: EmployeeId,
+        expected_employee_revision: u64,
+    },
+    /// Disable future assignment without changing active Runs.
+    DisableEmployee {
+        employee_id: EmployeeId,
+        expected_employee_revision: u64,
+    },
+    /// Permanently exclude this Employee from new assignments.
+    RetireEmployee {
+        employee_id: EmployeeId,
+        expected_employee_revision: u64,
+    },
     /// Create a Task in draft state.
     CreateTask(CreateTaskCommand),
     /// Replace selected draft Task intent fields.
@@ -229,6 +351,32 @@ impl CommandEnvelope {
 impl CommandPayload {
     fn parse(name: CommandName, value: Value) -> Result<Self, ApplicationError> {
         match name {
+            CommandName::ReportFinding => parse_typed(name, value).map(Self::ReportFinding),
+            CommandName::TriageFinding => parse_typed(name, value).map(Self::TriageFinding),
+            CommandName::PromoteFinding => parse_typed(name, value).map(Self::PromoteFinding),
+            CommandName::StopEmployee
+            | CommandName::PauseTask
+            | CommandName::SetNextRunEmployee
+            | CommandName::ClearNextRunEmployee => manager_input::parse(name, value),
+            CommandName::ConfigureResolverRoute
+            | CommandName::RaiseEscalation
+            | CommandName::SubmitHumanResolution
+            | CommandName::RerouteEscalation => resolver_input::parse(name, value),
+            CommandName::ScheduleTaskResume | CommandName::CancelTaskResume => {
+                resume_input::parse(name, value)
+            }
+            CommandName::RegisterProjectRepository | CommandName::BindTaskGitRepository => {
+                repository_input::parse(name, value)
+            }
+            CommandName::OpenEmployeeThread => {
+                parse_typed(name, value).map(Self::OpenEmployeeThread)
+            }
+            CommandName::SendEmployeeMessage => {
+                parse_typed(name, value).map(Self::SendEmployeeMessage)
+            }
+            CommandName::WaiveMessageRequirement => {
+                parse_typed(name, value).map(Self::WaiveMessageRequirement)
+            }
             CommandName::ConfigureBootRecoveryPolicy => {
                 #[derive(serde::Deserialize)]
                 #[serde(deny_unknown_fields)]
@@ -238,6 +386,58 @@ impl CommandPayload {
                 let input: Input = parse_typed(name, value)?;
                 Ok(Self::ConfigureBootRecoveryPolicy {
                     policy: input.policy,
+                })
+            }
+            CommandName::RetryGitIntegration | CommandName::AcceptGitIntegrationResult => {
+                #[derive(serde::Deserialize)]
+                #[serde(deny_unknown_fields)]
+                struct Input {
+                    operation_id: Uuid,
+                    expected_task_revision: u64,
+                    reason: String,
+                }
+                let input: Input = parse_typed(name, value)?;
+                if input.operation_id.get_version_num() != 7
+                    || input.expected_task_revision == 0
+                    || input.reason.trim().is_empty()
+                    || input.reason.len() > 4096
+                {
+                    return Err(ApplicationError::InvalidPayload {command:name,reason:"requires operation UUIDv7, current Task revision and a bounded nonblank reason".into()});
+                }
+                if name == CommandName::RetryGitIntegration {
+                    Ok(Self::RetryGitIntegration {
+                        operation_id: input.operation_id,
+                        expected_task_revision: input.expected_task_revision,
+                        reason: input.reason,
+                    })
+                } else {
+                    Ok(Self::AcceptGitIntegrationResult {
+                        operation_id: input.operation_id,
+                        expected_task_revision: input.expected_task_revision,
+                        reason: input.reason,
+                    })
+                }
+            }
+            CommandName::RetryCommunication => {
+                #[derive(serde::Deserialize)]
+                #[serde(deny_unknown_fields)]
+                struct Input {
+                    run_id: Uuid,
+                    reason: String,
+                }
+                let input: Input = parse_typed(name, value)?;
+                if input.run_id.get_version_num() != 7
+                    || input.reason.trim().is_empty()
+                    || input.reason.len() > 4096
+                {
+                    return Err(ApplicationError::InvalidPayload {
+                        command: name,
+                        reason: "requires Run UUIDv7 and bounded nonblank retry reason".into(),
+                    });
+                }
+                Ok(Self::RetryCommunication {
+                    run_id: input.run_id,
+                    reason: input.reason,
                 })
             }
             CommandName::AcceptRunRecoveryAssessment => {
@@ -271,7 +471,10 @@ impl CommandPayload {
                 let input: Input = parse_typed(name, value)?;
                 if input.secret_id.is_nil()
                     || input.binding_id.is_nil()
-                    || !matches!(input.kind.as_str(), "codex_chatgpt" | "api_key")
+                    || !matches!(
+                        input.kind.as_str(),
+                        "codex_chatgpt" | "api_key" | "claude_subscription"
+                    )
                     || !input.source_file.starts_with('/')
                     || input.source_file.contains('\0')
                     || input.source_file.len() > 4096
@@ -308,9 +511,19 @@ impl CommandPayload {
                     binding: Box::new(input.binding),
                 })
             }
+            CommandName::ConfigureProjectHook => {
+                parse_typed(name, value).map(|input| Self::ConfigureProjectHook(Box::new(input)))
+            }
             CommandName::CreateProject => parse_typed(name, value).map(Self::CreateProject),
             CommandName::CreatePipeline => parse_typed(name, value).map(Self::CreatePipeline),
             CommandName::CreateEmployee => parse_typed(name, value).map(Self::CreateEmployee),
+            CommandName::AmendEmployee
+            | CommandName::EnableEmployee
+            | CommandName::DisableEmployee
+            | CommandName::RetireEmployee => employee_input::parse(name, value),
+            CommandName::PublishPipelineVersion
+            | CommandName::SetPipelineDefaultVersion
+            | CommandName::DeletePipeline => pipeline_management_input::parse(name, value),
             CommandName::CreateTask => {
                 parse_typed::<CreateTaskCommand>(name, value).and_then(|input| {
                     input.validate_public_contract()?;
@@ -450,6 +663,7 @@ where
 }
 
 pub(crate) trait UuidV7Identifier: From<Uuid> {}
+impl UuidV7Identifier for Uuid {}
 
 impl UuidV7Identifier for ArtifactId {}
 impl UuidV7Identifier for CommandId {}
@@ -575,3 +789,11 @@ struct ProjectExecutionInput {
 #[cfg(test)]
 #[path = "command/tests.rs"]
 mod tests;
+
+#[path = "command/employee_input.rs"]
+mod employee_input;
+mod manager_input;
+mod pipeline_management_input;
+mod repository_input;
+pub(crate) mod resolver_input;
+mod resume_input;

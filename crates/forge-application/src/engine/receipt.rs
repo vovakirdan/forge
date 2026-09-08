@@ -79,9 +79,35 @@ pub async fn finish_command(
 
 pub fn command_name(envelope: &CommandEnvelope) -> String {
     match envelope.name {
+        forge_protocol::wire::CommandName::RegisterProjectRepository => {
+            "register_project_repository"
+        }
+        forge_protocol::wire::CommandName::BindTaskGitRepository => "bind_task_git_repository",
         forge_protocol::wire::CommandName::CreateProject => "create_project",
         forge_protocol::wire::CommandName::CreatePipeline => "create_pipeline",
+        forge_protocol::wire::CommandName::PublishPipelineVersion => "publish_pipeline_version",
+        forge_protocol::wire::CommandName::SetPipelineDefaultVersion => {
+            "set_pipeline_default_version"
+        }
+        forge_protocol::wire::CommandName::DeletePipeline => "delete_pipeline",
         forge_protocol::wire::CommandName::CreateEmployee => "create_employee",
+        forge_protocol::wire::CommandName::AmendEmployee => "amend_employee",
+        forge_protocol::wire::CommandName::EnableEmployee => "enable_employee",
+        forge_protocol::wire::CommandName::DisableEmployee => "disable_employee",
+        forge_protocol::wire::CommandName::RetireEmployee => "retire_employee",
+        forge_protocol::wire::CommandName::StopEmployee => "stop_employee",
+        forge_protocol::wire::CommandName::SetNextRunEmployee => "set_next_run_employee",
+        forge_protocol::wire::CommandName::ClearNextRunEmployee => "clear_next_run_employee",
+        forge_protocol::wire::CommandName::ScheduleTaskResume => "schedule_task_resume",
+        forge_protocol::wire::CommandName::ConfigureResolverRoute => "configure_resolver_route",
+        forge_protocol::wire::CommandName::RaiseEscalation => "raise_escalation",
+        forge_protocol::wire::CommandName::SubmitHumanResolution => "submit_human_resolution",
+        forge_protocol::wire::CommandName::RerouteEscalation => "reroute_escalation",
+        forge_protocol::wire::CommandName::CancelTaskResume => "cancel_task_resume",
+        forge_protocol::wire::CommandName::PauseTask => "pause_task",
+        forge_protocol::wire::CommandName::OpenEmployeeThread => "open_employee_thread",
+        forge_protocol::wire::CommandName::SendEmployeeMessage => "send_employee_message",
+        forge_protocol::wire::CommandName::WaiveMessageRequirement => "waive_message_requirement",
         forge_protocol::wire::CommandName::CreateTask => "create_task",
         forge_protocol::wire::CommandName::AmendDraft => "amend_draft",
         forge_protocol::wire::CommandName::ApproveTask => "approve_task",
@@ -96,12 +122,21 @@ pub fn command_name(envelope: &CommandEnvelope) -> String {
             "submit_external_stage_outcome"
         }
         forge_protocol::wire::CommandName::ConfigureEmployeeRuntime => "configure_employee_runtime",
+        forge_protocol::wire::CommandName::ConfigureProjectHook => "configure_project_hook",
         forge_protocol::wire::CommandName::EnrollCredential => "enroll_credential",
         forge_protocol::wire::CommandName::ConfigureBootRecoveryPolicy => {
             "configure_boot_recovery_policy"
         }
         forge_protocol::wire::CommandName::AcceptRunRecoveryAssessment => {
             "accept_run_recovery_assessment"
+        }
+        forge_protocol::wire::CommandName::RetryCommunication => "retry_communication",
+        forge_protocol::wire::CommandName::ReportFinding => "report_finding",
+        forge_protocol::wire::CommandName::TriageFinding => "triage_finding",
+        forge_protocol::wire::CommandName::PromoteFinding => "promote_finding",
+        forge_protocol::wire::CommandName::RetryGitIntegration => "retry_git_integration",
+        forge_protocol::wire::CommandName::AcceptGitIntegrationResult => {
+            "accept_git_integration_result"
         }
     }
     .to_owned()

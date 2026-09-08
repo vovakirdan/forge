@@ -33,6 +33,7 @@ impl CoreService {
         for project_id in open_project_ids {
             self.dispatch_available(project_id).await?;
         }
+        self.reconcile_runtime_inputs(None).await?;
         Ok(())
     }
 
@@ -82,9 +83,9 @@ fn recovered_provision(run: &RunProjection) -> Result<CoreToSupervisor, CoreErro
         message: Some(core_to_supervisor::Message::ProvisionRun(ProvisionRun {
             command_id: Uuid::now_v7().to_string(),
             run_id: run.id.to_string(),
-            task_id: run.task_id.as_uuid().to_string(),
-            employee_id: run.employee_id.as_uuid().to_string(),
-            stage_id: run.stage_id.clone(),
+            task_id: run.require_task_id()?.as_uuid().to_string(),
+            employee_id: run.require_employee_id()?.as_uuid().to_string(),
+            stage_id: run.require_task_stage()?.stage_id.to_string(),
             attempt: run.attempt_number,
             lease_fencing_token: run.lease_fencing_token,
             environment_epoch: run.environment_epoch,
@@ -92,6 +93,7 @@ fn recovered_provision(run: &RunProjection) -> Result<CoreToSupervisor, CoreErro
             run_spec_json,
             run_spec_version: M0_RUN_SPEC_VERSION,
             traceparent: crate::observability::current_traceparent(),
+            assignment: None,
         })),
     })
 }
@@ -107,11 +109,15 @@ mod tests {
         RunProjection {
             id: uuid::Uuid::now_v7(),
             project_id: forge_domain::ProjectId::new(),
-            task_id: forge_domain::TaskId::new(),
-            queue_entry_id: uuid::Uuid::now_v7(),
+            assignment: forge_domain::ExecutionAssignment::TaskStage(
+                forge_domain::TaskStageAssignment {
+                    task_id: forge_domain::TaskId::new(),
+                    queue_entry_id: uuid::Uuid::now_v7(),
+                    stage_id: forge_domain::StageId::new("work").unwrap(),
+                },
+            ),
             lease_id: uuid::Uuid::now_v7(),
-            employee_id: forge_domain::EmployeeId::new(),
-            stage_id: "work".to_owned(),
+            employee_id: Some(forge_domain::EmployeeId::new()),
             attempt_number: 1,
             lease_fencing_token: 1,
             environment_epoch: 1,

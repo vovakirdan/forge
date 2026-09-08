@@ -13,20 +13,26 @@ mod config;
 mod credentials;
 mod dependency_waits;
 mod dispatch;
+mod dispatch_constraint;
 pub(crate) mod egress;
 mod error;
 mod event;
 mod event_projection;
 mod evidence_collection;
 mod gateway;
+mod git_integration;
 mod handoff;
+mod hook_execution;
 mod http;
 mod inference;
 pub mod observability;
 mod outbox;
 mod preparation_failure;
+mod project_hook_commands;
 mod proxy_credentials;
 mod recovery;
+mod resolution_dispatch;
+mod resolution_queue;
 mod run_control;
 mod runtime_preparation;
 mod runtime_report;
@@ -34,6 +40,7 @@ mod scheduler;
 mod secret_cleanup;
 mod secret_guard;
 mod supervisor;
+mod task_resume;
 mod task_support;
 mod watchdog;
 
@@ -74,9 +81,14 @@ impl CoreActors {
 /// The shared stateful application service behind every Core transport.
 #[derive(Clone)]
 pub struct CoreService {
+    pub(crate) instance_id: uuid::Uuid,
     pub(crate) store: PostgresStore,
     pub(crate) actors: CoreActors,
     pub(crate) supervisor: Arc<SupervisorHub>,
+    pub(crate) runtime_input_cursor: Arc<tokio::sync::Mutex<Option<uuid::Uuid>>>,
+    pub(crate) resolution_cursor: Arc<tokio::sync::Mutex<Option<uuid::Uuid>>>,
+    pub(crate) resolution_admission_cursors:
+        Arc<tokio::sync::Mutex<std::collections::BTreeMap<forge_domain::ProjectId, uuid::Uuid>>>,
     pub(crate) fake_runtime_enabled: bool,
     pub(crate) secret_store: Option<Arc<forge_provider_common::SecretStore>>,
     pub(crate) execution: Option<Arc<runtime_preparation::ExecutionRuntime>>,
@@ -92,8 +104,12 @@ impl CoreService {
     pub fn new(store: PostgresStore, actors: CoreActors, supervisor: Arc<SupervisorHub>) -> Self {
         Self {
             store,
+            instance_id: uuid::Uuid::now_v7(),
             actors,
             supervisor,
+            runtime_input_cursor: Arc::default(),
+            resolution_cursor: Arc::default(),
+            resolution_admission_cursors: Arc::default(),
             fake_runtime_enabled: false,
             secret_store: None,
             execution: None,
@@ -156,3 +172,4 @@ impl CoreService {
         &self.store
     }
 }
+mod communication_dispatch;

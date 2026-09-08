@@ -1,6 +1,8 @@
 services:
   postgres:
     image: docker.io/library/postgres@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73
+    # Retained acceptance schemas enlarge catalog plans and parallel hash DSM.
+    shm_size: 512m
     environment:
       POSTGRES_DB: ${FORGE_POSTGRES_DATABASE}
       POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256

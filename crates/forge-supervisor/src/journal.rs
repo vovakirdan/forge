@@ -17,9 +17,16 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::{SupervisorError, new_id};
+mod inspection;
+mod integration;
+mod runtime_inputs;
+pub(crate) use inspection::GitSourceScope;
 
 #[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct RunRecord {
+    /// Minimal host-owned source identity survives prompt/spec tombstone compaction.
+    #[serde(default)]
+    pub git_source: Option<GitSourceScope>,
     pub provision: ProvisionRun,
     #[serde(default)]
     pub payload_hash: String,
@@ -33,6 +40,9 @@ pub(crate) struct RunRecord {
     /// this physical reservation is quiescent. Legacy records remain visible.
     #[serde(default)]
     pub quiescence_confirmed: bool,
+    /// Retained even after the corresponding Stopping event is acknowledged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stop_reason: Option<String>,
 }
 
 impl RunRecord {
@@ -74,6 +84,16 @@ struct Snapshot {
     version: u32,
     host_id: String,
     runs: BTreeMap<String, RunRecord>,
+    #[serde(default)]
+    runtime_inputs: BTreeMap<String, runtime_inputs::InputRecord>,
+    #[serde(default)]
+    git_surface_owners: BTreeMap<String, String>,
+    #[serde(default)]
+    git_inspections: BTreeMap<String, inspection::InspectionReceipt>,
+    #[serde(default)]
+    integrations: BTreeMap<uuid::Uuid, integration::IntegrationRecord>,
+    #[serde(default)]
+    integration_receipts: BTreeMap<uuid::Uuid, integration::IntegrationReceipt>,
 }
 
 pub(crate) struct Journal {
@@ -83,6 +103,15 @@ pub(crate) struct Journal {
     last_write_healthy: std::sync::atomic::AtomicBool,
     // An OS lock, unlike a PID file, is released when the process dies.
     _lock: File,
+}
+
+impl Drop for Journal {
+    fn drop(&mut self) {
+        // A concurrently forked child briefly inherits the same open-file
+        // description until CLOEXEC. Closing only our descriptor would keep
+        // flock held during that window, despite the Journal owner being gone.
+        let _ = self._lock.unlock();
+    }
 }
 
 impl Journal {
@@ -108,6 +137,11 @@ impl Journal {
                 version: 1,
                 host_id: host_id.to_owned(),
                 runs: BTreeMap::new(),
+                runtime_inputs: BTreeMap::new(),
+                git_surface_owners: BTreeMap::new(),
+                git_inspections: BTreeMap::new(),
+                integrations: BTreeMap::new(),
+                integration_receipts: BTreeMap::new(),
             },
             Err(error) => return Err(error.into()),
         };
@@ -142,11 +176,10 @@ impl Journal {
         provision: &ProvisionRun,
         boot_id: &str,
     ) -> Result<bool, SupervisorError> {
+        crate::execution_assignment::validate(provision)?;
         if [
             &provision.command_id,
             &provision.run_id,
-            &provision.task_id,
-            &provision.employee_id,
             &provision.context_snapshot_id,
         ]
         .iter()
@@ -206,9 +239,16 @@ impl Journal {
             return Err(SupervisorError::InventoryCapacity);
         }
         self.change(|snapshot| {
+            let git_source = GitSourceScope::from_provision(provision);
+            if let Some(source) = &git_source {
+                snapshot
+                    .git_surface_owners
+                    .insert(source.surface_id.to_string(), key.clone());
+            }
             snapshot.runs.insert(
                 key,
                 RunRecord {
+                    git_source,
                     provision: provision.clone(),
                     payload_hash,
                     environment_id: String::new(),
@@ -217,6 +257,7 @@ impl Journal {
                     last_sequence: 0,
                     pending: Vec::new(),
                     quiescence_confirmed: false,
+                    stop_reason: None,
                 },
             );
             Ok(())
@@ -242,6 +283,16 @@ impl Journal {
                 return Err(SupervisorError::InvalidJournalMessage);
             }
             record.last_sequence = sequence;
+            if let Some(supervisor_to_core::Message::ObservedRunEvent(event)) = &message.message
+                && event.kind == forge_protocol::supervisor::v1::RunEventKind::Stopping as i32
+                && let Ok(details) = serde_json::from_str::<serde_json::Value>(&event.details_json)
+                && let Some(reason @ ("wall_limit" | "core_stop_requested")) = details
+                    .get("reason_code")
+                    .and_then(serde_json::Value::as_str)
+                && record.stop_reason.is_none()
+            {
+                record.stop_reason = Some(reason.into());
+            }
             record.pending.push(message);
             Ok(())
         })
@@ -305,6 +356,17 @@ impl Journal {
                     .retain(|message| message_id(message) != Some(&ack.acknowledged_message_id));
                 record.compact();
             }
+            for input in snapshot.runtime_inputs.values_mut() {
+                if input.receipt.as_ref().and_then(message_id)==Some(&ack.acknowledged_message_id) {input.pending=false;}
+            }
+            for receipt in snapshot.git_inspections.values_mut() {
+                if message_id(&receipt.message) == Some(&ack.acknowledged_message_id) {
+                    receipt.pending = false;
+                }
+            }
+            for receipt in snapshot.integration_receipts.values_mut() {
+                if receipt.message.as_ref().and_then(message_id)==Some(&ack.acknowledged_message_id) {receipt.pending=false;}
+            }
             Ok(())
         })
     }
@@ -314,6 +376,27 @@ impl Journal {
             .runs
             .values()
             .flat_map(|record| record.pending.iter())
+            .chain(
+                self.snapshot
+                    .runtime_inputs
+                    .values()
+                    .filter(|record| record.pending)
+                    .filter_map(|record| record.receipt.as_ref()),
+            )
+            .chain(
+                self.snapshot
+                    .git_inspections
+                    .values()
+                    .filter(|receipt| receipt.pending)
+                    .map(|receipt| &receipt.message),
+            )
+            .chain(
+                self.snapshot
+                    .integration_receipts
+                    .values()
+                    .filter(|receipt| receipt.pending)
+                    .filter_map(|receipt| receipt.message.as_ref()),
+            )
     }
 
     // Per-scope stop-and-wait prevents a transient failure of N from being
@@ -323,6 +406,27 @@ impl Journal {
             .runs
             .values()
             .filter_map(|record| record.pending.first())
+            .chain(
+                self.snapshot
+                    .runtime_inputs
+                    .values()
+                    .filter(|record| record.pending)
+                    .filter_map(|record| record.receipt.as_ref()),
+            )
+            .chain(
+                self.snapshot
+                    .git_inspections
+                    .values()
+                    .filter(|receipt| receipt.pending)
+                    .map(|receipt| &receipt.message),
+            )
+            .chain(
+                self.snapshot
+                    .integration_receipts
+                    .values()
+                    .filter(|receipt| receipt.pending)
+                    .filter_map(|receipt| receipt.message.as_ref()),
+            )
     }
 
     pub fn inventory(&self) -> Vec<RunInventoryEntry> {
@@ -492,6 +596,9 @@ pub(crate) fn message_id(message: &SupervisorToCore) -> Option<&String> {
     match message.message.as_ref()? {
         supervisor_to_core::Message::ObservedRunEvent(event) => Some(&event.message_id),
         supervisor_to_core::Message::ExecutorSubmission(submission) => Some(&submission.message_id),
+        supervisor_to_core::Message::GitCandidateInspection(result) => Some(&result.message_id),
+        supervisor_to_core::Message::RuntimeInputReceipt(result) => Some(&result.message_id),
+        supervisor_to_core::Message::GitIntegration(result) => Some(&result.message_id),
         _ => None,
     }
 }

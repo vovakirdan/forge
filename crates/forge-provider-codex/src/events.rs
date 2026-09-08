@@ -83,6 +83,12 @@ fn failure(message: Option<SensitiveText>) -> Result<RuntimeObservation, Adapter
     let message = message.ok_or(AdapterError::InvalidEvent)?;
     let message =
         std::str::from_utf8(message.0.expose()).map_err(|_| AdapterError::InvalidEvent)?;
+    Ok(RuntimeObservation::Failure {
+        kind: classify_message(message),
+    })
+}
+
+pub(crate) fn classify_message(message: &str) -> RuntimeFailureKind {
     let contains = |needle: &str| {
         message
             .as_bytes()
@@ -91,31 +97,29 @@ fn failure(message: Option<SensitiveText>) -> Result<RuntimeObservation, Adapter
     };
     // Classification observes fixed indicators only. Never return the provider's
     // message: it may contain a token, a prompt, or an upstream URL query string.
-    let kind =
-        if contains("refresh_token_reused") || contains("refresh token has already been used") {
-            RuntimeFailureKind::AuthRefreshReused
-        } else if contains("refresh_token_expired") {
-            RuntimeFailureKind::AuthExpired
-        } else if contains("refresh_token_invalidated") {
-            RuntimeFailureKind::AuthInvalidated
-        } else if contains("401") || contains("not logged in") || contains("authentication") {
-            RuntimeFailureKind::AuthRequired
-        } else if contains("429")
-            || contains("rate limit")
-            || contains("usage limit")
-            || contains("quota")
-        {
-            RuntimeFailureKind::RateLimited
-        } else if contains("503")
-            || contains("502")
-            || contains("connection")
-            || contains("temporarily unavailable")
-        {
-            RuntimeFailureKind::ProviderUnavailable
-        } else {
-            RuntimeFailureKind::RuntimeError
-        };
-    Ok(RuntimeObservation::Failure { kind })
+    if contains("refresh_token_reused") || contains("refresh token has already been used") {
+        RuntimeFailureKind::AuthRefreshReused
+    } else if contains("refresh_token_expired") {
+        RuntimeFailureKind::AuthExpired
+    } else if contains("refresh_token_invalidated") {
+        RuntimeFailureKind::AuthInvalidated
+    } else if contains("401") || contains("not logged in") || contains("authentication") {
+        RuntimeFailureKind::AuthRequired
+    } else if contains("429")
+        || contains("rate limit")
+        || contains("usage limit")
+        || contains("quota")
+    {
+        RuntimeFailureKind::RateLimited
+    } else if contains("503")
+        || contains("502")
+        || contains("connection")
+        || contains("temporarily unavailable")
+    {
+        RuntimeFailureKind::ProviderUnavailable
+    } else {
+        RuntimeFailureKind::RuntimeError
+    }
 }
 
 #[derive(Deserialize)]

@@ -19,6 +19,10 @@ fn main() -> Result<(), Box<dyn Error>> {
             "forge.supervisor.v1.ProvisionRun.traceparent",
             "#[serde(default)]",
         )
+        .field_attribute(
+            "forge.supervisor.v1.ProvisionRun.assignment",
+            "#[serde(default, skip_serializing_if = \"Option::is_none\")]",
+        )
         .build_client(true)
         .build_server(true)
         .file_descriptor_set_path(descriptor_path)

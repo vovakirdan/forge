@@ -44,6 +44,8 @@ pub enum RuntimeCapability {
     ControlledStop,
     GatewayAuth,
     NativeMcp,
+    /// Subsequent bounded messages in the same live process; not session resume.
+    LiveInput,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

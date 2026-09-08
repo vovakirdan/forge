@@ -1,18 +1,32 @@
 //! One command semantics path, borrowing an atomic repository owned by its caller.
 mod commands;
+mod communication;
 mod context;
 pub mod dependency_waits;
+mod employee_commands;
 mod error;
 pub mod event;
+mod external_handoff;
 pub mod external_outcome;
+mod finding;
+mod manager_commands;
+mod manager_constraints;
+mod manager_resume;
 pub mod pipeline_access;
+mod pipeline_commands;
 pub mod ports;
 pub mod receipt;
 pub mod records;
+mod repository_commands;
+pub mod resolver_acceptance;
+mod resolver_answers;
+mod resolver_commands;
+mod resolver_raise;
 pub mod run_control;
 pub mod scheduler;
 mod task_commands;
 pub mod task_control;
+mod task_creation;
 pub mod task_support;
 #[cfg(test)]
 mod tests;
@@ -192,6 +206,7 @@ fn require_m0(envelope: &CommandEnvelope) -> Result<(), CommandError> {
             | CommandName::AcceptRunRecoveryAssessment
             | CommandName::EnrollCredential
             | CommandName::ConfigureEmployeeRuntime
+            | CommandName::ConfigureProjectHook
     ) {
         return Err(CommandError::UnsupportedCommand);
     }

@@ -35,6 +35,21 @@ impl CoreService {
                     resource("project", project.id().as_uuid()),
                 )
             }
+            CommandPayload::RetryCommunication { run_id, ref reason } => {
+                if !transaction
+                    .retry_communication_run(project.id(), run_id)
+                    .await?
+                {
+                    return Err(recovery_refusal(
+                        "requires the latest held Communication attempt with retired authority and confirmed physical quiescence",
+                    ));
+                }
+                (
+                    DomainEventKind::CommunicationRetryRequested,
+                    event_payload([("run_id", json!(run_id)), ("reason", json!(reason))]),
+                    resource("run", run_id),
+                )
+            }
             CommandPayload::AcceptRunRecoveryAssessment { run_id, assessment } => {
                 let Some(run) = transaction.load_run(run_id).await? else {
                     return Err(CoreError::NotFound { aggregate: "run" });
@@ -65,79 +80,90 @@ impl CoreService {
                             "accepted result evidence contradicts not_started_confirmed",
                         ));
                     }
-                    let stored = load_scoped_task(transaction, &project, run.task_id).await?;
-                    let mut task = stored.task;
-                    if task.lifecycle().is_terminal()
-                        || task.current_stage_id().map(|stage| stage.as_str())
-                            != Some(run.stage_id.as_str())
+                    if let Some(task_id) = run.task_id() {
+                        let stored = load_scoped_task(transaction, &project, task_id).await?;
+                        let mut task = stored.task;
+                        if task.lifecycle().is_terminal()
+                            || task.current_stage_id().map(|stage| stage.as_str())
+                                != Some(run.require_task_stage()?.stage_id.as_str())
+                        {
+                            return Err(recovery_refusal(
+                                "Task no longer belongs to the interrupted stage",
+                            ));
+                        }
+                        if policy != BootRecoveryPolicy::ManualHold {
+                            let detail = format!("recovery_run={run_id}");
+                            let wait = task
+                                .wait_conditions()
+                                .find(|wait| wait.detail() == Some(detail.as_str()))
+                                .map(|wait| wait.id())
+                                .ok_or_else(|| {
+                                    recovery_refusal("the Run recovery wait must still be active")
+                                })?;
+                            let previous = task.revision().get();
+                            task.resolve_wait_condition(wait, now)?;
+                            let persistence =
+                                retained_persistence(&project, &task, stored.persistence)?;
+                            persist_task_and_project(
+                                transaction,
+                                &mut project,
+                                &task,
+                                persistence,
+                                previous,
+                                now,
+                            )
+                            .await?;
+                            if matches!(
+                                task.lifecycle(),
+                                LifecycleStatus::Ready | LifecycleStatus::InProgress
+                            ) {
+                                let version = transaction
+                                    .lock_pipeline_version(task.pipeline().pipeline_version_id())
+                                    .await?
+                                    .ok_or(CoreError::NotFound {
+                                        aggregate: "pipeline version",
+                                    })?;
+                                let stage = task
+                                    .current_stage_id()
+                                    .and_then(|stage| version.stage(stage))
+                                    .ok_or_else(|| recovery_refusal("current stage is absent"))?;
+                                if stage.executor_kind() != ExecutorKind::Employee {
+                                    return Err(recovery_refusal(
+                                        "only Employee stages can re-execute",
+                                    ));
+                                }
+                                recovery_queue = transaction
+                                    .enqueue(&crate::scheduler::queue_input(
+                                        &project,
+                                        &task,
+                                        &persistence,
+                                        Timestamp::now_utc(),
+                                    )?)
+                                    .await?
+                                    .map(|queue| queue.id);
+                            }
+                            events.push(task_event(
+                                &project,
+                                &task,
+                                DomainEventKind::TaskResumed,
+                                self.actors.human,
+                                command_id,
+                                now,
+                                event_payload([
+                                    ("run_id", json!(run_id)),
+                                    ("reason_code", json!("accepted_not_started_confirmed")),
+                                ]),
+                            )?);
+                        }
+                    } else if run.assignment.communication().is_some()
+                        && policy != BootRecoveryPolicy::ManualHold
+                        && !transaction
+                            .retry_communication_run(project.id(), run_id)
+                            .await?
                     {
                         return Err(recovery_refusal(
-                            "Task no longer belongs to the interrupted stage",
+                            "Communication retry requires the latest held quiescent attempt",
                         ));
-                    }
-                    if policy != BootRecoveryPolicy::ManualHold {
-                        let detail = format!("recovery_run={run_id}");
-                        let wait = task
-                            .wait_conditions()
-                            .find(|wait| wait.detail() == Some(detail.as_str()))
-                            .map(|wait| wait.id())
-                            .ok_or_else(|| {
-                                recovery_refusal("the Run recovery wait must still be active")
-                            })?;
-                        let previous = task.revision().get();
-                        task.resolve_wait_condition(wait, now)?;
-                        let persistence =
-                            retained_persistence(&project, &task, stored.persistence)?;
-                        persist_task_and_project(
-                            transaction,
-                            &mut project,
-                            &task,
-                            persistence,
-                            previous,
-                            now,
-                        )
-                        .await?;
-                        if matches!(
-                            task.lifecycle(),
-                            LifecycleStatus::Ready | LifecycleStatus::InProgress
-                        ) {
-                            let version = transaction
-                                .lock_pipeline_version(task.pipeline().pipeline_version_id())
-                                .await?
-                                .ok_or(CoreError::NotFound {
-                                    aggregate: "pipeline version",
-                                })?;
-                            let stage = task
-                                .current_stage_id()
-                                .and_then(|stage| version.stage(stage))
-                                .ok_or_else(|| recovery_refusal("current stage is absent"))?;
-                            if stage.executor_kind() != ExecutorKind::Employee {
-                                return Err(recovery_refusal(
-                                    "only Employee stages can re-execute",
-                                ));
-                            }
-                            recovery_queue = transaction
-                                .enqueue(&crate::scheduler::queue_input(
-                                    &project,
-                                    &task,
-                                    &persistence,
-                                    Timestamp::now_utc(),
-                                )?)
-                                .await?
-                                .map(|queue| queue.id);
-                        }
-                        events.push(task_event(
-                            &project,
-                            &task,
-                            DomainEventKind::TaskResumed,
-                            self.actors.human,
-                            command_id,
-                            now,
-                            event_payload([
-                                ("run_id", json!(run_id)),
-                                ("reason_code", json!("accepted_not_started_confirmed")),
-                            ]),
-                        )?);
                     }
                 }
                 if !transaction

@@ -57,7 +57,10 @@ where
     .with_context(|| format!("wait for {description}"))?
 }
 
-pub(super) fn resource_id(receipt: &CommandReceipt, expected_kind: &str) -> Result<TaskId> {
+pub(super) fn resource_id<T: From<Uuid>>(
+    receipt: &CommandReceipt,
+    expected_kind: &str,
+) -> Result<T> {
     let resource = receipt
         .resource
         .as_ref()
@@ -65,8 +68,8 @@ pub(super) fn resource_id(receipt: &CommandReceipt, expected_kind: &str) -> Resu
     if resource.kind != expected_kind {
         bail!("expected {expected_kind} resource, got {}", resource.kind)
     }
-    Ok(TaskId::from(
-        Uuid::parse_str(&resource.id).context("parse Task resource identity")?,
+    Ok(T::from(
+        Uuid::parse_str(&resource.id).context("parse command resource identity")?,
     ))
 }
 

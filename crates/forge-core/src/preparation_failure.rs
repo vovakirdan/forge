@@ -84,49 +84,55 @@ impl CoreService {
                 unknown: false,
             })
             .await?;
-        let stored = load_scoped_task(&mut transaction, &project, run.task_id).await?;
-        let mut task = stored.task;
-        let previous = task.revision().get();
-        if !matches!(
-            task.lifecycle(),
-            forge_domain::LifecycleStatus::Done | forge_domain::LifecycleStatus::Cancelled
-        ) {
-            task.add_wait_condition(
-                TaskWaitCondition::new(
-                    WaitConditionId::new(),
-                    TaskWaitKind::ManualPause,
-                    Some(format!("recovery_run={}", run.id)),
-                    self.actors.core,
+        let (aggregate, revision) = if let Some(task_id) = run.task_id() {
+            let stored = load_scoped_task(&mut transaction, &project, task_id).await?;
+            let mut task = stored.task;
+            let previous = task.revision().get();
+            if !matches!(
+                task.lifecycle(),
+                forge_domain::LifecycleStatus::Done | forge_domain::LifecycleStatus::Cancelled
+            ) {
+                task.add_wait_condition(
+                    TaskWaitCondition::new(
+                        WaitConditionId::new(),
+                        TaskWaitKind::ManualPause,
+                        Some(format!("recovery_run={}", run.id)),
+                        self.actors.core,
+                        now,
+                    )?,
                     now,
-                )?,
-                now,
-            )?;
-            let persistence = retained_persistence(&project, &task, stored.persistence)?;
-            persist_task_and_project(
+                )?;
+                let persistence = retained_persistence(&project, &task, stored.persistence)?;
+                persist_task_and_project(
+                    &mut transaction,
+                    &mut project,
+                    &task,
+                    persistence,
+                    previous,
+                    now,
+                )
+                .await?;
+            }
+            crate::handoff::persist_handoff(
                 &mut transaction,
-                &mut project,
+                &run,
                 &task,
-                persistence,
-                previous,
+                self.actors.core,
+                None,
+                Some(incident_id),
                 now,
             )
             .await?;
-        }
-        crate::handoff::persist_handoff(
-            &mut transaction,
-            &run,
-            &task,
-            self.actors.core,
-            None,
-            Some(incident_id),
-            now,
-        )
-        .await?;
+            (AggregateRef::Task(task.id()), task.revision().get())
+        } else {
+            transaction.hold_communication_run(run.id).await?;
+            (AggregateRef::Project(project.id()), project.revision())
+        };
         transaction
             .append_event_and_outbox(&event(
                 project.id(),
-                AggregateRef::Task(task.id()),
-                task.revision().get(),
+                aggregate,
+                revision,
                 DomainEventKind::RunIncidentRaised,
                 self.actors.core,
                 CommandId::new(),

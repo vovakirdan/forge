@@ -7,7 +7,10 @@
 
 pub mod adapter;
 mod codex_auth;
+pub mod driver_event;
 mod master_key;
+pub mod native_event;
+pub mod native_input;
 mod private_file;
 mod secret;
 

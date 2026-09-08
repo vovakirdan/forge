@@ -11,12 +11,38 @@ mod atomicity;
 mod boundary;
 #[path = "command_conformance/clocks.rs"]
 mod clocks;
+#[path = "command_conformance/command_handoffs.rs"]
+mod command_handoffs;
 #[path = "command_conformance/commands.rs"]
 mod commands;
+#[path = "command_conformance/communication.rs"]
+mod communication;
+#[path = "command_conformance/communication_http.rs"]
+mod communication_http;
+#[path = "command_conformance/employee_capacity.rs"]
+mod employee_capacity;
+#[path = "command_conformance/employees.rs"]
+mod employees;
+#[path = "command_conformance/findings.rs"]
+mod findings;
 #[path = "command_conformance/fixture.rs"]
 mod fixture;
+#[path = "command_conformance/manager.rs"]
+mod manager;
+#[path = "command_conformance/manager_constraints.rs"]
+mod manager_constraints;
+#[path = "command_conformance/manager_resume.rs"]
+mod manager_resume;
+#[path = "command_conformance/pipelines.rs"]
+mod pipelines;
 #[path = "command_conformance/production.rs"]
 mod production;
+#[path = "command_conformance/repositories.rs"]
+mod repositories;
+#[path = "command_conformance/resolution.rs"]
+mod resolution;
+#[path = "command_conformance/resolution_guards.rs"]
+mod resolution_guards;
 #[path = "command_conformance/scopes.rs"]
 mod scopes;
 #[path = "command_conformance/snapshot.rs"]
@@ -40,6 +66,111 @@ macro_rules! conformance_case {
 }
 
 conformance_case!(all_m0_commands, crate::commands::all_m0_commands);
+conformance_case!(
+    manual_handoff,
+    crate::command_handoffs::handoff_is_atomic_and_replayable
+);
+conformance_case!(
+    resolver_human,
+    crate::resolution::human_answer_is_atomic_and_only_clears_its_own_wait
+);
+conformance_case!(
+    resolver_routes,
+    crate::resolution::routes_are_pinned_and_human_generations_fence_late_answers
+);
+conformance_case!(
+    resolver_authority,
+    crate::resolution::dangerous_questions_and_refusals_preserve_authority
+);
+conformance_case!(
+    resolver_physical,
+    crate::resolution::active_source_cannot_be_resumed_by_a_human_answer
+);
+conformance_case!(
+    resolver_resume,
+    crate::resolution::final_question_wait_resumes_same_stage_without_completing_it
+);
+conformance_case!(
+    resolver_resume_guards,
+    crate::resolution_guards::managed_wait_requires_resolution_but_orphan_wait_is_compatible
+);
+conformance_case!(findings_promotion, crate::findings::report_promote);
+conformance_case!(findings_triage, crate::findings::triage_refusals);
+conformance_case!(
+    manager_pause,
+    crate::manager::individual_pause_preserves_physical_ownership
+);
+conformance_case!(
+    manager_employee_stop,
+    crate::manager::employee_stop_is_visit_scoped
+);
+conformance_case!(
+    manager_ready_resume,
+    crate::manager::ready_pause_can_resume_to_queue
+);
+conformance_case!(
+    manager_refusals,
+    crate::manager::management_refusals_are_atomic
+);
+conformance_case!(
+    manager_future_assignment,
+    crate::manager_constraints::future_assignment_is_audited_without_moving_current_work
+);
+conformance_case!(
+    manager_assignment_refusals,
+    crate::manager_constraints::future_assignment_refusals_preserve_state
+);
+conformance_case!(
+    manager_alarm_commands,
+    crate::manager_resume::alarm_intent_and_cancellation_are_atomic
+);
+conformance_case!(repository_binding, crate::repositories::binding_round_trip);
+conformance_case!(
+    repository_refusals,
+    crate::repositories::refusals_are_atomic
+);
+conformance_case!(
+    repository_storage_guards,
+    crate::repositories::storage_guards_preserve_immutable_source
+);
+conformance_case!(
+    employee_management,
+    crate::employees::employee_management_round_trip
+);
+conformance_case!(
+    employee_refusals,
+    crate::employees::employee_management_refusals_are_atomic
+);
+conformance_case!(
+    employee_repository_cas,
+    crate::employees::employee_repository_rejects_stale_overwrite
+);
+conformance_case!(
+    pipeline_versioning,
+    crate::pipelines::versioning_preserves_existing_tasks
+);
+conformance_case!(
+    pipeline_refusals,
+    crate::pipelines::refusals_and_repository_cas
+);
+conformance_case!(
+    inbox_durability,
+    crate::communication::ordered_durable_messages
+);
+conformance_case!(inbox_scopes, crate::communication::exact_execution_scope);
+conformance_case!(inbox_refusals, crate::communication::refusals_are_atomic);
+conformance_case!(
+    inbox_waiver,
+    crate::communication::operator_waiver_is_explicit_and_audited
+);
+conformance_case!(
+    inbox_waiver_recovery,
+    crate::communication::waiver_releases_stopped_exact_run_requirement
+);
+conformance_case!(
+    inbox_executor_scope,
+    crate::communication::external_stages_reject_execution_directed_messages
+);
 conformance_case!(
     negative_domain_cases,
     crate::commands::negative_domain_cases

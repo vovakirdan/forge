@@ -12,16 +12,19 @@ workspace = true
 eventsource-stream = "0.2"
 forge-domain = { version = "0.1.0", path = "../forge-domain" }
 forge-provider-common = { version = "0.1.0", path = "../forge-provider-common" }
+forge-protocol = { version = "0.1.0", path = "../forge-protocol" }
 futures-util.workspace = true
 reqwest = { version = "0.13", default-features = false, features = ["json", "stream"] }
 serde.workspace = true
 serde_json = { version = "1.0.151", features = ["raw_value"] }
 thiserror.workspace = true
 tokio.workspace = true
+uuid.workspace = true
 url = "2.5"
 zeroize = "1"
 
 [dev-dependencies]
+tempfile = "3"
 axum.workspace = true
 forge-provider-litellm = { path = "../forge-provider-litellm" }
 time.workspace = true

@@ -1,7 +1,7 @@
 //! Core owns proxy credentials; a Run receives only its restricted virtual key.
 
 use crate::{CoreError, CoreService, credentials::credential_error};
-use forge_domain::runtime::SandboxRunSpec;
+use forge_domain::runtime::RuntimeLaunchSpec;
 use forge_provider_common::{PrivateMaterialization, SealedSecret, SecretBytes, SecretScope};
 use forge_provider_litellm::{LiteLlmClient, RouteSpec, RunKeySpec, generate_virtual_key};
 use forge_storage::{RunProjection, StoredCredential};
@@ -60,7 +60,7 @@ impl CoreService {
     pub(crate) async fn prepare_proxy_key(
         &self,
         run: &RunProjection,
-        spec: &SandboxRunSpec,
+        spec: &RuntimeLaunchSpec,
         record: &StoredCredential,
         upstream: &SecretBytes,
     ) -> Result<(SecretBytes, String), CoreError> {

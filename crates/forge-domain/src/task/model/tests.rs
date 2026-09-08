@@ -1,4 +1,5 @@
 use serde_json::json;
+mod git_binding;
 
 use super::{
     CancellationRequest, CompletionData, CompletionSource, NewTask, Task, TaskKind,

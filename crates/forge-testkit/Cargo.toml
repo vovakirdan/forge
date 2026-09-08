@@ -32,6 +32,7 @@ tracing.workspace = true
 tracing-subscriber = { workspace = true, features = ["json"] }
 forge-cli = { path = "../forge-cli" }
 forge-provider-codex = { path = "../forge-provider-codex" }
+forge-provider-claude = { path = "../forge-provider-claude" }
 forge-provider-common = { path = "../forge-provider-common" }
 reqwest = { version = "0.13.4", default-features = false, features = ["json", "stream"] }
 forge-provider-opencode = { path = "../forge-provider-opencode" }

@@ -31,3 +31,4 @@ prometheus-client = "0.25.1"
 axum.workspace = true
 forge-provider-codex = { version = "0.1.0", path = "../forge-provider-codex" }
 forge-provider-common = { version = "0.1.0", path = "../forge-provider-common" }
+forge-provider-claude = { version = "0.1.0", path = "../forge-provider-claude" }

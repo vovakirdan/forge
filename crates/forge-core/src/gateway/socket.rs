@@ -120,7 +120,13 @@ async fn scope_gate(State(gateway): State<RunGateway>, request: Request, next: N
     if gateway.closed.load(Ordering::Acquire) {
         return StatusCode::FORBIDDEN.into_response();
     }
+    // Tool calls authorize inside invoke, which can replay one immutable
+    // stop-producing receipt after its own Run has stopped. MCP initialize/ping
+    // reveal only static protocol metadata; list_tools still authorizes itself.
+    let tool_post = request.method() == Method::POST
+        && matches!(request.uri().path(), "/tools" | "/mcp" | "/mcp/");
     if request.method() != Method::CONNECT
+        && !tool_post
         && let Err(error) = gateway.authorize().await
     {
         let _ = gateway

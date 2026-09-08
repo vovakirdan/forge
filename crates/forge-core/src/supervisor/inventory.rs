@@ -81,7 +81,8 @@ impl CoreService {
             {
                 continue;
             }
-            if run.run_spec_version == 2 && entry.provision_boot_id != identity.boot_id {
+            if matches!(run.run_spec_version, 2..=5) && entry.provision_boot_id != identity.boot_id
+            {
                 continue;
             }
             if !transaction
@@ -153,6 +154,26 @@ impl CoreService {
                     .record_run_liveness(run_id, observed_wall)
                     .await?;
             }
+            // A Hook belongs to the Core instance which admitted its command.
+            // Retain physical evidence after a Core restart, but never restore
+            // provider grants or continue an old command as newly authorized.
+            if presence == EnvironmentPresence::Active
+                && run.assignment.hook().is_some()
+                && transaction
+                    .hook_for_run(run_id)
+                    .await?
+                    .is_none_or(|hook| hook.core_instance != self.instance_id)
+            {
+                self.quarantine_execution(
+                    &mut transaction,
+                    &mut project,
+                    &run,
+                    IncidentKind::Interrupted,
+                    false,
+                    now,
+                )
+                .await?;
+            }
             transaction
                 .append_event_and_outbox(&event(
                     project.id(),
@@ -172,7 +193,7 @@ impl CoreService {
                 )?)
                 .await?;
             transaction.commit().await?;
-            if run.run_spec_version == 2
+            if matches!(run.run_spec_version, 2..=4)
                 && presence == EnvironmentPresence::Active
                 && state.is_some_and(|state| state.lease_active)
                 && matches!(

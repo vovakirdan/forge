@@ -150,9 +150,19 @@ async fn run_managed(
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
         let session = client.create_session().await?;
-        client
-            .run_session(&session, model, &prompt, stop, emit)
-            .await
+        if let Some(scope) = forge_provider_common::native_input::managed_scope("opencode_runtime")
+            .map_err(|_| OpenCodeError::Process)?
+        {
+            let mut mailbox = forge_provider_common::native_input::managed_mailbox(scope)
+                .map_err(|_| OpenCodeError::Process)?;
+            client
+                .run_live_session(&session, model, prompt, stop, &mut mailbox, emit_bytes)
+                .await
+        } else {
+            client
+                .run_session(&session, model, &prompt, stop, emit)
+                .await
+        }
     }
     .await;
     // Exit of this child is not proof that every tool descendant is gone. The
@@ -184,6 +194,10 @@ fn managed_environment() -> Result<BTreeMap<String, String>, OpenCodeError> {
 
 fn emit(event: RuntimeObservation) -> Result<(), OpenCodeError> {
     let bytes = write_driver_event(&event)?;
+    emit_bytes(bytes)
+}
+
+fn emit_bytes(bytes: SecretBytes) -> Result<(), OpenCodeError> {
     let mut stdout = std::io::stdout().lock();
     stdout
         .write_all(bytes.expose())

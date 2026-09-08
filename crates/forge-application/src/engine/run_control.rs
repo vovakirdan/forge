@@ -146,7 +146,10 @@ async fn pause_active_tasks(
 ) -> Result<Vec<DomainEvent>, CommandError> {
     let mut events = Vec::new();
     for run in runs {
-        let stored = load_scoped_task(transaction, project, run.task_id).await?;
+        let Some(owner) = run.assignment.task_stage() else {
+            continue;
+        };
+        let stored = load_scoped_task(transaction, project, owner.task_id).await?;
         if stored.task.lifecycle().is_terminal()
             || stored.task.wait_conditions().any(|condition| {
                 condition.kind() == &TaskWaitKind::ManualPause

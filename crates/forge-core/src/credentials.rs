@@ -22,6 +22,10 @@ pub(crate) enum CredentialRecord {
         binding_id: Uuid,
         sealed: SealedSecret,
     },
+    ClaudeSubscription {
+        binding_id: Uuid,
+        sealed: SealedSecret,
+    },
 }
 
 pub(crate) fn credential_error() -> CoreError {
@@ -75,6 +79,28 @@ impl CoreService {
                         .map_err(|_| credential_error())?,
                 }
             }
+            "claude_subscription" => {
+                // CLI setup-token is a subscription credential, never an API key.
+                // Normalize enrollment's optional terminal newline so redaction
+                // uses exactly the value later delivered to the child process.
+                let token = forge_provider_claude::validate_setup_token(&plaintext)
+                    .map_err(|_| credential_error())?;
+                let token = SecretBytes::new(token.as_bytes().to_vec());
+                CredentialRecord::ClaudeSubscription {
+                    binding_id,
+                    sealed: store
+                        .seal(
+                            SecretScope {
+                                secret_id,
+                                project_id: project_id.as_uuid(),
+                                version: 1,
+                                purpose: format!("claude_subscription:{binding_id}"),
+                            },
+                            &token,
+                        )
+                        .map_err(|_| credential_error())?,
+                }
+            }
             _ => return Err(credential_error()),
         };
         transaction
@@ -92,6 +118,7 @@ impl CoreService {
         &self,
         record: &StoredCredential,
         binding: &forge_domain::CredentialBinding,
+        adapter_id: &str,
     ) -> Result<SecretBytes, CoreError> {
         let store = self.secret_store.as_ref().ok_or_else(credential_error)?;
         if record.secret_id != binding.secret_id || record.project_id != binding.project_id {
@@ -99,8 +126,8 @@ impl CoreService {
         }
         let value: CredentialRecord =
             serde_json::from_value(record.sealed_record.clone()).map_err(|_| credential_error())?;
-        let (sealed, purpose) = match value {
-            CredentialRecord::CodexChatgpt { snapshot } => {
+        let (sealed, purpose) = match (adapter_id, value) {
+            ("codex_cli", CredentialRecord::CodexChatgpt { snapshot }) => {
                 if snapshot.binding_id != binding.id
                     || binding.account_id.as_deref() != Some(snapshot.account_id.as_str())
                 {
@@ -109,12 +136,19 @@ impl CoreService {
                 let purpose = format!("codex_auth:{}:{}", snapshot.binding_id, snapshot.session_id);
                 (snapshot.auth, purpose)
             }
-            CredentialRecord::ApiKey { binding_id, sealed } => {
+            ("opencode_runtime", CredentialRecord::ApiKey { binding_id, sealed }) => {
                 if binding_id != binding.id {
                     return Err(credential_error());
                 }
                 (sealed, format!("api_key:{binding_id}"))
             }
+            ("claude_code_cli", CredentialRecord::ClaudeSubscription { binding_id, sealed }) => {
+                if binding_id != binding.id || binding.account_id.is_none() {
+                    return Err(credential_error());
+                }
+                (sealed, format!("claude_subscription:{binding_id}"))
+            }
+            _ => return Err(credential_error()),
         };
         store
             .open(

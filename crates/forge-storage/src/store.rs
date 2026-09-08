@@ -190,7 +190,7 @@ impl PostgresStore {
     /// Reads current Run projections in newest-first order for one Task.
     pub async fn list_runs(&self, task_id: TaskId) -> Result<Vec<RunProjection>, StorageError> {
         let rows = sqlx::query(
-            "SELECT id, project_id, task_id, queue_entry_id, lease_id, employee_id, stage_id, attempt_number, lease_fencing_token, environment_epoch, last_sequence, desired_state, observed_state, run_spec_version, run_spec::text AS run_spec, context_manifest::text AS context_manifest, observed_details::text AS observed_details FROM runs WHERE task_id = $1 ORDER BY created_at DESC",
+            "SELECT id, project_id, purpose, communication_assignment_id, resolution_assignment_id, hook_invocation_id, task_id, queue_entry_id, lease_id, employee_id, stage_id, attempt_number, lease_fencing_token, environment_epoch, last_sequence, desired_state, observed_state, run_spec_version, run_spec::text AS run_spec, context_manifest::text AS context_manifest, observed_details::text AS observed_details FROM runs WHERE task_id = $1 ORDER BY created_at DESC",
         )
         .bind(task_id.as_uuid())
         .fetch_all(&self.pool)
@@ -405,14 +405,116 @@ pub(crate) fn stored_event_from_row(
 pub(crate) fn run_projection_from_row(
     row: sqlx::postgres::PgRow,
 ) -> Result<RunProjection, StorageError> {
+    let context_manifest: serde_json::Value =
+        json_from_row(&row, "context_manifest", "run.context_manifest")?;
+    let employee_id = row
+        .try_get::<Option<Uuid>, _>("employee_id")?
+        .map(EmployeeId::from);
+    let purpose = row.try_get::<&str, _>("purpose")?;
+    if (purpose == "hook") != employee_id.is_none() {
+        return Err(StorageError::InvalidInput {
+            reason: "execution Employee owner differs from purpose".into(),
+        });
+    }
+    let assignment = match purpose {
+        "task_stage" => {
+            forge_domain::ExecutionAssignment::TaskStage(forge_domain::TaskStageAssignment {
+                task_id: row.try_get::<Uuid, _>("task_id")?.into(),
+                queue_entry_id: row.try_get("queue_entry_id")?,
+                stage_id: StageId::new(row.try_get::<String, _>("stage_id")?).map_err(|_| {
+                    StorageError::InvalidInput {
+                        reason: "invalid TaskStage owner".into(),
+                    }
+                })?,
+            })
+        }
+        "communication" => {
+            let context: forge_domain::communication::CommunicationContext =
+                serde_json::from_value(context_manifest.clone()).map_err(|source| {
+                    StorageError::Snapshot {
+                        aggregate: "communication.context",
+                        source,
+                    }
+                })?;
+            if context.data().assignment.assignment_id
+                != row.try_get::<Uuid, _>("communication_assignment_id")?
+                || context.data().project_id.as_uuid() != row.try_get::<Uuid, _>("project_id")?
+                || context.data().employee_id.as_uuid() != row.try_get::<Uuid, _>("employee_id")?
+                || context.data().run_id != row.try_get::<Uuid, _>("id")?
+            {
+                return Err(StorageError::InvalidInput {
+                    reason: "Communication context differs from Run owner".into(),
+                });
+            }
+            forge_domain::ExecutionAssignment::Communication(context.data().assignment.clone())
+        }
+        "resolution" => {
+            let context: forge_domain::resolution::ResolutionContext =
+                serde_json::from_value(context_manifest.clone()).map_err(|source| {
+                    StorageError::Snapshot {
+                        aggregate: "resolution.context",
+                        source,
+                    }
+                })?;
+            let data = context.data();
+            if data.assignment.id != row.try_get::<Uuid, _>("resolution_assignment_id")?
+                || data.project_id.as_uuid() != row.try_get::<Uuid, _>("project_id")?
+                || data.employee_id.as_uuid() != row.try_get::<Uuid, _>("employee_id")?
+                || data.run_id != row.try_get::<Uuid, _>("id")?
+                || row.try_get::<i16, _>("run_spec_version")? != 4
+            {
+                return Err(StorageError::InvalidInput {
+                    reason: "Resolution context differs from Run owner".into(),
+                });
+            }
+            forge_domain::ExecutionAssignment::Resolution(forge_domain::ResolutionAssignmentRef {
+                assignment_id: data.assignment.id,
+                escalation_id: data.assignment.escalation_id,
+                lease_generation: data.assignment.lease.generation,
+            })
+        }
+        "hook" => {
+            let spec: forge_domain::runtime::HookRunSpec =
+                json_from_row(&row, "run_spec", "hook.run_spec").and_then(|value| {
+                    serde_json::from_value(value).map_err(|source| StorageError::Snapshot {
+                        aggregate: "hook.run_spec",
+                        source,
+                    })
+                })?;
+            spec.validate().map_err(|_| StorageError::InvalidInput {
+                reason: "invalid Hook RunSpec".into(),
+            })?;
+            if spec.assignment.invocation_id != row.try_get::<Uuid, _>("hook_invocation_id")?
+                || spec.run_id != row.try_get::<Uuid, _>("id")?
+                || spec.project_id.as_uuid() != row.try_get::<Uuid, _>("project_id")?
+                || row.try_get::<i16, _>("run_spec_version")? != 5
+                || row.try_get::<Option<Uuid>, _>("task_id")?.is_some()
+                || row.try_get::<Option<Uuid>, _>("queue_entry_id")?.is_some()
+                || row.try_get::<Option<String>, _>("stage_id")?.is_some()
+            {
+                return Err(StorageError::InvalidInput {
+                    reason: "Hook snapshot differs from ownerless Run".into(),
+                });
+            }
+            forge_domain::ExecutionAssignment::Hook(spec.assignment)
+        }
+        _ => {
+            return Err(StorageError::InvalidInput {
+                reason: "unsupported execution assignment".into(),
+            });
+        }
+    };
+    assignment
+        .validate()
+        .map_err(|_| StorageError::InvalidInput {
+            reason: "invalid execution owner".into(),
+        })?;
     Ok(RunProjection {
         id: row.try_get("id")?,
         project_id: row.try_get::<Uuid, _>("project_id")?.into(),
-        task_id: row.try_get::<Uuid, _>("task_id")?.into(),
-        queue_entry_id: row.try_get("queue_entry_id")?,
+        assignment,
         lease_id: row.try_get("lease_id")?,
-        employee_id: row.try_get::<Uuid, _>("employee_id")?.into(),
-        stage_id: row.try_get("stage_id")?,
+        employee_id,
         attempt_number: i32_to_u32(row.try_get("attempt_number")?, "run.attempt_number")?,
         lease_fencing_token: i64_to_u64(
             row.try_get("lease_fencing_token")?,
@@ -428,7 +530,7 @@ pub(crate) fn run_projection_from_row(
             },
         )?,
         run_spec: json_from_row(&row, "run_spec", "run.run_spec")?,
-        context_manifest: json_from_row(&row, "context_manifest", "run.context_manifest")?,
+        context_manifest,
         observed_details: json_from_row(&row, "observed_details", "run.observed_details")?,
     })
 }

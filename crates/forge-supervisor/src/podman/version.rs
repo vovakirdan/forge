@@ -3,7 +3,7 @@
 
 use std::{path::Path, process::Stdio, time::Duration};
 
-use forge_domain::runtime::SandboxRunSpec;
+use forge_domain::runtime::RuntimeLaunchSpec;
 use tokio::{io::AsyncReadExt, process::Command};
 use uuid::Uuid;
 
@@ -12,7 +12,7 @@ use crate::SupervisorError;
 const PROBE_SECONDS: u64 = 15;
 const MAX_VERSION_BYTES: u64 = 4096;
 
-pub(super) async fn verify(podman: &Path, spec: &SandboxRunSpec) -> Result<(), SupervisorError> {
+pub(super) async fn verify(podman: &Path, spec: &RuntimeLaunchSpec) -> Result<(), SupervisorError> {
     let profile = &spec.binding.execution_profile;
     let (program, expected) = expected_version(profile.adapter_id(), profile.adapter_version())?;
     probe(podman, &spec.binding.image, program, expected).await
@@ -25,6 +25,7 @@ fn expected_version(
     match (adapter, version) {
         ("codex_cli", "0.153.2") => Ok(("/usr/local/bin/codex", "codex-cli 0.153.2")),
         ("opencode_runtime", "1.18.29") => Ok(("/usr/local/bin/opencode", "1.18.29")),
+        ("claude_code_cli", "2.1.263") => Ok(("/usr/local/bin/claude", "2.1.263 (Claude Code)")),
         _ => Err(SupervisorError::RuntimePreflightFailed),
     }
 }
@@ -55,6 +56,8 @@ fn arguments(image: &str, name: &str, program: &str) -> Vec<String> {
         "--tmpfs=/tmp:rw,nosuid,nodev,mode=1777,size=16777216".into(),
         "--env=HOME=/tmp".into(),
         "--env=CODEX_HOME=/tmp/codex".into(),
+        "--env=CLAUDE_CONFIG_DIR=/tmp/claude".into(),
+        "--env=CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1".into(),
         "--env=OPENCODE_DISABLE_AUTOUPDATE=true".into(),
         "--env=OPENCODE_DISABLE_MODELS_FETCH=true".into(),
         "--env=OPENCODE_DISABLE_PROJECT_CONFIG=true".into(),
@@ -139,6 +142,11 @@ mod tests {
             "1.18.29"
         );
         assert!(expected_version("codex_cli", "0.153.3").is_err());
+        assert_eq!(
+            expected_version("claude_code_cli", "2.1.263").unwrap().1,
+            "2.1.263 (Claude Code)"
+        );
+        assert!(expected_version("claude_code_cli", "2.1.264").is_err());
         assert!(expected_version("unknown", "1").is_err());
     }
 

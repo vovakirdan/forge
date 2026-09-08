@@ -26,6 +26,15 @@ pub struct CodexRunInput<'a> {
 pub struct CodexAdapter;
 
 impl CodexAdapter {
+    pub fn live_capabilities() -> CapabilityProfile {
+        let mut profile = Self::capabilities();
+        profile.capabilities.insert(RuntimeCapability::LiveInput);
+        profile
+    }
+
+    pub fn validate_profile(profile: &ExecutionProfile) -> Result<(), AdapterError> {
+        validate_profile(profile)
+    }
     pub fn capabilities() -> CapabilityProfile {
         CapabilityProfile {
             adapter_id: "codex_cli".into(),
@@ -52,7 +61,17 @@ impl CodexAdapter {
             return Err(AdapterError::VersionMismatch);
         }
         validate_profile(profile)?;
-        Ok(Self::capabilities())
+        Ok(
+            if profile
+                .capability_profile()
+                .capabilities
+                .contains(&RuntimeCapability::LiveInput)
+            {
+                Self::live_capabilities()
+            } else {
+                Self::capabilities()
+            },
+        )
     }
 
     pub fn prepare(input: CodexRunInput<'_>) -> Result<PreparedInvocation, AdapterError> {
@@ -60,6 +79,11 @@ impl CodexAdapter {
         validate_workdir(input.workdir)?;
         let gateway = loopback_url(input.gateway_url, false)?;
         let proxy = loopback_url(input.proxy_url, true)?;
+        let live = input
+            .profile
+            .capability_profile()
+            .capabilities
+            .contains(&RuntimeCapability::LiveInput);
         let mut args = vec![
             "exec".into(),
             "--json".into(),
@@ -78,10 +102,20 @@ impl CodexAdapter {
             "--cd".into(),
             input.workdir.into(),
         ];
+        if live {
+            args = vec![
+                "app-server".into(),
+                "--listen".into(),
+                "stdio://".into(),
+                "--strict-config".into(),
+            ];
+        }
         for setting in settings(input.workdir, &gateway)? {
             args.extend(["-c".into(), setting]);
         }
-        args.push("-".into());
+        if !live {
+            args.push("-".into());
+        }
         let mut env = BTreeMap::from([
             ("PATH".into(), "/usr/local/bin:/usr/bin:/bin".into()),
             ("HOME".into(), "/run/forge/home".into()),
@@ -99,8 +133,12 @@ impl CodexAdapter {
         for key in ["NO_PROXY", "no_proxy"] {
             env.insert(key.into(), "127.0.0.1,localhost,::1".into());
         }
+        if live {
+            env.insert("FORGE_CODEX_MODEL".into(), input.profile.model().into());
+            env.insert("FORGE_CODEX_WORKDIR".into(), input.workdir.into());
+        }
         Ok(PreparedInvocation {
-            program: "codex".into(),
+            program: if live { "forge-codex-driver" } else { "codex" }.into(),
             args,
             env,
             stdin: input.prompt,
@@ -128,7 +166,7 @@ fn validate_profile(profile: &ExecutionProfile) -> Result<(), AdapterError> {
     if !profile
         .capability_profile()
         .capabilities
-        .is_subset(&CodexAdapter::capabilities().capabilities)
+        .is_subset(&CodexAdapter::live_capabilities().capabilities)
     {
         return Err(AdapterError::UnsupportedCapability);
     }

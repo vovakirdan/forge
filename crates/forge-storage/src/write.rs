@@ -100,7 +100,7 @@ impl StorageTransaction<'_> {
     /// Inserts a named Pipeline catalog row; the deferred default-version FK allows one transaction.
     pub async fn insert_pipeline(&mut self, pipeline: &Pipeline) -> Result<(), StorageError> {
         sqlx::query(
-            "INSERT INTO pipelines (id, project_id, name, default_version_id, revision, deleted_at, canonical_snapshot) VALUES ($1, $2, $3, $4, 1, $5, $6::jsonb)",
+            "INSERT INTO pipelines (id, project_id, name, default_version_id, revision, deleted_at, canonical_snapshot, latest_version) VALUES ($1, $2, $3, $4, $7, $5, $6::jsonb, $8)",
         )
         .bind(pipeline.id().as_uuid())
         .bind(pipeline.project_id().as_uuid())
@@ -108,30 +108,55 @@ impl StorageTransaction<'_> {
         .bind(pipeline.default_version_id().as_uuid())
         .bind(pipeline.deleted_at().map(database_timestamp))
         .bind(encode_snapshot(pipeline, "pipeline")?)
+        .bind(u64_to_i64(pipeline.revision(), "pipeline.revision")?)
+        .bind(i64::from(pipeline.latest_version()))
         .execute(&mut *self.transaction)
         .await?;
         Ok(())
     }
 
     /// Persists mutable Pipeline catalog metadata without changing historical versions.
-    pub async fn update_pipeline(&mut self, pipeline: &Pipeline) -> Result<(), StorageError> {
+    pub async fn update_pipeline(
+        &mut self,
+        pipeline: &Pipeline,
+        expected_revision: u64,
+    ) -> Result<(), StorageError> {
+        pipeline
+            .validate_snapshot()
+            .map_err(|error| StorageError::InvalidInput {
+                reason: error.to_string(),
+            })?;
+        if expected_revision.checked_add(1) != Some(pipeline.revision()) {
+            return Err(StorageError::InvalidInput {
+                reason: "pipeline revision must advance exactly once".into(),
+            });
+        }
         let result = sqlx::query(
-            "UPDATE pipelines SET name = $2, default_version_id = $3, deleted_at = $4, canonical_snapshot = $5::jsonb, revision = revision + 1 WHERE id = $1",
+            "UPDATE pipelines SET name = $2, default_version_id = $3, deleted_at = $4, canonical_snapshot = $5::jsonb, revision = $6, latest_version=$7 WHERE id = $1 AND project_id=$8 AND revision=$9",
         )
         .bind(pipeline.id().as_uuid())
         .bind(pipeline.name())
         .bind(pipeline.default_version_id().as_uuid())
         .bind(pipeline.deleted_at().map(database_timestamp))
         .bind(encode_snapshot(pipeline, "pipeline")?)
+        .bind(u64_to_i64(pipeline.revision(), "pipeline.revision")?)
+        .bind(i64::from(pipeline.latest_version()))
+        .bind(pipeline.project_id().as_uuid())
+        .bind(u64_to_i64(expected_revision,"pipeline.expected_revision")?)
         .execute(&mut *self.transaction)
         .await?;
-        require_one(result.rows_affected(), "pipeline")
+        if result.rows_affected() != 1 {
+            return Err(StorageError::StaleRevision {
+                aggregate: "pipeline",
+            });
+        }
+        Ok(())
     }
 
     /// Inserts a canonical Employee snapshot and its simple dispatch indexes.
     pub async fn insert_employee(&mut self, employee: &Employee) -> Result<(), StorageError> {
         sqlx::query(
-            "INSERT INTO employees (id, project_id, name, employee_state, roles, skills, stage_eligibility, provider_preferences, runtime_policy, properties, revision, canonical_snapshot, created_at, updated_at) VALUES ($1, $2, $3, $4, $5::jsonb, '[]'::jsonb, $6::jsonb, '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, 1, $7::jsonb, $8, $9)",
+            "INSERT INTO employees (id, project_id, name, employee_state, roles, skills, stage_eligibility, provider_preferences, runtime_policy, properties, revision, canonical_snapshot, created_at, updated_at, max_concurrent_runs) VALUES ($1, $2, $3, $4, $5::jsonb, '[]'::jsonb, $6::jsonb, '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, $10, $7::jsonb, $8, $9, $11)",
         )
         .bind(employee.id().as_uuid())
         .bind(employee.project_id().as_uuid())
@@ -142,15 +167,31 @@ impl StorageTransaction<'_> {
         .bind(encode_snapshot(employee, "employee")?)
         .bind(database_timestamp(employee.created_at()))
         .bind(database_timestamp(employee.updated_at()))
+        .bind(u64_to_i64(employee.revision(), "employee.revision")?)
+        .bind(i32::from(employee.max_concurrent_runs()))
         .execute(&mut *self.transaction)
         .await?;
         Ok(())
     }
 
-    /// Persists Employee state after Core applies its domain method.
-    pub async fn update_employee(&mut self, employee: &Employee) -> Result<(), StorageError> {
+    /// Persists an exact next revision; a stale writer cannot overwrite newer configuration.
+    pub async fn update_employee(
+        &mut self,
+        employee: &Employee,
+        expected_revision: u64,
+    ) -> Result<(), StorageError> {
+        employee
+            .validate_snapshot()
+            .map_err(|error| StorageError::InvalidInput {
+                reason: error.to_string(),
+            })?;
+        if expected_revision.checked_add(1) != Some(employee.revision()) {
+            return Err(StorageError::InvalidInput {
+                reason: "employee revision must advance exactly once".to_owned(),
+            });
+        }
         let result = sqlx::query(
-            "UPDATE employees SET name = $2, employee_state = $3, roles = $4::jsonb, stage_eligibility = $5::jsonb, canonical_snapshot = $6::jsonb, revision = revision + 1 WHERE id = $1",
+            "UPDATE employees SET name = $2, employee_state = $3, roles = $4::jsonb, stage_eligibility = $5::jsonb, canonical_snapshot = $6::jsonb, revision = $7, updated_at=$8, max_concurrent_runs=$9 WHERE id = $1 AND project_id=$10 AND revision=$11",
         )
         .bind(employee.id().as_uuid())
         .bind(employee.name())
@@ -158,9 +199,19 @@ impl StorageTransaction<'_> {
         .bind(encode_value(&json!([employee.role().as_str()]), "employee.roles")?)
         .bind(encode_object(employee.stage_eligibility(), "employee.stage_eligibility")?)
         .bind(encode_snapshot(employee, "employee")?)
+        .bind(u64_to_i64(employee.revision(), "employee.revision")?)
+        .bind(database_timestamp(employee.updated_at()))
+        .bind(i32::from(employee.max_concurrent_runs()))
+        .bind(employee.project_id().as_uuid())
+        .bind(u64_to_i64(expected_revision, "employee.expected_revision")?)
         .execute(&mut *self.transaction)
         .await?;
-        require_one(result.rows_affected(), "employee")
+        if result.rows_affected() != 1 {
+            return Err(StorageError::StaleRevision {
+                aggregate: "employee",
+            });
+        }
+        Ok(())
     }
 
     /// Inserts one typed Task snapshot and copies indexed fields required by scheduling.

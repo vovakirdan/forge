@@ -171,9 +171,10 @@ bash scripts/tests/runtime-build-context-test.sh
 
 Тест строит scratch image только из искусственных файлов и проверяет точный
 список скопированных путей. Контейнер не запускается; synthetic context, image
-и созданный контейнер сохраняются для диагностики. Build context разрешает семь
-конкретных файлов, а не целиком `infra/` или `target/`. Повторная сборка
-`just build-runtime` с этим ограничением прошла и сохранила приведённый выше digest.
+и созданный контейнер сохраняются для диагностики. При фиксации M1 build context
+разрешал семь конкретных файлов; в M2 добавлен восьмой — `forge-claude-driver`.
+Целиком `infra/` или `target/` не передаются. Приведённый выше digest относится
+к проверке M1; каждая текущая сборка печатает собственный digest.
 
 Launcher `run-m1` не заменяет `just test-codex-live`: один ручной Run не доказывает
 параллельную работу двух Run с одной подпиской или корректность её refresh races.
@@ -225,8 +226,10 @@ Actual CLI/API transport проверяется отдельно:
 показывает, что эти проверки в нём не запускались.
 
 `just build-runtime` печатает OCI digest; именно `name@sha256:digest` указывается
-в RuntimeBinding. Поддерживаемые pins: Codex CLI 0.153.2, OpenCode 1.18.29,
-LiteLLM 1.99.0. Supervisor проверяет реальный `--version` в отдельном контейнере
+в RuntimeBinding. Pins M1: Codex CLI 0.153.2, OpenCode 1.18.29,
+LiteLLM 1.99.0. Общий образ M2 также содержит Claude Code 2.1.263;
+его отдельные границы описаны в [Claude guide](M2_CLAUDE_RUNTIME.md).
+Supervisor проверяет реальный `--version` в отдельном контейнере
 без credentials, mounts и сети, прежде чем выдавать Run рабочую среду.
 
 ## Core и Supervisor
@@ -271,7 +274,7 @@ fallback. Installer/systemd wizard относится к M4.
 через общий command interface; wire contract описан в `openapi/v1.yaml`.
 
 1. `enroll_credential`: передайте UUIDv7 `secret_id`, `binding_id`, `kind`
-   (`codex_chatgpt` или `api_key`) и абсолютный `source_file`. Файл должен иметь
+   (`codex_chatgpt`, `api_key` или M2 `claude_subscription`) и абсолютный `source_file`. Файл должен иметь
    mode 0600; тело команды содержит путь, а не секрет.
 2. `configure_employee_runtime`: укажите `employee_id` и `RuntimeBinding`
    с immutable `ExecutionProfile`, image digest, surface, limits, budget и двумя

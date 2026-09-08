@@ -1,5 +1,13 @@
 //! Mechanical persistence; deliberately contains no command dispatch or Task policy.
 
+mod command_handoffs;
+mod dispatch_constraints;
+mod employee;
+mod finding;
+mod pipeline;
+mod resolution;
+mod task_resume;
+
 use forge_application::{CommandTransaction, RepositoryError, ports::*};
 use forge_domain::{
     Actor, Artifact, ArtifactId, DomainEvent, Employee, EventId, Pipeline, PipelineId,
@@ -16,6 +24,40 @@ fn invalid(reason: &str) -> RepositoryError {
 }
 
 impl MemoryTransaction {
+    fn validate_git_binding(
+        &self,
+        task: &Task,
+        persistence: TaskPersistence,
+    ) -> Result<(), RepositoryError> {
+        if let forge_domain::TaskWorkSurface::Git(binding) = task.work_surface() {
+            let registered = self
+                .staged
+                .project_repositories
+                .get(&binding.repository_id)
+                .filter(|repository| {
+                    repository.project_id == task.project_id()
+                        && binding.matches_repository(repository)
+                });
+            if registered.is_none()
+                || persistence.task_work_surface_id != Some(binding.surface_id)
+                || self.staged.tasks.values().any(|other| {
+                    other.task.id() != task.id()
+                        && other.persistence.task_work_surface_id == Some(binding.surface_id)
+                })
+            {
+                return Err(invalid(
+                    "Task Git binding violates repository or surface scope",
+                ));
+            }
+        }
+        if let Some(stored) = self.staged.tasks.get(&task.id())
+            && stored.task.work_surface() != &forge_domain::TaskWorkSurface::None
+            && stored.task.work_surface() != task.work_surface()
+        {
+            return Err(invalid("Task Git binding is immutable"));
+        }
+        Ok(())
+    }
     fn require_project(&self, project: ProjectId) -> Result<(), RepositoryError> {
         if self.staged.projects.contains_key(&project) {
             Ok(())
@@ -35,6 +77,359 @@ impl MemoryTransaction {
 }
 
 impl CommandTransaction for MemoryTransaction {
+    async fn insert_command_handoff(
+        &mut self,
+        handoff: &forge_domain::TaskHandoff,
+    ) -> Result<(), RepositoryError> {
+        self.record_command_handoff(handoff)
+    }
+    async fn required_hooks_satisfied(
+        &mut self,
+        task: &Task,
+        version: &PipelineVersion,
+        _candidate_override: Option<Uuid>,
+    ) -> Result<bool, RepositoryError> {
+        // Reference fixtures have no configured Hook registry/runtime. Never
+        // fabricate a pass for a stage whose required/applicable policy is unknown.
+        Ok(task.project_id() == version.project_id()
+            && task.pipeline().pipeline_version_id() == version.id()
+            && !version.stages().any(|stage| {
+                matches!(
+                    stage.system_action(),
+                    Some(forge_domain::git_integration::SystemStageAction::ProjectHook { .. })
+                )
+            }))
+    }
+    async fn communication_escalation_is_current(
+        &mut self,
+        escalation: &forge_domain::resolution::Escalation,
+    ) -> Result<bool, RepositoryError> {
+        Ok(escalation.source.communication().is_some_and(|source| {
+            self.staged.runs.iter().any(|run| {
+                run.scope.id == source.run_id
+                    && run.scope.project_id == escalation.project_id
+                    && run.scope.assignment.communication() == Some(&source.assignment)
+                    && run.scope.lease_fencing_token == source.fencing_token
+                    && run.scope.environment_epoch == source.environment_epoch
+                    && run.stop_requested.is_some()
+            })
+        }))
+    }
+    async fn load_escalation_for_wait(
+        &mut self,
+        project: ProjectId,
+        task: TaskId,
+        wait: forge_domain::WaitConditionId,
+    ) -> Result<Option<forge_domain::resolution::Escalation>, RepositoryError> {
+        Ok(self
+            .staged
+            .escalations
+            .values()
+            .find(|value| {
+                value.project_id == project
+                    && value.source.task().is_some_and(|source| {
+                        source.task_id == task && source.wait_condition_id == wait
+                    })
+            })
+            .cloned())
+    }
+    async fn load_resolver_route(
+        &mut self,
+        project: ProjectId,
+        key: &str,
+    ) -> Result<Option<forge_domain::resolution::ResolverRoute>, RepositoryError> {
+        Ok(self
+            .staged
+            .resolver_routes
+            .get(&(project, key.to_owned()))
+            .cloned())
+    }
+    async fn save_resolver_route(
+        &mut self,
+        route: &forge_domain::resolution::ResolverRoute,
+        expected: Option<u64>,
+    ) -> Result<(), RepositoryError> {
+        self.save_route_record(route, expected)
+    }
+    async fn load_escalation(
+        &mut self,
+        id: Uuid,
+    ) -> Result<Option<forge_domain::resolution::Escalation>, RepositoryError> {
+        Ok(self.staged.escalations.get(&id).cloned())
+    }
+    async fn save_escalation(
+        &mut self,
+        value: &forge_domain::resolution::Escalation,
+        expected: Option<u64>,
+    ) -> Result<(), RepositoryError> {
+        self.save_escalation_record(value, expected)
+    }
+    async fn load_resolution_assignment(
+        &mut self,
+        id: Uuid,
+    ) -> Result<Option<forge_domain::resolution::ResolutionAssignment>, RepositoryError> {
+        Ok(self.staged.resolution_assignments.get(&id).cloned())
+    }
+    async fn insert_resolution_assignment(
+        &mut self,
+        value: &forge_domain::resolution::ResolutionAssignment,
+    ) -> Result<(), RepositoryError> {
+        self.insert_resolution_record(value)
+    }
+    async fn update_resolution_assignment(
+        &mut self,
+        value: &forge_domain::resolution::ResolutionAssignment,
+    ) -> Result<(), RepositoryError> {
+        self.update_resolution_record(value)
+    }
+    async fn lock_finding(
+        &mut self,
+        id: Uuid,
+    ) -> Result<Option<forge_domain::finding::Finding>, RepositoryError> {
+        Ok(self.staged.findings.get(&id).cloned())
+    }
+    async fn insert_finding(
+        &mut self,
+        finding: &forge_domain::finding::Finding,
+    ) -> Result<(), RepositoryError> {
+        self.insert_finding_record(finding)
+    }
+    async fn update_finding(
+        &mut self,
+        finding: &forge_domain::finding::Finding,
+        expected: u64,
+    ) -> Result<(), RepositoryError> {
+        self.update_finding_record(finding, expected)
+    }
+    async fn lock_task_resume_schedule(
+        &mut self,
+        id: Uuid,
+    ) -> Result<Option<forge_domain::TaskResumeSchedule>, RepositoryError> {
+        Ok(self.staged.resume_schedules.get(&id).cloned())
+    }
+    async fn insert_task_resume_schedule(
+        &mut self,
+        schedule: &forge_domain::TaskResumeSchedule,
+    ) -> Result<(), RepositoryError> {
+        self.insert_resume(schedule)
+    }
+    async fn update_task_resume_schedule(
+        &mut self,
+        schedule: &forge_domain::TaskResumeSchedule,
+    ) -> Result<(), RepositoryError> {
+        self.update_resume(schedule)
+    }
+    async fn load_task_dispatch_constraint(
+        &mut self,
+        project: ProjectId,
+        task: TaskId,
+    ) -> Result<Option<forge_domain::NextRunEmployeeConstraint>, RepositoryError> {
+        Ok(self
+            .staged
+            .dispatch_constraints
+            .values()
+            .find(|constraint| {
+                constraint.project_id == project
+                    && constraint.task_id == task
+                    && constraint.state.is_active()
+            })
+            .cloned())
+    }
+    async fn insert_task_dispatch_constraint(
+        &mut self,
+        constraint: &forge_domain::NextRunEmployeeConstraint,
+    ) -> Result<(), RepositoryError> {
+        self.insert_dispatch_constraint(constraint)
+    }
+    async fn update_task_dispatch_constraint(
+        &mut self,
+        constraint: &forge_domain::NextRunEmployeeConstraint,
+        expected: &forge_domain::NextRunConstraintState,
+    ) -> Result<(), RepositoryError> {
+        self.update_dispatch_constraint(constraint, expected)
+    }
+    async fn lock_active_runs_for_employee(
+        &mut self,
+        project: ProjectId,
+        employee: forge_domain::EmployeeId,
+    ) -> Result<Vec<ActiveRun>, RepositoryError> {
+        Ok(self
+            .staged
+            .runs
+            .iter()
+            .filter(|run| {
+                run.scope.project_id == project
+                    && run.scope.employee_id == Some(employee)
+                    && (run.lease_active || run.reservation_held)
+            })
+            .map(|run| run.scope.clone())
+            .collect())
+    }
+    async fn revoke_run_lease(
+        &mut self,
+        run: Uuid,
+        fence: u64,
+        epoch: u64,
+    ) -> Result<bool, RepositoryError> {
+        let Some(run) = self.staged.runs.iter_mut().find(|item| {
+            item.scope.id == run
+                && item.scope.lease_fencing_token == fence
+                && item.scope.environment_epoch == epoch
+                && item.lease_active
+                && item.stop_requested == Some(true)
+        }) else {
+            return Ok(false);
+        };
+        run.lease_active = false;
+        Ok(true)
+    }
+    async fn insert_message_requirement_waiver(
+        &mut self,
+        waiver: &forge_domain::communication::MessageRequirementWaiver,
+    ) -> Result<(), RepositoryError> {
+        waiver
+            .validate_snapshot()
+            .map_err(|_| invalid("invalid waiver"))?;
+        if self.staged.message_waivers.contains_key(&waiver.message_id)
+            || self
+                .staged
+                .employee_messages
+                .get(&waiver.message_id)
+                .is_none_or(|m| m.data().project_id != waiver.project_id)
+        {
+            return Err(invalid("duplicate waiver or invalid message scope"));
+        }
+        self.staged
+            .message_waivers
+            .insert(waiver.message_id, waiver.clone());
+        Ok(())
+    }
+    async fn load_project_repository(
+        &mut self,
+        id: Uuid,
+    ) -> Result<Option<forge_domain::ProjectRepository>, RepositoryError> {
+        Ok(self.staged.project_repositories.get(&id).cloned())
+    }
+    async fn insert_project_repository(
+        &mut self,
+        repository: &forge_domain::ProjectRepository,
+    ) -> Result<(), RepositoryError> {
+        repository
+            .validate_snapshot()
+            .map_err(|_| invalid("invalid project repository"))?;
+        self.require_project(repository.project_id)?;
+        if self
+            .staged
+            .project_repositories
+            .contains_key(&repository.id)
+            || self.staged.project_repositories.values().any(|stored| {
+                stored.project_id == repository.project_id && stored.name == repository.name
+            })
+        {
+            return Err(invalid("duplicate project repository"));
+        }
+        self.staged
+            .project_repositories
+            .insert(repository.id, repository.clone());
+        Ok(())
+    }
+    async fn lock_employee_thread(
+        &mut self,
+        id: Uuid,
+    ) -> Result<Option<forge_domain::communication::EmployeeThread>, RepositoryError> {
+        Ok(self.staged.employee_threads.get(&id).cloned())
+    }
+    async fn insert_employee_thread(
+        &mut self,
+        thread: &forge_domain::communication::EmployeeThread,
+    ) -> Result<(), RepositoryError> {
+        let data = thread.data();
+        self.require_project(data.project_id)?;
+        if self.staged.employee_threads.contains_key(&data.id)
+            || self
+                .staged
+                .employees
+                .get(&data.employee_id)
+                .is_none_or(|e| e.project_id() != data.project_id)
+        {
+            return Err(invalid("duplicate thread or invalid Employee scope"));
+        }
+        if let Some(task) = data.task_id {
+            self.require_task_scope(data.project_id, task)?;
+        }
+        self.staged.employee_threads.insert(data.id, thread.clone());
+        Ok(())
+    }
+    async fn update_employee_thread(
+        &mut self,
+        thread: &forge_domain::communication::EmployeeThread,
+        expected_revision: u64,
+    ) -> Result<(), RepositoryError> {
+        let data = thread.data();
+        if self.staged.employee_threads.get(&data.id).is_none_or(|t| {
+            t.data().project_id != data.project_id || t.data().revision != expected_revision
+        }) {
+            return Err(RepositoryError::StaleRevision {
+                aggregate: "employee thread",
+            });
+        }
+        self.staged.employee_threads.insert(data.id, thread.clone());
+        Ok(())
+    }
+    async fn load_employee_message(
+        &mut self,
+        id: Uuid,
+    ) -> Result<Option<forge_domain::communication::EmployeeMessage>, RepositoryError> {
+        Ok(self.staged.employee_messages.get(&id).cloned())
+    }
+    async fn insert_employee_message(
+        &mut self,
+        message: &forge_domain::communication::EmployeeMessage,
+    ) -> Result<(), RepositoryError> {
+        let data = message.data();
+        if self.staged.employee_messages.contains_key(&data.id)
+            || self
+                .staged
+                .employee_threads
+                .get(&data.thread_id)
+                .is_none_or(|t| {
+                    t.data().project_id != data.project_id
+                        || t.data().employee_id != data.employee_id
+                })
+            || self
+                .staged
+                .employee_messages
+                .values()
+                .any(|m| m.data().thread_id == data.thread_id && m.data().sequence == data.sequence)
+        {
+            return Err(invalid("duplicate message or invalid thread scope"));
+        }
+        if let Some(reply) = data.reply_to
+            && self
+                .staged
+                .employee_messages
+                .get(&reply)
+                .is_none_or(|m| m.data().thread_id != data.thread_id)
+        {
+            return Err(invalid("reply does not belong to thread"));
+        }
+        if let Some(context) = data.target.task_context() {
+            self.require_task_scope(data.project_id, context.task_id)?;
+        }
+        if let forge_domain::communication::MessageTarget::ExactRun { run_id, .. } = data.target
+            && !self
+                .staged
+                .runs
+                .iter()
+                .any(|run| run.scope.id == run_id && run.scope.project_id == data.project_id)
+        {
+            return Err(invalid("Run does not belong to Project"));
+        }
+        self.staged
+            .employee_messages
+            .insert(data.id, message.clone());
+        Ok(())
+    }
     async fn lock_project_creation(&mut self, _id: ProjectId) -> Result<(), RepositoryError> {
         // The transaction already holds the global writer lock, including absent rows.
         Ok(())
@@ -135,22 +530,31 @@ impl CommandTransaction for MemoryTransaction {
         Ok(())
     }
 
+    async fn update_pipeline(
+        &mut self,
+        pipeline: &Pipeline,
+        expected_revision: u64,
+    ) -> Result<(), RepositoryError> {
+        self.persist_pipeline_revision(pipeline, expected_revision)
+    }
+
     async fn insert_employee(&mut self, employee: &Employee) -> Result<(), RepositoryError> {
-        self.require_project(employee.project_id())?;
-        employee
-            .validate_snapshot()
-            .map_err(|_| invalid("invalid employee snapshot"))?;
-        if self.staged.employees.contains_key(&employee.id())
-            || self.staged.employees.values().any(|stored| {
-                stored.project_id() == employee.project_id() && stored.name() == employee.name()
-            })
-        {
-            return Err(invalid("duplicate employee"));
-        }
-        self.staged
-            .employees
-            .insert(employee.id(), employee.clone());
-        Ok(())
+        self.persist_new_employee(employee)
+    }
+
+    async fn lock_employee(
+        &mut self,
+        id: forge_domain::EmployeeId,
+    ) -> Result<Option<Employee>, RepositoryError> {
+        Ok(self.staged.employees.get(&id).cloned())
+    }
+
+    async fn update_employee(
+        &mut self,
+        employee: &Employee,
+        expected_revision: u64,
+    ) -> Result<(), RepositoryError> {
+        self.persist_employee_revision(employee, expected_revision)
     }
 
     async fn lock_task(&mut self, id: TaskId) -> Result<Option<StoredTask>, RepositoryError> {
@@ -162,6 +566,7 @@ impl CommandTransaction for MemoryTransaction {
         task: &Task,
         persistence: TaskPersistence,
     ) -> Result<(), RepositoryError> {
+        self.validate_git_binding(task, persistence)?;
         self.require_project(task.project_id())?;
         task.validate_snapshot()
             .map_err(|_| invalid("invalid task snapshot"))?;
@@ -190,6 +595,7 @@ impl CommandTransaction for MemoryTransaction {
         persistence: TaskPersistence,
         expected_revision: u64,
     ) -> Result<(), RepositoryError> {
+        self.validate_git_binding(task, persistence)?;
         if task.revision().get() <= expected_revision {
             return Err(invalid("task revision must advance"));
         }
@@ -344,7 +750,7 @@ impl CommandTransaction for MemoryTransaction {
             .staged
             .runs
             .iter()
-            .filter(|r| r.scope.project_id == project && r.lease_active)
+            .filter(|r| r.scope.project_id == project && (r.lease_active || r.reservation_held))
             .map(|r| r.scope.clone())
             .collect())
     }
@@ -358,7 +764,19 @@ impl CommandTransaction for MemoryTransaction {
             .staged
             .runs
             .iter()
-            .filter(|r| r.scope.project_id == project && r.scope.task_id == task && r.lease_active)
+            .filter(|r| {
+                r.scope.project_id == project
+                    && (r
+                        .scope
+                        .assignment
+                        .task_stage()
+                        .is_some_and(|owner| owner.task_id == task)
+                        || r.scope
+                            .assignment
+                            .hook()
+                            .is_some_and(|owner| owner.task_id == task))
+                    && (r.lease_active || r.reservation_held)
+            })
             .map(|r| r.scope.clone())
             .collect())
     }
@@ -445,8 +863,14 @@ impl CommandTransaction for MemoryTransaction {
     ) -> Result<(), RepositoryError> {
         self.require_project(record.project_id)?;
         let key = (record.project_id, record.key.clone());
-        if self.staged.idempotency.contains_key(&key) {
-            return Err(invalid("duplicate idempotency key"));
+        if self.staged.idempotency.contains_key(&key)
+            || self
+                .staged
+                .idempotency
+                .values()
+                .any(|existing| existing.command_id == record.command_id)
+        {
+            return Err(invalid("duplicate idempotency key or command identity"));
         }
         if record.key.trim().is_empty()
             || record.command_name.trim().is_empty()

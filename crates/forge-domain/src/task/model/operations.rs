@@ -10,6 +10,29 @@ use super::{
 };
 
 impl Task {
+    /// Pins an allowlisted Project source exactly once, before approving execution.
+    pub fn bind_git_repository(
+        &mut self,
+        repository: &crate::ProjectRepository,
+        initial_base: crate::git::GitObjectId,
+        surface_id: uuid::Uuid,
+        changed_at: Timestamp,
+    ) -> Result<(), DomainError> {
+        self.require_lifecycle(LifecycleStatus::Draft)?;
+        if repository.project_id != self.project_id
+            || self.work_surface != super::TaskWorkSurface::None
+        {
+            return Err(DomainError::InvalidValue {
+                field: "task.work_surface",
+                reason: "requires an unbound draft and a repository in the same Project".into(),
+            });
+        }
+        let binding = crate::TaskGitBinding::from_repository(repository, initial_base, surface_id)?;
+        self.touch(changed_at)?;
+        self.work_surface = super::TaskWorkSurface::Git(binding);
+        Ok(())
+    }
+
     /// Replaces a draft's intent without changing its identity or Pipeline binding.
     ///
     /// # Errors

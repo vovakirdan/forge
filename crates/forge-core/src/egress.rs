@@ -35,21 +35,18 @@ impl CoreService {
         scope: &RunScope,
         target: &str,
     ) -> Result<TcpStream, CoreError> {
-        let host = allowed_destination(target).ok_or_else(denied)?;
         let mut transaction = self.store.begin().await?;
         let run = transaction
             .validate_gateway_scope(scope)
             .await?
             .ok_or_else(denied)?;
-        let native = run
+        let adapter = run
             .run_spec
             .pointer("/binding/execution_profile/adapter_id")
             .and_then(serde_json::Value::as_str)
-            == Some("codex_cli");
+            .ok_or_else(denied)?;
+        let host = allowed_destination(adapter, target).ok_or_else(denied)?;
         transaction.commit().await?;
-        if !native {
-            return Err(denied());
-        }
         let addresses = tokio::time::timeout(CONNECT_TIMEOUT, lookup_host((host, 443)))
             .await
             .map_err(|_| denied())?
@@ -117,12 +114,19 @@ fn status(code: StatusCode) -> Response {
     response
 }
 
-fn allowed_destination(target: &str) -> Option<&str> {
+fn allowed_destination<'a>(adapter: &str, target: &'a str) -> Option<&'a str> {
     let (host, port) = target.rsplit_once(':')?;
     if port != "443" {
         return None;
     }
-    matches!(host, "chatgpt.com" | "auth.openai.com" | "api.openai.com").then_some(host)
+    match adapter {
+        "codex_cli" => matches!(host, "chatgpt.com" | "auth.openai.com" | "api.openai.com"),
+        // Subscription inference and account endpoints only. No API-key
+        // Console login, telemetry, arbitrary web or wildcard domains.
+        "claude_code_cli" => matches!(host, "api.anthropic.com" | "claude.ai"),
+        _ => false,
+    }
+    .then_some(host)
 }
 
 fn public_ipv4(address: IpAddr) -> bool {
@@ -150,7 +154,10 @@ mod tests {
     use super::*;
     #[test]
     fn only_exact_native_tls_destinations_are_allowed() {
-        assert_eq!(allowed_destination("chatgpt.com:443"), Some("chatgpt.com"));
+        assert_eq!(
+            allowed_destination("codex_cli", "chatgpt.com:443"),
+            Some("chatgpt.com")
+        );
         for target in [
             "chatgpt.com.evil:443",
             "chatgpt.com:80",
@@ -159,8 +166,27 @@ mod tests {
             "[::1]:443",
             "user@chatgpt.com:443",
         ] {
-            assert!(allowed_destination(target).is_none());
+            assert!(allowed_destination("codex_cli", target).is_none());
         }
+        assert_eq!(
+            allowed_destination("claude_code_cli", "api.anthropic.com:443"),
+            Some("api.anthropic.com")
+        );
+        assert_eq!(
+            allowed_destination("claude_code_cli", "claude.ai:443"),
+            Some("claude.ai")
+        );
+        for target in [
+            "api.anthropic.com.evil:443",
+            "api.anthropic.com:80",
+            "127.0.0.1:443",
+            "platform.claude.com:443",
+            "api.openai.com:443",
+        ] {
+            assert!(allowed_destination("claude_code_cli", target).is_none());
+        }
+        assert!(allowed_destination("codex_cli", "api.anthropic.com:443").is_none());
+        assert!(allowed_destination("opencode_runtime", "api.anthropic.com:443").is_none());
     }
     #[test]
     fn private_metadata_reserved_and_ipv6_addresses_are_denied() {

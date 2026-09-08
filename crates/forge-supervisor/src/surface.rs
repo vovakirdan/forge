@@ -1,6 +1,6 @@
 //! Task-private workspaces. Preparation never writes to the source repository.
 
-use forge_domain::runtime::{SandboxRunSpec, SurfaceAccess, SurfaceSpec};
+use forge_domain::runtime::{RuntimeLaunchSpec, SurfaceAccess, SurfaceSpec};
 use forge_protocol::supervisor::v1::ProvisionRun;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -11,6 +11,9 @@ use std::{
 use tokio::process::Command;
 
 use crate::SupervisorError;
+mod pinned;
+#[cfg(test)]
+pub(crate) use pinned::tests::fixture as pinned_fixture;
 
 #[derive(Clone, Debug)]
 pub(crate) struct PreparedSurface {
@@ -26,11 +29,50 @@ struct SurfaceManifest {
     base_commit: Option<String>,
 }
 
+/// Resolves a retained host-owned manifest without creating or repairing any path.
+pub(crate) fn inspection_worktree(
+    root: &Path,
+    task_id: &str,
+    source: &crate::journal::GitSourceScope,
+) -> Result<PathBuf, SupervisorError> {
+    use std::os::unix::fs::MetadataExt;
+    let surfaces = root.join("surfaces");
+    let path = surfaces.join(source.surface_id.to_string());
+    let manifests = root.join("surface-manifests");
+    for directory in [root, &surfaces, &path, &manifests] {
+        let metadata = fs::symlink_metadata(directory)?;
+        if !metadata.is_dir()
+            || metadata.uid() != nix::unistd::Uid::effective().as_raw()
+            || metadata.mode() & 0o077 != 0
+            || fs::canonicalize(directory)? != directory
+        {
+            return Err(SupervisorError::UnsafeSurface);
+        }
+    }
+    let manifest = read_manifest(&manifests.join(format!("{}.json", source.surface_id)))?;
+    if manifest.task_id != task_id
+        || manifest.source != source.source
+        || manifest
+            .base_commit
+            .as_deref()
+            .is_none_or(|commit| forge_domain::git::GitObjectId::new(commit).is_err())
+    {
+        return Err(SupervisorError::UnsafeSurface);
+    }
+    Ok(path.join("worktree"))
+}
+
 pub(crate) async fn prepare(
     root: &Path,
     provision: &ProvisionRun,
-    spec: &SandboxRunSpec,
+    spec: &RuntimeLaunchSpec,
 ) -> Result<PreparedSurface, SupervisorError> {
+    if matches!(
+        spec.binding.surface,
+        SurfaceSpec::GitCandidateSnapshot { .. }
+    ) {
+        return pinned::prepare(root, provision, spec).await;
+    }
     if spec.binding.surface == SurfaceSpec::None {
         return Ok(PreparedSurface {
             mount: None,
@@ -64,6 +106,7 @@ pub(crate) async fn prepare(
                 None
             }
             SurfaceSpec::None => None,
+            SurfaceSpec::GitCandidateSnapshot { .. } => return Err(SupervisorError::UnsafeSurface),
         };
         let manifest = SurfaceManifest {
             task_id: provision.task_id.clone(),

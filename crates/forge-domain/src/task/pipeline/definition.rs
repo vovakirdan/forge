@@ -221,6 +221,14 @@ pub struct PipelineStage {
     display_name: String,
     executor_kind: ExecutorKind,
     transitions: BTreeMap<OutcomeKey, PipelineTransition>,
+    #[serde(default)]
+    instructions: String,
+    #[serde(default)]
+    workspace: Option<super::StageWorkspaceRequirements>,
+    #[serde(default)]
+    acceptance_policy: Option<crate::candidate_review::StageAcceptancePolicy>,
+    #[serde(default)]
+    system_action: Option<crate::git_integration::SystemStageAction>,
 }
 
 impl PipelineStage {
@@ -259,7 +267,68 @@ impl PipelineStage {
             display_name,
             executor_kind,
             transitions: values,
+            instructions: String::new(),
+            workspace: None,
+            acceptance_policy: None,
+            system_action: None,
         })
+    }
+
+    /// Adds bounded instructions and optional restrictions before publication.
+    pub fn with_requirements(
+        mut self,
+        instructions: String,
+        workspace: Option<super::StageWorkspaceRequirements>,
+    ) -> Result<Self, DomainError> {
+        if instructions.len() > 64 * 1024 || instructions.contains('\0') {
+            return Err(DomainError::InvalidPipeline {
+                reason: "stage instructions must fit 64 KiB and contain no NUL".into(),
+            });
+        }
+        self.instructions = instructions;
+        self.workspace = workspace;
+        Ok(self)
+    }
+
+    /// Instructions owned by this exact immutable stage definition.
+    pub fn with_acceptance_policy(
+        mut self,
+        policy: Option<crate::candidate_review::StageAcceptancePolicy>,
+    ) -> Result<Self, DomainError> {
+        if let Some(policy) = &policy {
+            policy.validate_for(&self)?;
+        }
+        self.acceptance_policy = policy;
+        Ok(self)
+    }
+    /// No assessment policy is inferred from stage names or Employee role text.
+    pub fn acceptance_policy(&self) -> Option<&crate::candidate_review::StageAcceptancePolicy> {
+        self.acceptance_policy.as_ref()
+    }
+    /// Explicit registered deterministic action; no stage-name inference.
+    pub fn with_system_action(
+        mut self,
+        action: Option<crate::git_integration::SystemStageAction>,
+    ) -> Result<Self, DomainError> {
+        if let Some(action) = &action {
+            action.validate_for(&self)?;
+        }
+        self.system_action = action;
+        Ok(self)
+    }
+    pub fn system_action(&self) -> Option<&crate::git_integration::SystemStageAction> {
+        self.system_action.as_ref()
+    }
+    /// Instructions owned by this exact immutable stage definition.
+    #[must_use]
+    pub fn instructions(&self) -> &str {
+        &self.instructions
+    }
+
+    /// Absent requirements preserve the explicit M1 runtime binding semantics.
+    #[must_use]
+    pub const fn workspace(&self) -> Option<&super::StageWorkspaceRequirements> {
+        self.workspace.as_ref()
     }
 
     /// Returns the stable stage identity.
@@ -302,6 +371,9 @@ impl PipelineStage {
             self.executor_kind,
             self.transitions.values().cloned(),
         )
+        .and_then(|stage| stage.with_requirements(self.instructions.clone(), self.workspace))
+        .and_then(|stage| stage.with_acceptance_policy(self.acceptance_policy.clone()))
+        .and_then(|stage| stage.with_system_action(self.system_action.clone()))
         .map(|_| ())
     }
 }

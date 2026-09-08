@@ -231,7 +231,7 @@ async fn heartbeat_loss_revokes_scope_but_retains_physical_writer_until_stop() -
             .list_runs_for_project(fixture.project)
             .await?
             .iter()
-            .all(|run| run.task_id != queued)
+            .all(|run| run.task_id() != Some(queued))
     );
     sqlx::query(
         "UPDATE runs SET stop_requested_at=clock_timestamp()-INTERVAL '31 seconds' WHERE id=$1",
@@ -305,7 +305,7 @@ async fn same_boot_reconnect_restores_gateway_without_revoking_or_restarting_run
             .list_runs_for_project(fixture.project)
             .await?
             .iter()
-            .filter(|run| run.task_id == task)
+            .filter(|run| run.task_id() == Some(task))
             .count(),
         1
     );
@@ -362,7 +362,9 @@ async fn reboot_case(policy: &str) -> Result<()> {
         .list_runs_for_project(fixture.project)
         .await?;
     assert_eq!(
-        runs.iter().filter(|run| run.task_id == ordinary).count(),
+        runs.iter()
+            .filter(|run| run.task_id() == Some(ordinary))
+            .count(),
         usize::from(policy == "reconcile_then_resume_queue")
     );
     fixture
@@ -388,7 +390,7 @@ async fn reboot_case(policy: &str) -> Result<()> {
                 .list_runs_for_project(fixture.project)
                 .await?
                 .iter()
-                .all(|run| run.task_id != ordinary)
+                .all(|run| run.task_id() != Some(ordinary))
         );
     }
     fixture.finish(&mut supervisor).await

@@ -23,6 +23,12 @@ struct Arguments {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Print an offline configure_employee_runtime payload; no enrollment or execution.
+    ProfileTemplate {
+        /// Explicit lane, identity references, model, image, prompts, limits and budget JSON.
+        #[arg(long)]
+        payload: String,
+    },
     /// Submit an audited named command through Core.
     #[command(name = "command")]
     Execute {
@@ -86,6 +92,11 @@ async fn run(arguments: Arguments) -> Result<()> {
         None => LocalClient::from_environment(),
     };
     match command {
+        Command::ProfileTemplate { payload } => {
+            let input = serde_json::from_str(&payload)
+                .context("profile template requires a valid secret-free JSON object")?;
+            print_json(&forge_cli::profile_template::build(input)?)
+        }
         Command::Execute {
             name,
             project_id,

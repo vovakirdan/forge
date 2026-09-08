@@ -1,7 +1,7 @@
 //! Admission accounting for retained raw evidence. No automated deletion.
 
 use crate::{SupervisorConfig, SupervisorError, registry::RunRegistry};
-use forge_domain::runtime::SandboxRunSpec;
+use forge_domain::runtime::SandboxLaunchSpec;
 use forge_protocol::supervisor::v1::EnvironmentPresence;
 use std::{fs, path::Path};
 
@@ -14,15 +14,15 @@ pub(super) async fn check(
         config.evidence_max_bytes,
     )?;
     for record in registry.journal.lock().await.records() {
-        if record.provision.run_spec_version != 2
+        if !matches!(record.provision.run_spec_version, 2..=5)
             || record.presence == EnvironmentPresence::Quiescent
         {
             continue;
         }
-        let spec: SandboxRunSpec = serde_json::from_str(&record.provision.run_spec_json)?;
+        let spec: SandboxLaunchSpec = serde_json::from_str(&record.provision.run_spec_json)?;
         // Conservative: retain the full reservation even after partial capture.
         bytes = bytes
-            .checked_add(spec.binding.budget.max_output_bytes)
+            .checked_add(spec.max_output_bytes())
             .and_then(|bytes| bytes.checked_add(16 * 1024))
             .ok_or(SupervisorError::EvidenceCapacity)?;
         if bytes > config.evidence_max_bytes {

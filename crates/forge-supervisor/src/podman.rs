@@ -1,7 +1,7 @@
 //! Rootless Podman process boundary. External environment state is inspected,
 //! never inferred from a transport disconnect or a successful domain submission.
 
-use forge_domain::runtime::SandboxRunSpec;
+use forge_domain::runtime::{RuntimeLaunchSpec, SandboxLaunchSpec};
 use forge_protocol::{
     runtime::RunnerInvocation,
     supervisor::v1::{ProvisionRun, RunEventKind},
@@ -19,10 +19,14 @@ use tokio::{process::Command, sync::Mutex, time::sleep};
 use crate::{RunControl, SupervisorConfig, SupervisorError, registry::RunRegistry, surface};
 
 mod capacity;
+mod git_inspection;
+mod git_integration;
+mod hook;
 mod monitor;
 #[cfg(test)]
 mod nonstart_tests;
 mod reconcile;
+mod sandbox_arguments;
 mod version;
 
 #[derive(Clone)]
@@ -72,10 +76,13 @@ impl PodmanBackend {
         control: Arc<RunControl>,
         adopt: bool,
     ) -> Result<(), SupervisorError> {
-        let spec = match serde_json::from_str::<SandboxRunSpec>(&provision.run_spec_json)
+        crate::execution_assignment::validate(&provision)?;
+        let spec = match serde_json::from_str::<SandboxLaunchSpec>(&provision.run_spec_json)
             .ok()
-            .filter(|spec| spec.validate().is_ok())
-        {
+            .filter(|spec| {
+                spec.validate().is_ok()
+                    && u32::from(spec.schema_version()) == provision.run_spec_version
+            }) {
             Some(spec) => spec,
             None if adopt => {
                 // Startup reconciliation validates retained specs before any
@@ -107,7 +114,16 @@ impl PodmanBackend {
                 }
                 sleep(Duration::from_secs(1)).await;
             }
-            match self.create(&provision, &spec, &registry, &control).await {
+            let creation = match &spec {
+                SandboxLaunchSpec::Provider(spec) => {
+                    self.create(&provision, spec, &registry, &control).await
+                }
+                SandboxLaunchSpec::Hook(spec) => {
+                    self.create_hook(&provision, spec, &registry, &control)
+                        .await
+                }
+            };
+            match creation {
                 Ok(false) => return self.finish_without_start(&provision, &registry, None).await,
                 Ok(true) => {}
                 Err(error) => {
@@ -154,7 +170,7 @@ impl PodmanBackend {
     async fn create(
         &self,
         provision: &ProvisionRun,
-        spec: &SandboxRunSpec,
+        spec: &RuntimeLaunchSpec,
         registry: &RunRegistry,
         control: &RunControl,
     ) -> Result<bool, SupervisorError> {
@@ -176,6 +192,25 @@ impl PodmanBackend {
             return Err(SupervisorError::InvalidRunSpec);
         }
         validate_program(&invocation)?;
+        let live = matches!(spec.schema_version, 2 | 3)
+            && spec
+                .binding
+                .execution_profile
+                .capability_profile()
+                .capabilities
+                .contains(&forge_domain::RuntimeCapability::LiveInput);
+        if live != invocation.runtime_input.is_some()
+            || invocation.runtime_input.as_ref().is_some_and(|input| {
+                !matches!(
+                    invocation.adapter_id.as_str(),
+                    "claude_code_cli" | "codex_cli" | "opencode_runtime"
+                ) || input.run_id != provision.run_id
+                    || input.fencing_token != provision.lease_fencing_token
+                    || input.environment_epoch != provision.environment_epoch
+            })
+        {
+            return Err(SupervisorError::InvalidRunSpec);
+        }
         if invocation.max_output_bytes > spec.binding.budget.max_output_bytes {
             return Err(SupervisorError::InvalidRunSpec);
         }
@@ -187,39 +222,9 @@ impl PodmanBackend {
         prepare_scoped_directory(&evidence)?;
         let gateway = self.config.gateways_directory.join(&provision.run_id);
         surface::private_directory(&gateway)?;
-        let uid = nix::unistd::Uid::effective().as_raw();
-        let gid = nix::unistd::Gid::effective().as_raw();
         let limits = &spec.binding.limits;
-        let mut args = vec![
-            "create".into(),
-            "--name".into(),
-            environment_name(provision),
-            "--pull=never".into(),
-            "--network=none".into(),
-            "--http-proxy=false".into(),
-            "--read-only".into(),
-            "--cap-drop=all".into(),
-            "--security-opt=no-new-privileges".into(),
-            "--userns=keep-id".into(),
-            "--user".into(),
-            format!("{uid}:{gid}"),
-            "--log-driver=none".into(),
-            "--stop-signal=SIGINT".into(),
-            "--cpus".into(),
-            format!("{:.3}", f64::from(limits.cpu_millis) / 1000.0),
-            "--memory".into(),
-            limits.memory_bytes.to_string(),
-            "--memory-swap".into(),
-            limits.memory_bytes.to_string(),
-            "--pids-limit".into(),
-            limits.pids.to_string(),
-            "--tmpfs".into(),
-            "/tmp:rw,nosuid,nodev,size=268435456".into(),
-            "--workdir".into(),
-            surface.workdir.into(),
-            "--entrypoint=/usr/local/bin/forge-runner".into(),
-        ];
-        for (key, value) in self.labels(provision, spec) {
+        let mut args = sandbox_arguments::create(provision, limits, surface.workdir);
+        for (key, value) in self.labels(provision, spec.surface_id) {
             args.extend(["--label".into(), format!("{key}={value}")]);
         }
         add_mount(&mut args, &grant, "/run/forge-input", true)?;
@@ -232,6 +237,12 @@ impl PodmanBackend {
             let file = match (invocation.adapter_id.as_str(), credential.source.as_str()) {
                 ("codex_cli", "/run/forge-secrets/auth.json") => "auth.json",
                 ("opencode_runtime", "/run/forge-secrets/api-key") => "api-key",
+                ("claude_code_cli", "/run/forge-secrets/claude-setup-token")
+                    if credential.target == "/run/forge/claude-home/setup-token"
+                        && !credential.writeback =>
+                {
+                    "claude-setup-token"
+                }
                 _ => return Err(SupervisorError::InvalidRunSpec),
             };
             add_mount(&mut args, &grant.join(file), &credential.source, true)?;
@@ -389,7 +400,7 @@ impl PodmanBackend {
     fn labels(
         &self,
         provision: &ProvisionRun,
-        spec: &SandboxRunSpec,
+        surface_id: uuid::Uuid,
     ) -> Vec<(&'static str, String)> {
         vec![
             ("forge.managed", "true".into()),
@@ -398,7 +409,7 @@ impl PodmanBackend {
             ("forge.run", provision.run_id.clone()),
             ("forge.fence", provision.lease_fencing_token.to_string()),
             ("forge.epoch", provision.environment_epoch.to_string()),
-            ("forge.surface", spec.surface_id.to_string()),
+            ("forge.surface", surface_id.to_string()),
         ]
     }
 }
@@ -457,9 +468,14 @@ fn read_private_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T, S
 }
 
 fn validate_program(invocation: &RunnerInvocation) -> Result<(), SupervisorError> {
+    if invocation.adapter_id == "claude_code_cli" && invocation.program != "forge-claude-driver" {
+        return Err(SupervisorError::InvalidRunSpec);
+    }
     let expected = match invocation.adapter_id.as_str() {
+        "codex_cli" if invocation.runtime_input.is_some() => "forge-codex-driver",
         "codex_cli" => "codex",
         "opencode_runtime" => "forge-opencode-driver",
+        "claude_code_cli" => "forge-claude-driver",
         _ => return Err(SupervisorError::InvalidRunSpec),
     };
     if Path::new(&invocation.program)

@@ -7,3 +7,5 @@
 !infra/runtime/package-lock.json
 !target/debug/forge-runner
 !target/debug/forge-opencode-driver
+!target/debug/forge-claude-driver
+!target/debug/forge-codex-driver

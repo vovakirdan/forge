@@ -20,7 +20,8 @@ use crate::{
 use super::{SupervisorIdentity, TransportRejection, acknowledgement, validation};
 
 /// Result of one validated inbound message that can be exposed safely to a Supervisor.
-pub(super) enum InboundResult {
+pub(crate) enum InboundResult {
+    ProposalSaved,
     Accepted(&'static str),
     Ignored(&'static str),
     Rejected(&'static str, &'static str),
@@ -74,6 +75,27 @@ impl CoreService {
         message: SupervisorToCore,
     ) -> CoreToSupervisor {
         match message.message {
+            Some(supervisor_to_core::Message::GitIntegration(result)) => {
+                let message_id = result.message_id.clone();
+                match self.record_git_integration_result(identity, result).await {
+                    Ok(result) => inbound_acknowledgement(&message_id, result),
+                    Err(error) => core_error_acknowledgement(&message_id, error),
+                }
+            }
+            Some(supervisor_to_core::Message::RuntimeInputReceipt(receipt)) => {
+                let id = receipt.message_id.clone();
+                match self.record_runtime_input_receipt(identity, receipt).await {
+                    Ok(result) => inbound_acknowledgement(&id, result),
+                    Err(error) => core_error_acknowledgement(&id, error),
+                }
+            }
+            Some(supervisor_to_core::Message::GitCandidateInspection(result)) => {
+                let message_id = result.message_id.clone();
+                match self.record_git_candidate_inspection(identity, result).await {
+                    Ok(result) => inbound_acknowledgement(&message_id, result),
+                    Err(error) => core_error_acknowledgement(&message_id, error),
+                }
+            }
             Some(supervisor_to_core::Message::Inventory(inventory)) => {
                 let message_id = inventory.message_id.clone();
                 match self.record_supervisor_inventory(identity, inventory).await {
@@ -154,7 +176,7 @@ impl CoreService {
         let observed_wall = Timestamp::now_utc();
         let now = crate::canonical_clock::project_mutation_time_at(&project, observed_wall);
         // Provider failure is not proof that the shell/container has stopped.
-        let must_stop = run.run_spec_version == 2
+        let must_stop = matches!(run.run_spec_version, 2..=5)
             && matches!(
                 observation.kind,
                 forge_protocol::supervisor::v1::RunEventKind::ProviderFailed
@@ -237,7 +259,18 @@ impl CoreService {
         // Task's leased queue entry behind. Completion moves that entry to
         // `completed` before the terminal observation, so only a still-leased
         // entry represents interrupted work that needs a human/manager decision.
-        let interrupted_queue = if terminal_observation {
+        let pending_git_proposal =
+            transaction
+                .load_git_proposal(run.id)
+                .await?
+                .is_some_and(|proposal| {
+                    matches!(
+                        proposal.state,
+                        forge_domain::git_delivery::GitProposalState::AwaitingQuiescence
+                            | forge_domain::git_delivery::GitProposalState::Inspecting
+                    )
+                });
+        let interrupted_queue = if terminal_observation && !pending_git_proposal {
             transaction
                 .cancel_leased_queue_for_fenced_run(
                     observation.run_id,
@@ -258,22 +291,37 @@ impl CoreService {
                 )
                 .await?;
         }
-        let interrupted_event = if interrupted_queue || must_stop {
-            pause_interrupted_task(
+        if terminal_observation && run.assignment.hook().is_some() {
+            self.record_hook_terminal(
                 &mut transaction,
                 &mut project,
-                run.task_id,
-                observation.run_id,
+                &run,
                 observation.state,
-                self.actors.core,
-                CommandId::from(observation.message_id),
-                now,
+                &observation.details,
             )
-            .await?
-        } else {
-            None
-        };
-        if (terminal_observation || must_stop) && !transaction.run_has_handoff(run.id).await? {
+            .await?;
+        }
+        let interrupted_event =
+            if run.assignment.task_stage().is_some() && (interrupted_queue || must_stop) {
+                pause_interrupted_task(
+                    &mut transaction,
+                    &mut project,
+                    run.require_task_id()?,
+                    observation.run_id,
+                    observation.state,
+                    self.actors.core,
+                    CommandId::from(observation.message_id),
+                    now,
+                )
+                .await?
+            } else {
+                None
+            };
+        if run.assignment.task_stage().is_some()
+            && (terminal_observation || must_stop)
+            && !pending_git_proposal
+            && !transaction.run_has_handoff(run.id).await?
+        {
             let (incident_id, inserted) = transaction
                 .record_run_incident(
                     project.id(),
@@ -282,7 +330,7 @@ impl CoreService {
                     forge_domain::runtime::RecoveryAssessment::Unknown,
                 )
                 .await?;
-            let task = load_scoped_task(&mut transaction, &project, run.task_id)
+            let task = load_scoped_task(&mut transaction, &project, run.require_task_id()?)
                 .await?
                 .task;
             crate::handoff::persist_handoff(
@@ -309,6 +357,39 @@ impl CoreService {
                             ("run_id", json!(run.id)),
                             ("incident_id", json!(incident_id)),
                             ("kind", json!("interrupted")),
+                        ]),
+                        now,
+                    )?)
+                    .await?;
+            }
+        }
+        if run.assignment.communication().is_some()
+            && (terminal_observation || must_stop)
+            && !transaction.communication_run_is_complete(run.id).await?
+        {
+            transaction.hold_communication_run(run.id).await?;
+            let (incident_id, inserted) = transaction
+                .record_run_incident(
+                    project.id(),
+                    run.id,
+                    forge_storage::IncidentKind::Interrupted,
+                    forge_domain::runtime::RecoveryAssessment::Unknown,
+                )
+                .await?;
+            if inserted {
+                transaction
+                    .append_event_and_outbox(&event(
+                        project.id(),
+                        AggregateRef::Project(project.id()),
+                        project.revision(),
+                        DomainEventKind::RunIncidentRaised,
+                        self.actors.core,
+                        CommandId::from(observation.message_id),
+                        None,
+                        event_payload([
+                            ("run_id", json!(run.id)),
+                            ("incident_id", json!(incident_id)),
+                            ("assignment", json!(run.assignment)),
                         ]),
                         now,
                     )?)
@@ -368,6 +449,12 @@ use lifecycle::{pause_interrupted_task, stale_observation_event};
 
 fn inbound_acknowledgement(message_id: &str, result: InboundResult) -> CoreToSupervisor {
     match result {
+        InboundResult::ProposalSaved => acknowledgement(
+            message_id,
+            AcknowledgementDisposition::Accepted,
+            "proposal_saved",
+            "Git outcome proposal saved; awaiting quiescent inspection",
+        ),
         InboundResult::Accepted(message) => acknowledgement(
             message_id,
             AcknowledgementDisposition::Accepted,

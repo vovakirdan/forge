@@ -83,8 +83,32 @@ impl CoreService {
         now: Timestamp,
     ) -> Result<CommandReceipt, CoreError> {
         match &envelope.payload {
+            CommandPayload::ConfigureProjectHook(_) => {
+                self.configure_project_hook(
+                    transaction,
+                    project,
+                    envelope,
+                    request_hash,
+                    command_id,
+                    now,
+                )
+                .await
+            }
+            CommandPayload::RetryGitIntegration { .. }
+            | CommandPayload::AcceptGitIntegrationResult { .. } => {
+                self.manage_git_integration(
+                    transaction,
+                    project,
+                    envelope,
+                    request_hash,
+                    command_id,
+                    now,
+                )
+                .await
+            }
             CommandPayload::ConfigureBootRecoveryPolicy { .. }
-            | CommandPayload::AcceptRunRecoveryAssessment { .. } => {
+            | CommandPayload::AcceptRunRecoveryAssessment { .. }
+            | CommandPayload::RetryCommunication { .. } => {
                 self.apply_recovery_command(
                     transaction,
                     project,
@@ -146,6 +170,32 @@ impl CoreService {
                 employee_id,
                 binding,
             } => {
+                let profile = &binding.execution_profile;
+                match profile.adapter_id() {
+                    "codex_cli" => forge_provider_codex::CodexAdapter::validate_profile(profile),
+                    "opencode_runtime" => {
+                        forge_provider_opencode::OpenCodeAdapter::validate_profile(profile)
+                    }
+                    "claude_code_cli" => {
+                        forge_provider_claude::ClaudeAdapter::validate_profile(profile)
+                    }
+                    _ => return Err(crate::credentials::credential_error()),
+                }
+                .map_err(|_| crate::credentials::credential_error())?;
+                if binding.execution_profile.adapter_id() == "claude_code_cli" {
+                    let credential = transaction
+                        .load_credential(
+                            project.id(),
+                            binding.execution_profile.credential_binding().secret_id,
+                        )
+                        .await?
+                        .ok_or_else(crate::credentials::credential_error)?;
+                    self.open_runtime_credential(
+                        &credential,
+                        binding.execution_profile.credential_binding(),
+                        binding.execution_profile.adapter_id(),
+                    )?;
+                }
                 transaction
                     .bind_employee_runtime(project.id(), *employee_id, binding)
                     .await?;
@@ -197,13 +247,17 @@ fn is_runtime_command(payload: &CommandPayload) -> bool {
         payload,
         CommandPayload::ConfigureBootRecoveryPolicy { .. }
             | CommandPayload::AcceptRunRecoveryAssessment { .. }
+            | CommandPayload::RetryCommunication { .. }
+            | CommandPayload::RetryGitIntegration { .. }
+            | CommandPayload::AcceptGitIntegrationResult { .. }
             | CommandPayload::EnrollCredential { .. }
             | CommandPayload::ConfigureEmployeeRuntime { .. }
+            | CommandPayload::ConfigureProjectHook(_)
     )
 }
 
 impl CoreService {
-    async fn dispatch_after_command(&self, project_id: forge_domain::ProjectId) {
+    pub(crate) async fn dispatch_after_command(&self, project_id: forge_domain::ProjectId) {
         if let Err(error) = self.deliver_pending_stop_requests(project_id).await {
             warn!(project_id = %project_id, error = %error, "deferred Supervisor stop delivery failed");
         }
@@ -212,6 +266,13 @@ impl CoreService {
             // Dispatch is recoverable desired-state delivery, so returning this
             // error here would falsely report that the accepted command failed.
             warn!(project_id = %project_id, error = %error, "deferred scheduler dispatch failed");
+        }
+        if self
+            .reconcile_runtime_inputs(Some(project_id))
+            .await
+            .is_err()
+        {
+            warn!(project_id = %project_id, "deferred runtime input delivery failed");
         }
     }
 }

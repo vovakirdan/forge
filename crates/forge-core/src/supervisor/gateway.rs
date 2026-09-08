@@ -50,6 +50,9 @@ impl CoreService {
             }
         };
         match result {
+            InboundResult::ProposalSaved => {
+                Ok(json!({"status":"proposal_saved","message_id":message_id}))
+            }
             InboundResult::Accepted(_) => Ok(json!({"status":"accepted","message_id":message_id})),
             InboundResult::Ignored(_) | InboundResult::Rejected(_, _) => {
                 Err(CoreError::InvalidTransport {

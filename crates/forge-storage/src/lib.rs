@@ -5,18 +5,41 @@
 
 #![forbid(unsafe_code)]
 
+mod admission;
+mod candidate_review;
 mod command_adapter;
+mod command_handoffs;
+mod communication;
+mod communication_runs;
+mod runtime_inputs;
+pub use runtime_inputs::{MAX_RUNTIME_INPUTS, StoredRuntimeInput};
+mod communication_receipts;
 mod credentials;
+mod dispatch_constraints;
+mod employee_capacity;
 mod error;
 pub mod evidence;
 mod executor_artifacts;
+mod finding;
 mod gateway;
+mod git_candidates;
+mod git_delivery;
+mod git_integration;
 mod health;
+mod hook_invocations;
+mod manager;
 mod model;
 mod outbox;
+mod project_hooks;
 mod proxy_keys;
 mod read;
 mod recovery;
+mod repository;
+mod required_hooks;
+mod resolution;
+mod resolution_runs;
+mod task_resume;
+pub use hook_invocations::{HookSkipSpec, StoredHookInvocation};
 mod run_control;
 mod run_evidence;
 mod run_lifecycle;
@@ -29,6 +52,7 @@ mod write;
 use sqlx::{PgPool, migrate::Migrator};
 use thiserror::Error;
 
+pub use communication_runs::CommunicationClaim;
 pub use credentials::StoredCredential;
 pub use error::StorageError;
 pub use executor_artifacts::{
@@ -36,6 +60,8 @@ pub use executor_artifacts::{
     ExecutorArtifactWrite,
 };
 pub use gateway::{GatewaySubmissionRecord, GatewayWriteResult};
+pub use git_delivery::{GitInspectionRequest, StoredGitProposal};
+pub use git_integration::{IntegrationState, StoredIntegration};
 pub use health::OperationalSnapshot;
 pub use model::{
     ArtifactLocation, IdempotencyRecord, QueueEntry, QueueEntryInput, QueueState, RunDesiredState,
@@ -202,8 +228,38 @@ struct ColumnContractItem {
 }
 
 const REQUIRED_TABLES: &[NamedContractItem] = &[
+    NamedContractItem {
+        name: "local_admission_policy",
+    },
     NamedContractItem { name: "projects" },
     NamedContractItem { name: "employees" },
+    NamedContractItem {
+        name: "employee_threads",
+    },
+    NamedContractItem {
+        name: "employee_messages",
+    },
+    NamedContractItem {
+        name: "employee_message_receipts",
+    },
+    NamedContractItem {
+        name: "employee_message_waivers",
+    },
+    NamedContractItem {
+        name: "task_next_run_constraints",
+    },
+    NamedContractItem {
+        name: "task_resume_schedules",
+    },
+    NamedContractItem {
+        name: "resolver_routes",
+    },
+    NamedContractItem {
+        name: "escalations",
+    },
+    NamedContractItem {
+        name: "resolution_assignments",
+    },
     NamedContractItem { name: "pipelines" },
     NamedContractItem {
         name: "pipeline_versions",
@@ -232,6 +288,22 @@ const REQUIRED_TABLES: &[NamedContractItem] = &[
 ];
 
 const REQUIRED_COLUMNS: &[ColumnContractItem] = &[
+    ColumnContractItem {
+        table: "project_repositories",
+        name: "canonical_snapshot",
+    },
+    ColumnContractItem {
+        table: "tasks",
+        name: "project_repository_id",
+    },
+    ColumnContractItem {
+        table: "pipelines",
+        name: "latest_version",
+    },
+    ColumnContractItem {
+        table: "employees",
+        name: "max_concurrent_runs",
+    },
     ColumnContractItem {
         table: "projects",
         name: "revision",
@@ -343,6 +415,12 @@ const REQUIRED_COLUMNS: &[ColumnContractItem] = &[
 ];
 
 const REQUIRED_INDEXES: &[NamedContractItem] = &[
+    NamedContractItem {
+        name: "active_employee_run_reservations",
+    },
+    NamedContractItem {
+        name: "active_employee_leases",
+    },
     NamedContractItem {
         name: "queue_entries_runnable_order_idx",
     },

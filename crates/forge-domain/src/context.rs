@@ -25,6 +25,9 @@ pub struct ContextSnapshotInput {
     pub employee_id: EmployeeId,
     pub pipeline_version_id: PipelineVersionId,
     pub stage_id: StageId,
+    /// Exact stage visit for M2 inputs. None is a historical, non-Inbox Run.
+    #[serde(default)]
+    pub stage_visit: Option<u64>,
     pub task_revision_before_dispatch: u64,
     pub task_spec: TaskSpec,
     pub system_policy_revision: String,
@@ -55,6 +58,12 @@ impl ContextSnapshot {
             .pipeline_version_id
             .validate_v7("context.pipeline_version_id")?;
         input.stage_id.validate()?;
+        if input.stage_visit == Some(0) {
+            return Err(invalid(
+                "context.stage_visit",
+                "must be positive when present",
+            ));
+        }
         input.task_spec.validate_snapshot()?;
         if input.task_revision_before_dispatch == 0 {
             return Err(invalid("context.task_revision", "must be positive"));

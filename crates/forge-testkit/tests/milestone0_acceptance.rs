@@ -45,7 +45,12 @@ async fn m0_multistage_task_keeps_one_identity_and_attaches_stage_evidence() -> 
     let artifacts = harness.store.list_artifacts_for_task(task).await?;
     let stages = runs
         .iter()
-        .map(|run| run.stage_id.clone())
+        .map(|run| {
+            run.require_task_stage()
+                .expect("TaskStage fixture")
+                .stage_id
+                .to_string()
+        })
         .collect::<BTreeSet<_>>();
     let event_types = event_types(&harness, project).await?;
 
@@ -430,7 +435,7 @@ async fn drive_employee_stage(
         .load_run(run_id)
         .await?
         .context("fixture Run is missing")?;
-    assert_eq!(run.task_id, task);
+    assert_eq!(run.require_task_id()?, task);
     assert_accepted(
         "provisioning observation",
         supervisor

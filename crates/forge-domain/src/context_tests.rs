@@ -16,6 +16,7 @@ fn snapshot_input() -> ContextSnapshotInput {
         employee_id: EmployeeId::new(),
         pipeline_version_id: PipelineVersionId::new(),
         stage_id: StageId::new("work").expect("stage"),
+        stage_visit: Some(1),
         task_revision_before_dispatch: 3,
         task_spec: TaskSpec::new(TaskSpecInput {
             title: "Preserve context".to_owned(),

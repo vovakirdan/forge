@@ -6,7 +6,7 @@ use super::{ArtifactLocation, CommandTransaction};
 use crate::{CommandEnvelope, ExternalStageOutcomeCommand};
 use forge_domain::{
     AggregateRef, Artifact, ArtifactId, ArtifactProducer, CommandId, DomainError, DomainEvent,
-    DomainEventKind, ExecutorKind, PipelineTransitionTarget, Project, StageOutcomeSubmission,
+    DomainEventKind, PipelineTransitionTarget, Project, StageOutcomeSubmission,
     StageTransitionEffect, TaskWaitCondition, TaskWaitKind, Timestamp,
 };
 use serde_json::json;
@@ -125,8 +125,8 @@ impl Engine<'_> {
         }
 
         let submission = StageOutcomeSubmission {
-            outcome,
-            outcome_artifact_ids,
+            outcome: outcome.clone(),
+            outcome_artifact_ids: outcome_artifact_ids.clone(),
             submitted_by: self.actors.human,
             submitted_at: now,
             cancellation_reason_id,
@@ -179,6 +179,13 @@ impl Engine<'_> {
             }
             Err(error) => return Err(error.into()),
         };
+        if task.lifecycle() == forge_domain::LifecycleStatus::Done
+            && !transaction
+                .required_hooks_satisfied(&task, &version, None)
+                .await?
+        {
+            return Err(CommandError::InvalidTransport{field:"outcome",reason:"applicable required project hooks have no passing result for the current candidate".into()});
+        }
         let persistence = retained_persistence(&project, &task, stored.persistence)?;
         persist_task_and_project(
             transaction,
@@ -238,7 +245,7 @@ impl Engine<'_> {
             }
             Some(StageTransitionEffect::EnteredStage { .. }) | None => {}
         }
-        finish_command(
+        let receipt = finish_command(
             transaction,
             &project,
             envelope,
@@ -248,7 +255,21 @@ impl Engine<'_> {
             events,
             Some(resource("task", task.id().as_uuid())),
         )
-        .await
+        .await?;
+        if effect.is_some() {
+            super::external_handoff::persist(
+                transaction,
+                &task,
+                self.actors.human,
+                command_id,
+                expected_stage_id,
+                outcome,
+                outcome_artifact_ids,
+                now,
+            )
+            .await?;
+        }
+        Ok(receipt)
     }
 }
 
@@ -286,12 +307,7 @@ fn next_stage_wait(
             field: "pipeline.transition.target",
             reason: "is absent from the pinned pipeline version".to_owned(),
         })?;
-    if next_stage.executor_kind() == ExecutorKind::System {
-        return Err(CommandError::InvalidTransport {
-            field: "pipeline.transition.target",
-            reason: "system stages are not implemented in M0".to_owned(),
-        });
-    }
+    super::task_support::reject_unimplemented_system_stage(next_stage, task)?;
     if !next_stage.executor_kind().requires_wait() {
         return Ok(None);
     }

@@ -15,6 +15,8 @@ if [[ -n ${CARGO_TARGET_DIR:-} && ${CARGO_TARGET_DIR} != "$REPO_ROOT/target" && 
     exit 1
 fi
 cargo build --locked --package forge-supervisor --bin forge-runner \
-    --package forge-provider-opencode --bin forge-opencode-driver
+    --package forge-provider-opencode --bin forge-opencode-driver \
+    --package forge-provider-claude --bin forge-claude-driver \
+    --package forge-provider-codex --bin forge-codex-driver
 podman build --file infra/runtime/Containerfile --tag "$IMAGE_TAG" .
 bash "$SCRIPT_DIR/check-runtime-image.sh" "$IMAGE_TAG"

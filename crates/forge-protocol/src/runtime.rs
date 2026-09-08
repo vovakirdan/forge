@@ -24,6 +24,18 @@ pub struct RunnerInvocation {
     pub max_output_bytes: u64,
     /// Grace before environment force stop, in seconds.
     pub stop_grace_seconds: u32,
+    /// Explicit opt-in. Omission preserves historical immutable one-shot bytes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime_input: Option<RuntimeInputConfig>,
+}
+
+/// Pinned exact scope for the sandbox-local native input bridge.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct RuntimeInputConfig {
+    pub run_id: String,
+    pub fencing_token: u64,
+    pub environment_epoch: u64,
 }
 
 /// Managed configuration content, explicitly excluding credentials and prompts.

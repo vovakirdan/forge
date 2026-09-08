@@ -43,6 +43,27 @@ pub fn require_task_revision(task: &Task, expected: u64) -> Result<(), CommandEr
     }
 }
 
+/// Legacy orphan waits remain resumable; managed questions require their resolution path.
+pub async fn ensure_wait_resumable(
+    transaction: &mut impl CommandTransaction,
+    task: &Task,
+    wait: forge_domain::WaitConditionId,
+) -> Result<(), CommandError> {
+    if task.wait_conditions().any(|condition| {
+        condition.id() == wait && condition.kind() == &forge_domain::TaskWaitKind::EscalationPending
+    }) && transaction
+        .load_escalation_for_wait(task.project_id(), task.id(), wait)
+        .await?
+        .is_some()
+    {
+        return Err(CommandError::InvalidTransport {
+            field: "task.wait_condition",
+            reason: "managed escalation requires its resolution command".into(),
+        });
+    }
+    Ok(())
+}
+
 pub async fn pinned_pipeline_version(
     transaction: &mut impl CommandTransaction,
     project: &Project,
@@ -185,12 +206,19 @@ pub fn stage_payload(task: &Task) -> serde_json::Map<String, serde_json::Value> 
     ])
 }
 
-pub fn reject_unimplemented_system_stage(executor_kind: ExecutorKind) -> Result<(), CommandError> {
-    if executor_kind == ExecutorKind::System {
+pub fn reject_unimplemented_system_stage(
+    stage: &forge_domain::PipelineStage,
+    task: &Task,
+) -> Result<(), CommandError> {
+    if stage.executor_kind() == ExecutorKind::System && stage.system_action().is_none() {
         return Err(CommandError::InvalidTransport {
             field: "pipeline.stage.executor_kind",
-            reason: "system stages are not implemented in M0".to_owned(),
+            reason: "System stages require an explicitly registered action".to_owned(),
         });
+    }
+    if let Some(action) = stage.system_action() {
+        action.validate_for(stage)?;
+        action.validate_task(task)?;
     }
     Ok(())
 }

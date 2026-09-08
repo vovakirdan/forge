@@ -39,6 +39,7 @@ pub(super) fn provision() -> ProvisionRun {
         run_spec_json: r#"{"stage_outcome":{"outcome":"passed"}}"#.into(),
         run_spec_version: 1,
         traceparent: String::new(),
+        assignment: None,
     }
 }
 

@@ -30,12 +30,15 @@ use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 mod fake;
+/// Local Git candidate snapshots and explicitly authorized integration effects.
+pub mod git;
 mod journal;
 mod observability;
 mod podman;
 mod registry;
 /// Container-local durable process wrapper, not a host execution API.
 pub mod runner;
+mod runtime_input;
 mod surface;
 mod transport;
 
@@ -301,7 +304,7 @@ async fn serve_session(
                             let worker_registry = registry.clone();
                             let worker_backend = backend.clone();
                             workers.spawn(async move {
-                                if provision.run_spec_version == 2 {
+                                if matches!(provision.run_spec_version,2..=5) {
                                     return worker_backend.run(provision, worker_registry, control, false).await;
                                 }
                                 let result = fake::execute_provision(provision.clone(), worker_registry.sink(), control).await;
@@ -322,16 +325,33 @@ async fn serve_session(
                 Some(CoreToSupervisor { message: Some(core_to_supervisor::Message::StopRun(stop)) }) => {
                     if !registry.request_stop(&stop).await { debug!(run_id = %stop.run_id, "ignored stale or unknown Core stop request"); }
                 }
+                Some(CoreToSupervisor { message: Some(core_to_supervisor::Message::DeliverRuntimeInput(input)) }) => {
+                    let config=config.clone();let registry=registry.clone();
+                    workers.spawn(async move {runtime_input::deliver(&config,&registry,input).await});
+                }
                 Some(CoreToSupervisor { message: Some(core_to_supervisor::Message::Acknowledgement(ack)) }) => {
                     log_acknowledgement(&ack);
+                    let consumed=registry.journal.lock().await.input_for_receipt(&ack.acknowledged_message_id);
                     registry.journal.lock().await.acknowledge(&ack)?;
                     if retryable_ack(&ack) {
                         return Ok(SessionEnd::Disconnected);
+                    }
+                    if matches!(AcknowledgementDisposition::try_from(ack.disposition),Ok(AcknowledgementDisposition::Accepted|AcknowledgementDisposition::IgnoredStale|AcknowledgementDisposition::Rejected)) && let Some(input)=consumed {
+                        let _=runtime_input::cleanup_mailbox(config,&input);
                     }
                     sent.remove(&ack.acknowledged_message_id);
                 }
                 Some(CoreToSupervisor { message: Some(core_to_supervisor::Message::RequestInventory(request)) }) => {
                     send_inventory(&outbound, config, registry, request.command_id).await?;
+                }
+                Some(CoreToSupervisor { message: Some(core_to_supervisor::Message::InspectGitCandidate(request)) }) => {
+                    let backend = backend.clone();
+                    let registry = registry.clone();
+                    workers.spawn(async move { backend.inspect_git_candidate(request, registry).await });
+                }
+                Some(CoreToSupervisor { message: Some(core_to_supervisor::Message::GitIntegration(request)) }) => {
+                    let backend=backend.clone();let registry=registry.clone();
+                    workers.spawn(async move {backend.integrate_git(request,registry).await});
                 }
                 Some(CoreToSupervisor { message: None }) => warn!("received empty Core-to-Supervisor envelope"),
                 None => return Ok(SessionEnd::Disconnected),
@@ -441,6 +461,7 @@ pub(crate) fn now_millis() -> i64 {
         })
 }
 
+mod execution_assignment;
 #[cfg(test)]
 mod podman_tests;
 #[cfg(test)]

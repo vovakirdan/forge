@@ -38,6 +38,7 @@ impl Engine<'_> {
         require_task_revision(&stored.task, expected_task_revision)?;
         let previous_revision = stored.task.revision().get();
         let mut task = stored.task;
+        super::task_support::ensure_wait_resumable(transaction, &task, wait_condition_id).await?;
         let resumed = task.resolve_wait_condition(wait_condition_id, now)?;
         let persistence = retained_persistence(&project, &task, stored.persistence)?;
         persist_task_and_project(
@@ -49,10 +50,20 @@ impl Engine<'_> {
             now,
         )
         .await?;
-        if resumed && task.lifecycle() == LifecycleStatus::InProgress {
+        if resumed
+            && matches!(
+                task.lifecycle(),
+                LifecycleStatus::Ready | LifecycleStatus::InProgress
+            )
+        {
             let version = pinned_pipeline_version(transaction, &project, &task).await?;
             let executor_kind = current_stage_executor(&version, &task)?;
-            reject_unimplemented_system_stage(executor_kind)?;
+            reject_unimplemented_system_stage(
+                task.current_stage_id()
+                    .and_then(|id| version.stage(id))
+                    .ok_or(CommandError::NotFound { aggregate: "stage" })?,
+                &task,
+            )?;
             enqueue_if_employee(
                 transaction,
                 &project,

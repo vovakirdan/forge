@@ -18,6 +18,15 @@ use tower::service_fn;
 use uuid::Uuid;
 
 const WAIT_TIMEOUT: Duration = Duration::from_secs(8);
+#[path = "supervisor/git_integration.rs"]
+mod git_integration;
+
+#[path = "supervisor/git_inspection.rs"]
+mod git_inspection;
+#[path = "supervisor/hooks.rs"]
+mod hooks;
+#[path = "supervisor/runtime_inputs.rs"]
+mod runtime_inputs;
 
 /// A test-controlled real gRPC Supervisor stream.
 pub struct ManualSupervisor {
@@ -29,6 +38,17 @@ pub struct ManualSupervisor {
 }
 
 impl ManualSupervisor {
+    /// Observes a real taskless provision without manufacturing a Task identity.
+    pub async fn next_communication_provision(
+        &mut self,
+        employee: forge_domain::EmployeeId,
+    ) -> Result<ProvisionRun> {
+        self.next_matching("Communication ProvisionRun", |message| match &message.message {
+            Some(core_to_supervisor::Message::ProvisionRun(run)) if run.employee_id==employee.to_string()
+                && matches!(run.assignment,Some(forge_protocol::supervisor::v1::provision_run::Assignment::Communication(_))) =>Some(run.clone()),
+            _=>None,
+        }).await
+    }
     /// Supplies an explicit empty physical inventory for v2 Core fixture tests.
     pub async fn reconcile_empty(&mut self) -> Result<()> {
         self.reconcile(vec![]).await
@@ -215,8 +235,8 @@ impl ManualSupervisor {
             executor_submission::Payload::Artifact(ArtifactSubmission {
                 artifact_kind: "stage_evidence".to_owned(),
                 metadata_json: json!({"source": "m0_acceptance"}).to_string(),
-                body_json: json!({"stage_id": run.stage_id}).to_string(),
-                title: format!("M0 {} evidence", run.stage_id),
+                body_json: json!({"stage_id": run.require_task_stage()?.stage_id}).to_string(),
+                title: format!("M0 {} evidence", run.require_task_stage()?.stage_id),
             }),
         )
         .await
@@ -235,12 +255,13 @@ impl ManualSupervisor {
                 run,
                 sequence,
                 executor_submission::Payload::StageOutcome(StageOutcomeSubmission {
-                    stage_id: run.stage_id.clone(),
+                    stage_id: run.require_task_stage()?.stage_id.to_string(),
                     outcome: outcome.to_owned(),
                     artifact_ids: Vec::new(),
                     note: "m0 acceptance".to_owned(),
                     cancellation_reason_key: String::new(),
                     artifact_submission_message_ids,
+                    candidate_commit: String::new(),
                 }),
             )
             .await?;

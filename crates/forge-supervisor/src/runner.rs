@@ -7,7 +7,7 @@ use nix::{
 };
 use std::{
     fs, io,
-    os::unix::fs::OpenOptionsExt,
+    os::unix::fs::{DirBuilderExt, OpenOptionsExt},
     path::{Component, Path},
     process::Stdio,
     sync::{
@@ -28,6 +28,7 @@ const PRIVATE: &str = "/run/forge";
 const INPUT: &str = "/run/forge-input";
 const EVIDENCE: &str = "/run/forge-evidence";
 const MAX_LINE: usize = 1024 * 1024;
+mod duplex;
 
 /// Runs only inside the configured Podman image and writes bounded, redacted
 /// evidence. A clean process exit never submits a Task/Pipeline outcome.
@@ -48,9 +49,18 @@ pub async fn run() -> io::Result<()> {
     for credential in &invocation.credential_files {
         if !matches!(
             credential.source.as_str(),
-            "/run/forge-secrets/auth.json" | "/run/forge-secrets/api-key"
+            "/run/forge-secrets/auth.json"
+                | "/run/forge-secrets/api-key"
+                | "/run/forge-secrets/claude-setup-token"
         ) {
             return Err(io::Error::other("unsupported credential source"));
+        }
+        if credential.source == "/run/forge-secrets/claude-setup-token"
+            && (invocation.adapter_id != "claude_code_cli"
+                || credential.target != "/run/forge/claude-home/setup-token"
+                || credential.writeback)
+        {
+            return Err(io::Error::other("invalid Claude credential delivery"));
         }
         let path = private_path(&credential.target, true)?;
         create_parent(&path)?;
@@ -59,7 +69,10 @@ pub async fn run() -> io::Result<()> {
         write_private(&path, &bytes)?;
     }
     for name in ["home", "config", "cache", "data", "codex-home"] {
-        fs::create_dir_all(Path::new(PRIVATE).join(name))?;
+        fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(Path::new(PRIVATE).join(name))?;
     }
     let redaction = RedactionPolicy {
         initial: secrets,
@@ -70,16 +83,26 @@ pub async fn run() -> io::Result<()> {
             .map(|credential| std::path::PathBuf::from(&credential.target))
             .collect(),
     };
-    let gateway = TcpListener::bind("127.0.0.1:4097").await?;
-    let proxy = TcpListener::bind("127.0.0.1:4098").await?;
-    let relay = tokio::spawn(relay(gateway, proxy));
+    let relay = if invocation.adapter_id == "project_hook" {
+        None
+    } else {
+        let gateway = TcpListener::bind("127.0.0.1:4097").await?;
+        let proxy = TcpListener::bind("127.0.0.1:4098").await?;
+        Some(tokio::spawn(relay(gateway, proxy)))
+    };
+    let claude_input =
+        invocation.runtime_input.is_some() && invocation.adapter_id == "claude_code_cli";
     let mut command = Command::new(&invocation.program);
     command
         .args(&invocation.args)
         .env_clear()
         .envs(&invocation.env)
         .process_group(0)
-        .stdin(Stdio::from(fs::File::open(format!("{INPUT}/stdin"))?))
+        .stdin(if claude_input {
+            Stdio::piped()
+        } else {
+            Stdio::from(fs::File::open(format!("{INPUT}/stdin"))?)
+        })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
@@ -93,6 +116,28 @@ pub async fn run() -> io::Result<()> {
         incomplete: AtomicBool::new(false),
         failed: Notify::new(),
     });
+    let (input_frames, input_receiver) = tokio::sync::mpsc::channel(8);
+    let input_task = if let Some(config) = invocation.runtime_input.clone().filter(|_| claude_input)
+    {
+        let stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| io::Error::other("native stdin unavailable"))?;
+        Some(tokio::spawn(duplex::pump(
+            stdin,
+            config,
+            duplex::Paths {
+                initial: Path::new(INPUT).join("stdin"),
+                mailbox: Path::new(INPUT).join("inputs"),
+                private: Path::new(PRIVATE).into(),
+                receipts: Path::new(EVIDENCE).join("input-receipts"),
+            },
+            input_receiver,
+            Arc::clone(&budget),
+        )))
+    } else {
+        None
+    };
     let stdout = child
         .stdout
         .take()
@@ -101,11 +146,12 @@ pub async fn run() -> io::Result<()> {
         .stderr
         .take()
         .ok_or_else(|| io::Error::other("stderr unavailable"))?;
-    let out = tokio::spawn(capture(
+    let out = tokio::spawn(capture_with_input(
         stdout,
         format!("{EVIDENCE}/stdout.jsonl"),
         Arc::clone(&budget),
         redaction.clone(),
+        claude_input.then_some(input_frames),
     ));
     let err = tokio::spawn(capture(
         stderr,
@@ -135,6 +181,14 @@ pub async fn run() -> io::Result<()> {
     if !matches!(captures, Ok((Ok(Ok(())), Ok(Ok(()))))) {
         budget.incomplete.store(true, Ordering::Release);
     }
+    if let Some(input) = input_task {
+        if !input.is_finished() {
+            input.abort();
+        }
+        if !matches!(input.await, Ok(Ok(()))) {
+            budget.incomplete.store(true, Ordering::Release);
+        }
+    }
     let exit = RunnerExit {
         exit_code: status.code(),
         output_incomplete: budget.incomplete.load(Ordering::Acquire),
@@ -144,7 +198,9 @@ pub async fn run() -> io::Result<()> {
         Path::new(&format!("{EVIDENCE}/exit.json")),
         &serde_json::to_vec(&exit).map_err(io::Error::other)?,
     )?;
-    relay.abort();
+    if let Some(relay) = relay {
+        relay.abort();
+    }
     Ok(())
 }
 
@@ -183,10 +239,20 @@ impl RedactionPolicy {
 }
 
 async fn capture(
+    input: impl AsyncRead + Unpin,
+    path: String,
+    budget: Arc<OutputBudget>,
+    redaction: RedactionPolicy,
+) -> io::Result<()> {
+    capture_with_input(input, path, budget, redaction, None).await
+}
+
+async fn capture_with_input(
     mut input: impl AsyncRead + Unpin,
     path: String,
     budget: Arc<OutputBudget>,
     redaction: RedactionPolicy,
+    native: Option<tokio::sync::mpsc::Sender<duplex::Frame>>,
 ) -> io::Result<()> {
     use std::io::Write;
     let mut file = fs::OpenOptions::new()
@@ -217,6 +283,11 @@ async fn capture(
             }
             if byte == b'\n' {
                 if !discard {
+                    if let Some(native) = &native {
+                        duplex::forward(&line, native)
+                            .await
+                            .inspect_err(|_| mark_incomplete(&budget))?;
+                    }
                     write_line(&mut file, &line, &budget, &redaction)?;
                 }
                 line.clear();
@@ -414,12 +485,52 @@ async fn relay(gateway: TcpListener, proxy: TcpListener) -> io::Result<()> {
 }
 
 fn validate(invocation: &RunnerInvocation) -> io::Result<()> {
+    if invocation.adapter_id == "project_hook"
+        && (!invocation.managed_files.is_empty()
+            || !invocation.credential_files.is_empty()
+            || invocation.runtime_input.is_some())
+    {
+        return Err(io::Error::other(
+            "project hooks cannot receive provider material",
+        ));
+    }
+    if let Some(input) = &invocation.runtime_input
+        && (!matches!(
+            invocation.adapter_id.as_str(),
+            "claude_code_cli" | "codex_cli" | "opencode_runtime"
+        ) || uuid::Uuid::parse_str(&input.run_id)
+            .ok()
+            .is_none_or(|id| id.get_version_num() != 7)
+            || input.fencing_token == 0
+            || input.environment_epoch == 0)
+    {
+        return Err(io::Error::other("invalid native input scope"));
+    }
+    if invocation.runtime_input.is_some()
+        && !matches!(
+            (invocation.adapter_id.as_str(), invocation.program.as_str()),
+            ("claude_code_cli", "forge-claude-driver")
+                | ("codex_cli", "forge-codex-driver")
+                | ("opencode_runtime", "forge-opencode-driver")
+        )
+    {
+        return Err(io::Error::other("invalid native driver"));
+    }
     if invocation.program.is_empty()
         || invocation.max_output_bytes == 0
         || invocation.max_output_bytes > 256 * 1024 * 1024
         || invocation.stop_grace_seconds == 0
     {
         return Err(io::Error::other("invalid runner contract"));
+    }
+    if invocation.adapter_id == "claude_code_cli"
+        && (invocation.program != "forge-claude-driver"
+            || !matches!(invocation.credential_files.as_slice(), [credential]
+                if credential.source == "/run/forge-secrets/claude-setup-token"
+                    && credential.target == "/run/forge/claude-home/setup-token"
+                    && !credential.writeback))
+    {
+        return Err(io::Error::other("invalid Claude runner contract"));
     }
     Ok(())
 }
@@ -445,7 +556,10 @@ fn create_parent(path: &Path) -> io::Result<()> {
     let parent = path
         .parent()
         .ok_or_else(|| io::Error::other("invalid private path"))?;
-    fs::create_dir_all(parent)
+    fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(parent)
 }
 
 fn read_private(path: &Path) -> io::Result<Vec<u8>> {

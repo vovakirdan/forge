@@ -133,8 +133,12 @@ pub struct CreateTaskCommand {
     pub definition_of_done: Option<String>,
     /// Bounded work category.
     pub kind: TaskKind,
-    /// Immutable Pipeline version the Task will pin.
-    pub pipeline_version_id: String,
+    /// Immutable version to pin; mutually exclusive with `pipeline_id`.
+    #[serde(default)]
+    pub pipeline_version_id: Option<String>,
+    /// Named Pipeline whose current default is resolved atomically at creation.
+    #[serde(default)]
+    pub pipeline_id: Option<String>,
     /// Project priority key.
     pub priority: String,
     /// Typed property values serialized in the domain's tagged representation.
@@ -145,11 +149,31 @@ pub struct CreateTaskCommand {
 impl CreateTaskCommand {
     /// Builds a draft after Core resolves the selected Pipeline catalog identity.
     pub fn build(&self, context: TaskDraftContext<'_>) -> Result<Task, ApplicationError> {
-        if self.pipeline_version_id()? != context.pipeline.pipeline_version_id() {
+        self.build_with_source(context, TaskSource::Human)
+    }
+
+    pub(crate) fn build_with_source(
+        &self,
+        context: TaskDraftContext<'_>,
+        source: TaskSource,
+    ) -> Result<Task, ApplicationError> {
+        self.validate_public_contract()?;
+        if self.pipeline_version_id.is_some()
+            && self.pipeline_version_id()? != context.pipeline.pipeline_version_id()
+        {
             return Err(ApplicationError::InvalidPayload {
                 command: CommandName::CreateTask,
                 reason: "pipeline_version_id does not match the Core-resolved task binding"
                     .to_owned(),
+            });
+        }
+        if self
+            .selected_pipeline_id()?
+            .is_some_and(|id| id != context.pipeline.pipeline_id())
+        {
+            return Err(ApplicationError::InvalidPayload {
+                command: CommandName::CreateTask,
+                reason: "pipeline_id does not match the Core-resolved task binding".into(),
             });
         }
         let spec = TaskSpec::new(TaskSpecInput {
@@ -173,7 +197,7 @@ impl CreateTaskCommand {
                 spec,
                 priority_level_id,
                 pipeline: context.pipeline,
-                source: TaskSource::Human,
+                source,
                 created_by: context.created_by,
                 created_at: context.created_at,
             },
@@ -184,7 +208,23 @@ impl CreateTaskCommand {
 
     /// Parses the requested immutable Pipeline version identity.
     pub fn pipeline_version_id(&self) -> Result<PipelineVersionId, ApplicationError> {
-        parse_uuid_v7("pipeline_version_id", &self.pipeline_version_id)
+        let value = self.pipeline_version_id.as_deref().ok_or_else(|| {
+            ApplicationError::InvalidPayload {
+                command: CommandName::CreateTask,
+                reason: "no explicit pipeline_version_id was selected".into(),
+            }
+        })?;
+        parse_uuid_v7("pipeline_version_id", value)
+    }
+
+    /// Parses the named Pipeline selector, if supplied instead of an explicit version.
+    pub fn selected_pipeline_id(
+        &self,
+    ) -> Result<Option<forge_domain::PipelineId>, ApplicationError> {
+        self.pipeline_id
+            .as_deref()
+            .map(|value| parse_uuid_v7("pipeline_id", value))
+            .transpose()
     }
 
     /// Validates public fields whose structure does not require Core context.
@@ -194,7 +234,20 @@ impl CreateTaskCommand {
     /// Rejects a malformed pinned Pipeline identity or a Task property value
     /// that does not use Forge's tagged property representation.
     pub fn validate_public_contract(&self) -> Result<(), ApplicationError> {
-        let _ = self.pipeline_version_id()?;
+        match (&self.pipeline_id, &self.pipeline_version_id) {
+            (Some(_), None) => {
+                let _ = self.selected_pipeline_id()?;
+            }
+            (None, Some(_)) => {
+                let _ = self.pipeline_version_id()?;
+            }
+            _ => {
+                return Err(ApplicationError::InvalidPayload {
+                    command: CommandName::CreateTask,
+                    reason: "exactly one of pipeline_id and pipeline_version_id is required".into(),
+                });
+            }
+        }
         let _ = task_properties(&self.properties, CommandName::CreateTask)?;
         Ok(())
     }

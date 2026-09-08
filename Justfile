@@ -58,6 +58,18 @@ test-codex-live:
 run-m1 *args:
     @bash ./scripts/run-m1.sh "$@"
 
+# Create a private toy bare Git repository; no credentials, providers or Core mutation.
+prepare-m2-repository:
+    @bash ./scripts/prepare-m2-repository.sh
+
+# M2 development acceptance with real toy Git and synthetic provider observations.
+test-m2:
+    @bash ./scripts/test-m2.sh
+
+# REAL paid/subscription M2 lane; explicit settings and opt-in required.
+test-m2-live:
+    @bash ./scripts/test-m2-live.sh
+
 # Execute the deterministic M0 CLI operational smoke scenario.
 demo-m0:
     @./scripts/demo-m0.sh

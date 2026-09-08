@@ -3,6 +3,9 @@
 **Milestone:** M2 — Engineering Pipeline и provider matrix
 **Источник:** ../IMPLEMENTATION_PLAN.md, TASK-24–25
 
+**Уточнение M2:** [specification](../2026-09-06-m2-specs.md) и
+[execution ledger](../2026-09-06-m2-tasks.md) задают текущие границы и проверки.
+
 ## Цель
 
 Дать delivery Task настоящий engineering loop, остающийся одной Task при
@@ -10,10 +13,14 @@ verification failure, review return и merge conflict.
 
 ## В границах
 
-- Task-owned Git worktree, base/final SHA и versioned verification profiles;
-- deterministic command runner, Integration lock, rebase/merge/final checks;
+- Task-owned Git worktree, quiescent clean candidate и точный commit/tree;
+- необязательные явно настроенные project hooks в отдельном provider-free Run;
+- Integration lock, durable merge intent, target CAS и crash reconciliation,
+  без скрытых commit/rebase/reset;
 - review read-only snapshot, reviewer independence, typed verdict/comments и
   artifact acceptance.
+- QA как деятельность Employee: отчёт либо явно назначенная разработка тестов;
+  никакого автоматического обнаружения или обязательного «run all tests».
 
 ## Не в границах
 

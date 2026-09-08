@@ -38,8 +38,7 @@ impl Drop for SocketRoot {
 
 #[tokio::test]
 #[ignore = "requires local PostgreSQL and NATS; run just test-integration"]
-async fn gateway_human_question_pauses_without_pipeline_transition_and_requires_explicit_resume()
--> Result<()> {
+async fn gateway_human_question_requires_canonical_resolution_not_generic_resume() -> Result<()> {
     let harness = M0Harness::start().await?;
     let mut supervisor = harness.attach_manual_supervisor().await?;
     let project = harness.create_project("Gateway human escalation").await?;
@@ -112,6 +111,29 @@ async fn gateway_human_question_pauses_without_pipeline_transition_and_requires_
         "{}",
         response.text().await?
     );
+    let mut tx = harness.store.begin().await?;
+    let canonical = tx
+        .load_escalation_for_wait(
+            project,
+            task_id,
+            harness
+                .store
+                .load_task(task_id)
+                .await?
+                .context("Task")?
+                .task
+                .wait_conditions()
+                .next()
+                .context("wait")?
+                .id(),
+        )
+        .await?
+        .context("canonical question")?;
+    let forge_domain::resolution::EscalationState::Assigned { assignment_id } = canonical.state
+    else {
+        anyhow::bail!("Human assignment expected");
+    };
+    tx.commit().await?;
     let stop = supervisor.next_stop_for_run(&run.id.to_string()).await?;
     assert_eq!(
         stop.mode,
@@ -177,7 +199,15 @@ async fn gateway_human_question_pauses_without_pipeline_transition_and_requires_
         project_id:project.as_uuid().to_string(),expected_revision:harness.store.load_project(project).await?.context("Project")?.revision(),
         payload:json!({"task_id":task_id,"expected_task_revision":still_waiting.revision().get(),"wait_condition_id":wait_id}).as_object().context("object")?.clone(),
     },Uuid::now_v7().to_string())?;
-    harness.core.execute_command(envelope).await?;
+    assert!(
+        harness.core.execute_command(envelope).await.is_err(),
+        "a generic resume cannot bypass the canonical question"
+    );
+    harness.execute(project, forge_protocol::wire::CommandName::SubmitHumanResolution,
+        json!({"escalation_id":canonical.id,"expected_escalation_revision":canonical.revision,
+            "assignment_id":assignment_id,"lease_generation":canonical.generation,
+            "answer":{"disposition":"continue_stage","summary":"Proceed only within the documented scope"}})
+    ).await?;
     assert!(
         harness
             .store
@@ -449,7 +479,7 @@ async fn gateway_mcp_negotiates_catalog_calls_and_bounded_untrusted_requests() -
             .as_array()
             .context("MCP tool list")?
             .len(),
-        6
+        11
     );
     let read:Value=request(json!({"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"forge_read_task","arguments":{"task_id":task},"_meta":{"run_id":Uuid::now_v7()}}})).send().await?.json().await?;
     assert_eq!(read["result"]["structuredContent"]["task_id"], json!(task));
@@ -480,7 +510,13 @@ async fn gateway_mcp_negotiates_catalog_calls_and_bounded_untrusted_requests() -
     let stopped = request(json!({"jsonrpc":"2.0","id":7,"method":"tools/list"}))
         .send()
         .await?;
-    assert_eq!(stopped.status(), StatusCode::FORBIDDEN);
+    assert_eq!(stopped.status(), StatusCode::OK);
+    let stopped: Value = stopped.json().await?;
+    assert_eq!(stopped["error"]["code"], -32600);
+    assert!(
+        stopped["result"].is_null(),
+        "revoked MCP calls return no catalog or Task data"
+    );
     supervisor
         .send_observation_kind(&run, run.lease_fencing_token, 1, RunEventKind::Stopped)
         .await?;

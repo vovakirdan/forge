@@ -65,10 +65,11 @@ impl PostgresStore {
         Ok(sqlx::query_scalar("SELECT k.run_id FROM run_proxy_keys k JOIN runs r ON r.id=k.run_id JOIN leases l ON l.id=r.lease_id WHERE (k.revoked_at IS NULL OR k.issuance_pending) AND k.next_revocation_attempt_at<=clock_timestamp() AND (l.lease_state<>'active' OR r.desired_state IN ('stop_requested','force_stop_requested','stopped','failed'))")
             .fetch_all(&self.pool).await?)
     }
-    /// Lists only M1 executions whose physical existence remains unresolved.
+    /// Lists sandbox executions of every supported purpose while physical
+    /// existence remains unresolved. No Employee or provider is required.
     pub async fn list_recovery_runs(&self) -> Result<Vec<RunRecoveryState>, StorageError> {
         let query = format!(
-            "SELECT {RECOVERY_COLUMNS} FROM runs r JOIN leases l ON l.id=r.lease_id JOIN run_environment_reservations e ON e.run_id=r.id WHERE r.run_spec_version=2 AND e.released_at IS NULL ORDER BY r.created_at,r.id"
+            "SELECT {RECOVERY_COLUMNS} FROM runs r JOIN leases l ON l.id=r.lease_id JOIN run_environment_reservations e ON e.run_id=r.id WHERE r.run_spec_version IN (2,3,4,5) AND e.released_at IS NULL ORDER BY r.created_at,r.id"
         );
         sqlx::query(&query)
             .fetch_all(&self.pool)
@@ -102,7 +103,7 @@ impl StorageTransaction<'_> {
     }
     /// Structural contradiction check; not a semantic evaluator.
     pub async fn run_has_result_evidence(&mut self, run_id: Uuid) -> Result<bool, StorageError> {
-        Ok(sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM artifacts WHERE run_id=$1) OR EXISTS(SELECT 1 FROM task_handoffs WHERE run_id=$1 AND kind='accepted')")
+        Ok(sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM artifacts WHERE run_id=$1) OR EXISTS(SELECT 1 FROM task_handoffs WHERE run_id=$1 AND kind='accepted') OR EXISTS(SELECT 1 FROM employee_message_receipts WHERE run_id=$1 AND kind IN ('acknowledged','answered'))")
             .bind(run_id).fetch_one(&mut *self.transaction).await?)
     }
     /// Rechecks watchdog timestamps after Core acquires the Project lock.
@@ -146,6 +147,7 @@ impl StorageTransaction<'_> {
     ) -> Result<(), StorageError> {
         sqlx::query("UPDATE queue_entries q SET queue_state='cancelled',cancelled_at=clock_timestamp() FROM runs r WHERE r.id=$1 AND q.id=r.queue_entry_id AND q.queue_state='leased'")
             .bind(run_id).execute(&mut *self.transaction).await?;
+        self.hold_communication_run(run_id).await?;
         sqlx::query("UPDATE leases l SET lease_state='revoked',revoked_at=clock_timestamp(),revocation_reason=$2,revision=l.revision+1 FROM runs r WHERE r.id=$1 AND l.id=r.lease_id AND l.lease_state='active'")
             .bind(run_id).bind(reason).execute(&mut *self.transaction).await?;
         sqlx::query("UPDATE run_environment_reservations SET state=CASE WHEN $2 THEN 'quiescent' ELSE 'unknown' END,released_at=CASE WHEN $2 THEN clock_timestamp() ELSE released_at END WHERE run_id=$1 AND released_at IS NULL")

@@ -82,7 +82,13 @@ impl ServerHandler for RunGateway {
         let mut arguments = request.arguments.unwrap_or_default();
         let message_id = match arguments.remove("message_id") {
             Some(value) => serde_json::from_value::<Uuid>(value).ok(),
-            None if matches!(*logical, "board.list" | "task.read") => Some(Uuid::now_v7()),
+            None if matches!(
+                *logical,
+                "board.list" | "task.read" | "inbox.list" | "resolution.read"
+            ) =>
+            {
+                Some(Uuid::now_v7())
+            }
             None => None,
         };
         let Some(message_id) = message_id else {

@@ -48,8 +48,19 @@ impl HandoffArtifactReference {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum HandoffProducer {
-    Run { run_id: Uuid },
-    ResolutionAssignment { assignment_id: Uuid },
+    Run {
+        run_id: Uuid,
+    },
+    ResolutionAssignment {
+        assignment_id: Uuid,
+    },
+    SystemAction {
+        operation_id: Uuid,
+    },
+    /// An accepted management command, without inventing execution authority.
+    Command {
+        command_id: crate::CommandId,
+    },
     Human,
 }
 
@@ -99,6 +110,12 @@ impl TaskHandoff {
             HandoffProducer::ResolutionAssignment { assignment_id } => {
                 validate_uuid(assignment_id, "handoff.assignment_id")?
             }
+            HandoffProducer::SystemAction { operation_id } => {
+                validate_uuid(operation_id, "handoff.operation_id")?
+            }
+            HandoffProducer::Command { command_id } => {
+                command_id.validate_v7("handoff.command_id")?
+            }
             HandoffProducer::Human => {}
         }
         for (id, field) in [
@@ -133,7 +150,7 @@ impl TaskHandoff {
         for evidence in &input.evidence {
             let scope = evidence.data().scope;
             if scope.project_id != input.project_id
-                || scope.task_id != input.task_id
+                || scope.task_id != Some(input.task_id)
                 || matches!(input.producer, HandoffProducer::Run { run_id } if run_id != scope.run_id)
             {
                 return Err(invalid(

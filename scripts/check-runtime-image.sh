@@ -15,11 +15,13 @@ probe() {
         --env HOME=/tmp --env XDG_CONFIG_HOME=/tmp/config \
         --env XDG_CACHE_HOME=/tmp/cache --env XDG_DATA_HOME=/tmp/data \
         --env OPENCODE_DISABLE_MODELS_FETCH=true --env OPENCODE_DISABLE_AUTOUPDATE=true \
+        --env CLAUDE_CONFIG_DIR=/tmp/claude --env CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 \
         --entrypoint "$1" "$IMAGE_REF" --version
 }
 [[ $(probe /usr/local/bin/node) == v24.14.0 ]] || { printf 'Node version mismatch.\n' >&2; exit 1; }
 [[ $(probe /usr/local/bin/codex) == 'codex-cli 0.153.2' ]] || { printf 'Codex version mismatch.\n' >&2; exit 1; }
 [[ $(probe /usr/local/bin/opencode) == 1.18.29 ]] || { printf 'OpenCode version mismatch.\n' >&2; exit 1; }
+[[ $(probe /usr/local/bin/claude) == '2.1.263 (Claude Code)' ]] || { printf 'Claude Code version mismatch.\n' >&2; exit 1; }
 readonly DIGEST="$(podman image inspect --format '{{.Digest}}' "$IMAGE_REF")"
 if [[ ! "$DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]]; then
     printf 'Image digest unavailable.\n' >&2

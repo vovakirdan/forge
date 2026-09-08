@@ -149,6 +149,7 @@ fn m1_extensions_are_not_supported_by_the_m0_executor() {
     let (mut envelope, _) = fixture();
     for name in [
         CommandName::ConfigureEmployeeRuntime,
+        CommandName::ConfigureProjectHook,
         CommandName::EnrollCredential,
         CommandName::ConfigureBootRecoveryPolicy,
         CommandName::AcceptRunRecoveryAssessment,

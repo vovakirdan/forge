@@ -9,7 +9,7 @@ use super::*;
 fn scope() -> EvidenceScope {
     EvidenceScope {
         project_id: ProjectId::new(),
-        task_id: TaskId::new(),
+        task_id: Some(TaskId::new()),
         run_id: Uuid::now_v7(),
     }
 }

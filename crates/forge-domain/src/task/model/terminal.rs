@@ -58,13 +58,15 @@ impl TaskPipelineBinding {
     }
 }
 
-/// M0-safe work surface shape. Real surfaces are added only with the execution runtime.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+/// Task-owned source binding. Provisioning is separate from canonical registration.
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TaskWorkSurface {
     /// The Task has no provisioned work surface in M0.
     #[default]
     None,
+    /// An explicit immutable Project repository and persistent private Task surface.
+    Git(crate::TaskGitBinding),
 }
 
 /// Input used to create one draft Task.

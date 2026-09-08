@@ -75,6 +75,46 @@ fn exact_pin_capabilities_and_domain_binding_are_conformant() {
 }
 
 #[test]
+fn native_input_is_explicit_and_preserves_gateway_only_credentials() {
+    let mut value: ExecutionProfileInput = profile().into();
+    value.capability_profile = OpenCodeAdapter::live_capabilities();
+    let profile = ExecutionProfile::try_from(value).unwrap();
+    let prepared = OpenCodeAdapter::prepare(input(&profile)).unwrap();
+    assert_eq!(prepared.program, "forge-opencode-driver");
+    assert!(
+        OpenCodeAdapter::preflight("1.18.29", &profile)
+            .unwrap()
+            .capabilities
+            .contains(&RuntimeCapability::LiveInput)
+    );
+    assert!(
+        !OpenCodeAdapter::capabilities()
+            .capabilities
+            .contains(&RuntimeCapability::LiveInput)
+    );
+    assert!(!profile.capability_profile().credential_exposed_to_run);
+    assert_eq!(prepared.credential_files.len(), 1);
+    assert!(!prepared.credential_files[0].writeback);
+}
+
+#[test]
+fn failed_assistant_keeps_usage_without_reporting_success_or_error_text() {
+    let mut events = EventInterpreter::new("ses_test");
+    let value=json!({"type":"message.updated","properties":{"info":{"id":"msg_failed","sessionID":"ses_test","role":"assistant","time":{},"error":{"name":"APIError","data":{"statusCode":429,"message":"secret-error-body"}},"tokens":{"input":7,"output":2,"reasoning":0,"cache":{"read":3,"write":0}}}}}).to_string();
+    for _ in 0..2 {
+        let event = events.ingest(&value).unwrap();
+        assert!(matches!(
+            event,
+            SessionEvent::Observation(RuntimeObservation::Failure {
+                kind: RuntimeFailureKind::RateLimited
+            })
+        ));
+        assert!(!format!("{event:?}").contains("secret-error-body"));
+    }
+    assert_eq!(events.usage().unwrap().input_tokens, 10);
+}
+
+#[test]
 fn managed_environment_has_explicit_provider_model_and_only_key_reference() {
     let profile = profile();
     let prepared = OpenCodeAdapter::prepare(input(&profile)).unwrap();

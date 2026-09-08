@@ -29,6 +29,15 @@ pub struct OpenCodeRunInput<'a> {
 pub struct OpenCodeAdapter;
 
 impl OpenCodeAdapter {
+    pub fn live_capabilities() -> CapabilityProfile {
+        let mut profile = Self::capabilities();
+        profile.capabilities.insert(RuntimeCapability::LiveInput);
+        profile
+    }
+
+    pub fn validate_profile(profile: &ExecutionProfile) -> Result<(), AdapterError> {
+        validate_profile(profile)
+    }
     pub fn capabilities() -> CapabilityProfile {
         CapabilityProfile {
             adapter_id: "opencode_runtime".into(),
@@ -54,7 +63,17 @@ impl OpenCodeAdapter {
             return Err(AdapterError::VersionMismatch);
         }
         validate_profile(profile)?;
-        Ok(Self::capabilities())
+        Ok(
+            if profile
+                .capability_profile()
+                .capabilities
+                .contains(&RuntimeCapability::LiveInput)
+            {
+                Self::live_capabilities()
+            } else {
+                Self::capabilities()
+            },
+        )
     }
 
     pub fn prepare(input: OpenCodeRunInput<'_>) -> Result<PreparedInvocation, AdapterError> {
@@ -134,7 +153,7 @@ fn validate_profile(profile: &ExecutionProfile) -> Result<(), AdapterError> {
     if !profile
         .capability_profile()
         .capabilities
-        .is_subset(&OpenCodeAdapter::capabilities().capabilities)
+        .is_subset(&OpenCodeAdapter::live_capabilities().capabilities)
     {
         return Err(AdapterError::UnsupportedCapability);
     }

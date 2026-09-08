@@ -32,18 +32,23 @@ impl RunGateway {
         }
         // The closure was bound to a canonical Run; even a now-revoked request
         // is attributed to that original Task, never to a worker-supplied id.
-        let task = transaction
-            .lock_task(self.task_id)
-            .await?
-            .ok_or(CoreError::NotFound { aggregate: "task" })?
-            .task;
-        if task.project_id() != project.id() {
-            return Err(super::invalid("audit scope mismatch"));
-        }
+        let (aggregate, revision) = if let Some(owner) = self.assignment.task_stage() {
+            let task = transaction
+                .lock_task(owner.task_id)
+                .await?
+                .ok_or(CoreError::NotFound { aggregate: "task" })?
+                .task;
+            if task.project_id() != project.id() {
+                return Err(super::invalid("audit scope mismatch"));
+            }
+            (AggregateRef::Task(task.id()), task.revision().get())
+        } else {
+            (AggregateRef::Project(project.id()), project.revision())
+        };
         let audit = event(
             project.id(),
-            AggregateRef::Task(task.id()),
-            task.revision().get(),
+            aggregate,
+            revision,
             if allowed {
                 DomainEventKind::ToolGatewayCallAllowed
             } else {

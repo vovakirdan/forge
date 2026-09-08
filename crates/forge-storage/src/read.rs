@@ -9,7 +9,7 @@ use crate::{
     run_projection_from_row,
 };
 
-const RUN_COLUMNS: &str = "id, project_id, task_id, queue_entry_id, lease_id, employee_id, stage_id, attempt_number, lease_fencing_token, environment_epoch, last_sequence, desired_state, observed_state, run_spec_version, run_spec::text AS run_spec, context_manifest::text AS context_manifest, observed_details::text AS observed_details";
+const RUN_COLUMNS: &str = "id, project_id, purpose, communication_assignment_id, resolution_assignment_id, hook_invocation_id, task_id, queue_entry_id, lease_id, employee_id, stage_id, attempt_number, lease_fencing_token, environment_epoch, last_sequence, desired_state, observed_state, run_spec_version, run_spec::text AS run_spec, context_manifest::text AS context_manifest, observed_details::text AS observed_details";
 
 impl PostgresStore {
     /// Lists all durable Project identities for recovery and stop reconciliation.

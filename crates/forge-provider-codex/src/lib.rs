@@ -1,6 +1,8 @@
 //! Pinned native Codex CLI adapter; execution belongs to the sandbox Supervisor.
 #![forbid(unsafe_code)]
 
+pub mod app_server;
+pub mod driver;
 mod events;
 mod prepare;
 

@@ -247,6 +247,11 @@ impl Engine<'_> {
         let stored = load_scoped_task(transaction, &project, task_id).await?;
         require_task_revision(&stored.task, expected_task_revision)?;
         let version = pinned_pipeline_version(transaction, &project, &stored.task).await?;
+        for stage in version.stages() {
+            if let Some(policy) = stage.acceptance_policy() {
+                policy.validate_task_surface(stored.task.work_surface())?;
+            }
+        }
         let entry_executor = version
             .stage(version.entry_stage_id())
             .ok_or(CommandError::InvalidTransport {
@@ -254,7 +259,19 @@ impl Engine<'_> {
                 reason: "is absent from the pinned pipeline version".to_owned(),
             })?
             .executor_kind();
-        reject_unimplemented_system_stage(entry_executor)?;
+        reject_unimplemented_system_stage(
+            version
+                .stage(version.entry_stage_id())
+                .ok_or(CommandError::NotFound {
+                    aggregate: "entry stage",
+                })?,
+            &stored.task,
+        )?;
+        for stage in version.stages() {
+            if let Some(action) = stage.system_action() {
+                action.validate_task(&stored.task)?;
+            }
+        }
 
         let previous_revision = stored.task.revision().get();
         let mut task = stored.task;

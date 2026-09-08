@@ -67,9 +67,11 @@ impl StorageTransaction<'_> {
         let Some(run) = self.load_run(scope.run_id).await? else {
             return Ok(None);
         };
-        let lease: Option<Uuid> = sqlx::query_scalar("SELECT id FROM leases WHERE id = $1 AND project_id = $2 AND task_id = $3 AND employee_id = $4 AND fencing_token = $5 AND environment_epoch = $6 AND lease_state = 'active' FOR UPDATE")
-            .bind(run.lease_id).bind(run.project_id.as_uuid()).bind(run.task_id.as_uuid()).bind(run.employee_id.as_uuid())
-            .bind(u64_to_i64(scope.fencing_token, "gateway.fencing_token")?).bind(u64_to_i64(scope.environment_epoch, "gateway.environment_epoch")?)
+        if run.assignment.hook().is_some() || run.employee_id.is_none() {
+            return Ok(None);
+        }
+        let lease: Option<Uuid> = sqlx::query_scalar("SELECT l.id FROM leases l JOIN runs r ON forge_lease_owns_run(l,r) WHERE r.id=$1 AND l.lease_state='active' FOR UPDATE OF l")
+            .bind(run.id)
             .fetch_optional(&mut *self.transaction).await?;
         Ok(lease.map(|_| run))
     }

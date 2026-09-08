@@ -6,7 +6,7 @@ info:
     name: MIT
     identifier: MIT
   description: |
-    Local-only HTTP/JSON and SSE control contract for Forge M0.
+    Local-only HTTP/JSON and SSE control contract for Forge.
 
     This API is served over an owner-only Unix domain socket, not a TCP
     listener. The nominal server URL only supplies an HTTP authority to generic
@@ -58,7 +58,100 @@ tags:
     description: Desired and observed execution-attempt projections.
   - name: events
     description: Replayable canonical Event stream.
+  - name: inbox
+    description: Durable Employee conversations; persistence is not runtime delivery.
 paths:
+  /v1/projects/{project_id}/hook-versions:
+    get:
+      tags: [projects]
+      operationId: listProjectHookVersions
+      summary: Read immutable owner-configured command versions; never execute them.
+      parameters:
+        - {name: project_id, in: path, required: true, schema: {$ref: '#/components/schemas/UuidV7'}}
+        - {name: after, in: query, schema: {$ref: '#/components/schemas/UuidV7'}}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 50}}
+      responses:
+        '200':
+          description: Ascending version-ID page. Names may repeat; Pipeline pins exact IDs.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, next_cursor]
+                properties:
+                  items: {type: array, items: {$ref: '#/components/schemas/ProjectHookVersionView'}}
+                  next_cursor: {type: [string, 'null'], format: uuid}
+        '400': {description: Invalid identifier, cursor or page limit.}
+        '404': {description: Project absent.}
+  /v1/projects/{project_id}/tasks/{task_id}/integrations:
+    get:
+      tags: [tasks]
+      operationId: listGitIntegrations
+      summary: Read retained local Git operations without issuing filesystem effects.
+      parameters:
+        - {name: project_id, in: path, required: true, schema: {$ref: '#/components/schemas/UuidV7'}}
+        - {name: task_id, in: path, required: true, schema: {$ref: '#/components/schemas/UuidV7'}}
+        - {name: after, in: query, schema: {$ref: '#/components/schemas/UuidV7'}}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 50}}
+      responses:
+        '200':
+          description: Ascending operation-ID page; host paths and control payloads are excluded.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, next_cursor]
+                properties:
+                  items: {type: array, items: {$ref: '#/components/schemas/GitIntegrationView'}}
+                  next_cursor: {type: [string, 'null'], format: uuid}
+        '400': {description: Invalid identifier, cursor or page limit.}
+        '404': {description: Task absent from the requested Project.}
+  /v1/projects/{project_id}/findings:
+    get:
+      tags: [tasks]
+      operationId: listFindings
+      summary: Read observations without changing backlog or triage.
+      parameters:
+        - {name: project_id, in: path, required: true, schema: {$ref: '#/components/schemas/UuidV7'}}
+        - {name: task_id, in: query, schema: {$ref: '#/components/schemas/UuidV7'}}
+        - {name: after, in: query, schema: {$ref: '#/components/schemas/UuidV7'}}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 50}}
+      responses:
+        '200':
+          description: Ascending ID page; event timestamps remain the authoritative chronology.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, next_cursor]
+                properties:
+                  items: {type: array, items: {$ref: '#/components/schemas/FindingView'}}
+                  next_cursor: {type: [string, 'null'], format: uuid}
+        '400': {description: Invalid query or identifier.}
+        '404': {description: Project or requested source Task does not exist in scope.}
+  /v1/projects/{project_id}/tasks/{task_id}/reviews:
+    get:
+      tags: [tasks]
+      operationId: listCandidateReviews
+      summary: Read immutable revision-bound Employee assessments.
+      parameters:
+        - {name: project_id, in: path, required: true, schema: {$ref: '#/components/schemas/UuidV7'}}
+        - {name: task_id, in: path, required: true, schema: {$ref: '#/components/schemas/UuidV7'}}
+        - {name: after, in: query, schema: {$ref: '#/components/schemas/UuidV7'}}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 50}}
+      responses:
+        '200':
+          description: Descending record-ID page; recorded_at is authoritative time, not ID order.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, next_cursor]
+                properties:
+                  items: {type: array, items: {$ref: '#/components/schemas/CandidateReviewRecord'}}
+                  next_cursor: {type: [string, 'null'], format: uuid}
+        '400': {description: Invalid bounded query or identifiers.}
+        '404': {description: Task does not exist in this Project.}
   /v1/health:
     get:
       tags: [system]
@@ -247,6 +340,68 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/RunView'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/projects/{projectId}/employees/{employeeId}/threads:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+      - name: employeeId
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/UuidV7'
+      - name: after
+        in: query
+        description: Exclusive thread UUID from next_cursor; creation order is stable.
+        schema:
+          $ref: '#/components/schemas/UuidV7'
+      - $ref: '#/components/parameters/PageLimit'
+    get:
+      tags: [inbox]
+      operationId: listEmployeeThreads
+      summary: Read a bounded page of an Employee's conversations.
+      responses:
+        '200':
+          description: Canonical threads, including taskless conversations.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeThreadList'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/projects/{projectId}/threads/{threadId}/messages:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+      - name: threadId
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/UuidV7'
+      - name: after
+        in: query
+        description: Exclusive per-thread sequence, zero by default.
+        schema:
+          type: integer
+          minimum: 0
+          maximum: 9223372036854775807
+      - $ref: '#/components/parameters/PageLimit'
+    get:
+      tags: [inbox]
+      operationId: listEmployeeMessages
+      summary: Read immutable messages in thread sequence order.
+      responses:
+        '200':
+          description: Canonical messages; reading does not acknowledge them.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeMessageList'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
         '404':
           $ref: '#/components/responses/NotFound'
 
@@ -646,14 +801,37 @@ components:
     CommandName:
       type: string
       enum:
+        - report_finding
+        - triage_finding
+        - promote_finding
         - create_project
         - create_pipeline
+        - publish_pipeline_version
+        - set_pipeline_default_version
+        - delete_pipeline
         - create_employee
+        - amend_employee
+        - enable_employee
+        - disable_employee
+        - retire_employee
+        - stop_employee
+        - open_employee_thread
+        - send_employee_message
+        - waive_message_requirement
         - create_task
         - amend_draft
         - approve_task
         - cancel_task
         - resume_task
+        - pause_task
+        - set_next_run_employee
+        - clear_next_run_employee
+        - schedule_task_resume
+        - configure_resolver_route
+        - raise_escalation
+        - submit_human_resolution
+        - reroute_escalation
+        - cancel_task_resume
         - set_task_priority
         - create_dependency
         - remove_dependency
@@ -661,9 +839,13 @@ components:
         - stop_project_execution
         - submit_external_stage_outcome
         - configure_employee_runtime
+        - configure_project_hook
         - enroll_credential
         - configure_boot_recovery_policy
         - accept_run_recovery_assessment
+        - retry_communication
+        - retry_git_integration
+        - accept_git_integration_result
 
     CommandRequest:
       type: object
@@ -682,14 +864,35 @@ components:
             caller-reserved UUIDv7 for the new Project.
         payload:
           anyOf:
+            - $ref: '#/components/schemas/ReportFindingPayload'
+            - $ref: '#/components/schemas/TriageFindingPayload'
+            - $ref: '#/components/schemas/PromoteFindingPayload'
             - $ref: '#/components/schemas/CreateProjectPayload'
             - $ref: '#/components/schemas/CreatePipelinePayload'
+            - $ref: '#/components/schemas/PublishPipelineVersionPayload'
+            - $ref: '#/components/schemas/SetPipelineDefaultVersionPayload'
+            - $ref: '#/components/schemas/DeletePipelinePayload'
             - $ref: '#/components/schemas/CreateEmployeePayload'
+            - $ref: '#/components/schemas/AmendEmployeePayload'
+            - $ref: '#/components/schemas/EmployeeLifecyclePayload'
+            - $ref: '#/components/schemas/StopEmployeePayload'
+            - $ref: '#/components/schemas/OpenEmployeeThreadPayload'
+            - $ref: '#/components/schemas/SendEmployeeMessagePayload'
+            - $ref: '#/components/schemas/WaiveMessageRequirementPayload'
             - $ref: '#/components/schemas/CreateTaskPayload'
             - $ref: '#/components/schemas/AmendDraftPayload'
             - $ref: '#/components/schemas/ApproveTaskPayload'
             - $ref: '#/components/schemas/CancelTaskPayload'
             - $ref: '#/components/schemas/ResumeTaskPayload'
+            - $ref: '#/components/schemas/PauseTaskPayload'
+            - $ref: '#/components/schemas/SetNextRunEmployeePayload'
+            - $ref: '#/components/schemas/ClearNextRunEmployeePayload'
+            - $ref: '#/components/schemas/ScheduleTaskResumePayload'
+            - $ref: '#/components/schemas/ConfigureResolverRoutePayload'
+            - $ref: '#/components/schemas/RaiseEscalationPayload'
+            - $ref: '#/components/schemas/SubmitHumanResolutionPayload'
+            - $ref: '#/components/schemas/RerouteEscalationPayload'
+            - $ref: '#/components/schemas/CancelTaskResumePayload'
             - $ref: '#/components/schemas/SetTaskPriorityPayload'
             - $ref: '#/components/schemas/CreateDependencyPayload'
             - $ref: '#/components/schemas/RemoveDependencyPayload'
@@ -697,13 +900,59 @@ components:
             - $ref: '#/components/schemas/StopProjectExecutionPayload'
             - $ref: '#/components/schemas/SubmitExternalStageOutcomePayload'
             - $ref: '#/components/schemas/ConfigureEmployeeRuntimePayload'
+            - $ref: '#/components/schemas/ConfigureProjectHookPayload'
             - $ref: '#/components/schemas/EnrollCredentialPayload'
             - $ref: '#/components/schemas/ConfigureBootRecoveryPolicyPayload'
             - $ref: '#/components/schemas/AcceptRunRecoveryAssessmentPayload'
+            - $ref: '#/components/schemas/RetryCommunicationPayload'
+            - $ref: '#/components/schemas/GitIntegrationResolutionPayload'
           description: |
             The schema must match the `{name}` path parameter. `anyOf` is used
             because empty start/stop payloads intentionally overlap; Core still
             enforces the path-to-payload pairing.
+
+    ConfigureProjectHookPayload:
+      type: object
+      additionalProperties: false
+      required: [name, image, command, workdir, limits, max_output_bytes, required]
+      properties:
+        name: {type: string, minLength: 1, maxLength: 128}
+        image: {type: string, description: Pinned OCI digest with the Forge runner wrapper installed.}
+        command:
+          type: array
+          minItems: 1
+          maxItems: 128
+          items: {type: string, maxLength: 32768}
+          description: Container executable followed by arguments; no implicit host shell or test discovery.
+        workdir: {type: string, minLength: 1, maxLength: 4096, description: 'Relative candidate directory, or a dot for its root; no parent traversal.'}
+        limits: {$ref: '#/components/schemas/RuntimeBinding/properties/limits'}
+        max_output_bytes: {type: integer, minimum: 1, maximum: 268435456}
+        applicable_task_kinds:
+          type: array
+          uniqueItems: true
+          default: []
+          items: {type: string, enum: [delivery, analysis]}
+          description: Empty means all kinds. A nonmatch records explicit Skipped without a Run.
+        required: {type: boolean, description: Owner opt-in to an exact-candidate prerequisite before Done and Git integration.}
+      x-forge-command: configure_project_hook
+      description: Creates a new immutable UUID version in the envelope Project. Core supplies identity/time; same-key retry returns the original version. No credentials or provider fields are accepted.
+
+    ProjectHookVersionView:
+      type: object
+      additionalProperties: false
+      required: [id, project_id, name, image, command, workdir, limits, max_output_bytes, applicable_task_kinds, required, created_at]
+      properties:
+        id: {$ref: '#/components/schemas/UuidV7'}
+        project_id: {$ref: '#/components/schemas/UuidV7'}
+        name: {$ref: '#/components/schemas/ConfigureProjectHookPayload/properties/name'}
+        image: {$ref: '#/components/schemas/ConfigureProjectHookPayload/properties/image'}
+        command: {$ref: '#/components/schemas/ConfigureProjectHookPayload/properties/command'}
+        workdir: {$ref: '#/components/schemas/ConfigureProjectHookPayload/properties/workdir'}
+        limits: {$ref: '#/components/schemas/RuntimeBinding/properties/limits'}
+        max_output_bytes: {$ref: '#/components/schemas/ConfigureProjectHookPayload/properties/max_output_bytes'}
+        applicable_task_kinds: {$ref: '#/components/schemas/ConfigureProjectHookPayload/properties/applicable_task_kinds'}
+        required: {type: boolean}
+        created_at: {type: string, format: date-time}
 
     ConfigureEmployeeRuntimePayload:
       type: object
@@ -727,7 +976,7 @@ components:
           $ref: '#/components/schemas/UuidV7'
         kind:
           type: string
-          enum: [codex_chatgpt, api_key]
+          enum: [codex_chatgpt, api_key, claude_subscription]
         source_file:
           type: string
           pattern: '^/'
@@ -745,6 +994,75 @@ components:
           enum: [reconcile_then_resume_queue, recover_safe_then_hold, manual_hold]
       x-forge-command: configure_boot_recovery_policy
 
+    GitIntegrationView:
+      type: object
+      additionalProperties: false
+      required: [id, task_id, fence, stage_id, stage_visit, candidate_proposal_id, candidate, state, expected_task_revision, wait_condition_id, resolution, prepared_merge, result_code, created_at]
+      properties:
+        id: {$ref: '#/components/schemas/UuidV7'}
+        task_id: {$ref: '#/components/schemas/UuidV7'}
+        candidate_proposal_id: {$ref: '#/components/schemas/UuidV7'}
+        fence: {type: integer, minimum: 1}
+        stage_id: {$ref: '#/components/schemas/StableKey'}
+        stage_visit: {type: integer, minimum: 1}
+        expected_task_revision: {type: integer, minimum: 1}
+        candidate:
+          type: object
+          required: [commit, tree]
+          properties:
+            commit: {type: string}
+            tree: {type: string}
+        state: {type: string, enum: [preparing, prepared, applying, held, completed, retired]}
+        wait_condition_id: {type: [string, 'null'], format: uuid}
+        resolution: {type: [string, 'null'], enum: [retry, accept, null]}
+        prepared_merge:
+          oneOf:
+            - type: 'null'
+            - type: object
+              required: [expected_target, merge_commit]
+              properties:
+                expected_target: {type: string}
+                merge_commit: {type: string}
+        result_code:
+          type: [string, 'null']
+          enum: [prepared, applied, no_changes, stale_base, retryable, no_preparation, unknown, busy, refused, unavailable, null]
+        created_at: {$ref: '#/components/schemas/Rfc3339Timestamp'}
+
+    GitIntegrationResolutionPayload:
+      type: object
+      additionalProperties: false
+      required: [operation_id, expected_task_revision, reason]
+      properties:
+        operation_id:
+          $ref: '#/components/schemas/UuidV7'
+        expected_task_revision:
+          type: integer
+          minimum: 1
+          format: int64
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 4096
+      description: >
+        Retry requires fresh read-only reconciliation before reusing the exact retained
+        merge intent. Accept requires a recorded Applied result and fresh observation,
+        applies only the configured Task outcome, and never repeats CAS. Both require
+        the resumed current Task visit and current candidate/review/Project gates.
+      x-forge-commands: [retry_git_integration, accept_git_integration_result]
+
+    RetryCommunicationPayload:
+      type: object
+      additionalProperties: false
+      required: [run_id, reason]
+      properties:
+        run_id:
+          $ref: '#/components/schemas/UuidV7'
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 4096
+      description: Explicitly retry the latest held Communication attempt only after logical retirement and positive physical quiescence. Retains original input and replies; never changes a context Task.
+      x-forge-command: retry_communication
     AcceptRunRecoveryAssessmentPayload:
       type: object
       additionalProperties: false
@@ -826,7 +1144,7 @@ components:
         id: {$ref: '#/components/schemas/UuidV7'}
         revision: {type: integer, minimum: 1}
         project_id: {$ref: '#/components/schemas/UuidV7'}
-        adapter_id: {enum: [codex_cli, opencode_runtime]}
+        adapter_id: {enum: [codex_cli, opencode_runtime, claude_code_cli]}
         adapter_version: {type: string}
         provider_id: {type: string, minLength: 1}
         model: {type: string, minLength: 1}
@@ -910,6 +1228,65 @@ components:
             $ref: '#/components/schemas/PipelineTransitionView'
       x-forge-command: create_pipeline
 
+    PipelineDefinitionInput:
+      type: object
+      additionalProperties: false
+      required: [task_kinds, entry_stage_id, stages, transitions]
+      properties:
+        task_kinds:
+          type: array
+          minItems: 1
+          maxItems: 2
+          uniqueItems: true
+          items: {$ref: '#/components/schemas/TaskKind'}
+        entry_stage_id: {$ref: '#/components/schemas/StableKey'}
+        max_stage_visits:
+          type: [integer, 'null']
+          minimum: 1
+          maximum: 1000000
+        stages:
+          type: array
+          minItems: 1
+          maxItems: 128
+          items: {$ref: '#/components/schemas/PipelineStageInput'}
+        transitions:
+          type: array
+          maxItems: 1024
+          items: {$ref: '#/components/schemas/PipelineTransitionView'}
+
+    PublishPipelineVersionPayload:
+      type: object
+      additionalProperties: false
+      required: [pipeline_id, expected_pipeline_revision, definition]
+      properties:
+        pipeline_id: {$ref: '#/components/schemas/UuidV7'}
+        expected_pipeline_revision: {type: integer, minimum: 1}
+        definition: {$ref: '#/components/schemas/PipelineDefinitionInput'}
+        make_default: {type: boolean, default: false}
+      description: Publishes the next immutable graph; existing Tasks retain their pinned version.
+      x-forge-command: publish_pipeline_version
+
+    SetPipelineDefaultVersionPayload:
+      type: object
+      additionalProperties: false
+      required: [pipeline_id, expected_pipeline_revision, pipeline_version_id]
+      properties:
+        pipeline_id: {$ref: '#/components/schemas/UuidV7'}
+        expected_pipeline_revision: {type: integer, minimum: 1}
+        pipeline_version_id: {$ref: '#/components/schemas/UuidV7'}
+      description: Selects an existing version of this Pipeline for future Task bindings only.
+      x-forge-command: set_pipeline_default_version
+
+    DeletePipelinePayload:
+      type: object
+      additionalProperties: false
+      required: [pipeline_id, expected_pipeline_revision]
+      properties:
+        pipeline_id: {$ref: '#/components/schemas/UuidV7'}
+        expected_pipeline_revision: {type: integer, minimum: 1}
+      description: Soft deletion disallows new Task bindings; versions and historical Tasks are retained.
+      x-forge-command: delete_pipeline
+
     CreateEmployeePayload:
       type: object
       additionalProperties: false
@@ -927,10 +1304,472 @@ components:
           $ref: '#/components/schemas/StageEligibilityInput'
       x-forge-command: create_employee
 
+    AmendEmployeePayload:
+      type: object
+      additionalProperties: false
+      required: [employee_id, expected_employee_revision, patch]
+      properties:
+        employee_id:
+          $ref: '#/components/schemas/UuidV7'
+        expected_employee_revision:
+          type: integer
+          minimum: 1
+        patch:
+          type: object
+          additionalProperties: false
+          minProperties: 1
+          properties:
+            name:
+              type: string
+              minLength: 1
+              maxLength: 200
+            role:
+              type: string
+              minLength: 1
+              maxLength: 128
+            stage_eligibility:
+              $ref: '#/components/schemas/StageEligibilityInput'
+            max_concurrent_runs:
+              type: integer
+              minimum: 1
+              maximum: 65535
+              description: Existing profiles default to one; lowering capacity does not preempt Runs.
+      x-forge-command: amend_employee
+
+    EmployeeLifecyclePayload:
+      type: object
+      additionalProperties: false
+      required: [employee_id, expected_employee_revision]
+      properties:
+        employee_id:
+          $ref: '#/components/schemas/UuidV7'
+        expected_employee_revision:
+          type: integer
+          minimum: 1
+      description: >
+        Payload for enable_employee, disable_employee and retire_employee.
+        Retiring is final. Disabling or retiring prevents admission, not a stop
+        command; physical reservations remain held until quiescence.
+
+    StopEmployeePayload:
+      type: object
+      additionalProperties: false
+      required: [employee_id, expected_employee_revision, mode]
+      properties:
+        employee_id:
+          $ref: '#/components/schemas/UuidV7'
+        expected_employee_revision:
+          type: integer
+          minimum: 1
+        mode:
+          type: string
+          enum: [graceful, force]
+        reason:
+          type: [string, 'null']
+          minLength: 1
+          maxLength: 10000
+          description: Nonblank audit context without NUL; never a prompt or shell command.
+      description: >
+        Disables future Employee admission and requests stops for all execution
+        purposes. Retired Employees remain retired. Force revokes logical
+        authority, never the physical reservation. Only an exact current Task
+        stage visit receives an Employee-stop wait; conversation context alone
+        grants no Task ownership. Re-enabling requires a separate command.
+      x-forge-command: stop_employee
+
+    PauseTaskPayload:
+      type: object
+      additionalProperties: false
+      required: [task_id, expected_task_revision, mode]
+      properties:
+        task_id:
+          $ref: '#/components/schemas/UuidV7'
+        expected_task_revision:
+          type: integer
+          minimum: 1
+        mode:
+          type: string
+          enum: [graceful, force]
+        reason:
+          type: [string, 'null']
+          minLength: 1
+          maxLength: 10000
+          description: Nonblank audit context without NUL.
+      description: >
+        Adds an individual manual pause and explicitly stops Task-owned stage
+        executions. Waiting records management intent, not observed process exit.
+        Draft and terminal Tasks reject this command. Resume resolves only the
+        named wait; remaining waits and physical reservations continue to gate work.
+      x-forge-command: pause_task
+
+    SetNextRunEmployeePayload:
+      type: object
+      additionalProperties: false
+      required: [task_id, expected_task_revision, employee_id]
+      properties:
+        task_id:
+          $ref: '#/components/schemas/UuidV7'
+        expected_task_revision:
+          type: integer
+          minimum: 1
+        employee_id:
+          $ref: '#/components/schemas/UuidV7'
+        reason:
+          type: [string, 'null']
+          minLength: 1
+          maxLength: 10000
+          description: Nonblank audit context without NUL.
+      description: >
+        Pins the next Run to an enabled eligible Employee and the exact current
+        Task stage visit. Does not transfer or stop active work. Busy capacity
+        waits without fallback; a subsequently disabled/ineligible assignee
+        produces a durable admission hold requiring explicit replacement/clear.
+        Consumption commits atomically with one matching Lease and Run.
+      x-forge-command: set_next_run_employee
+
+    ClearNextRunEmployeePayload:
+      type: object
+      additionalProperties: false
+      required: [task_id, expected_task_revision]
+      properties:
+        task_id:
+          $ref: '#/components/schemas/UuidV7'
+        expected_task_revision:
+          type: integer
+          minimum: 1
+        reason:
+          type: [string, 'null']
+          minLength: 1
+          maxLength: 10000
+          description: Nonblank audit context without NUL.
+      description: Clears a pending/blocked next-Run constraint, retaining immutable history.
+      x-forge-command: clear_next_run_employee
+
+    ScheduleTaskResumePayload:
+      type: object
+      additionalProperties: false
+      required: [task_id, expected_task_revision, wait_condition_id, not_before, reason]
+      properties:
+        task_id:
+          $ref: '#/components/schemas/UuidV7'
+        expected_task_revision:
+          type: integer
+          minimum: 1
+        wait_condition_id:
+          $ref: '#/components/schemas/UuidV7'
+        not_before:
+          type: string
+          format: date-time
+          description: Future RFC3339 wall-clock deadline; not a promise of immediate execution.
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 10000
+          description: Required nonblank audit context without NUL.
+      description: >
+        Creates one immutable resume intent for a currently waiting Employee
+        stage and a wait resolvable by ordinary resume_task. At the deadline,
+        exact revision/visit/wait and Project, recovery, dependency and retained
+        execution gates are rechecked. One applied/rejected/cancelled result
+        is retained; a rejection does not automatically retry.
+      x-forge-command: schedule_task_resume
+
+    ConfigureResolverRoutePayload:
+      type: object
+      additionalProperties: false
+      required: [route_key, employee_ids, assignment_timeout_seconds]
+      properties:
+        route_key:
+          type: string
+          description: Stable Project catalog key; existing escalations retain their route snapshot.
+        employee_ids:
+          type: array
+          maxItems: 32
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/UuidV7'
+        assignment_timeout_seconds:
+          type: integer
+          minimum: 30
+          maximum: 86400
+      description: Ordered resolver candidates with mandatory Human fallback; an empty route is Human-only.
+      x-forge-command: configure_resolver_route
+
+    RaiseEscalationPayload:
+      type: object
+      additionalProperties: false
+      required: [task_id, expected_task_revision, category, question]
+      properties:
+        task_id:
+          $ref: '#/components/schemas/UuidV7'
+        expected_task_revision:
+          type: integer
+          minimum: 1
+        route_key:
+          type: [string, 'null']
+        category:
+          type: string
+          enum: [action_approval, clarification, scope_or_policy_conflict, stale_or_invalid_task, technical_decision, blocked]
+        question:
+          type: string
+          minLength: 1
+          maxLength: 20000
+      description: Adds a visit-scoped escalation wait and requests source Run stop without releasing physical capacity. Action approval always routes to Human.
+      x-forge-command: raise_escalation
+
+    ResolutionAnswer:
+      type: object
+      additionalProperties: false
+      required: [disposition, summary]
+      properties:
+        disposition:
+          type: string
+          enum: [continue_stage, needs_management_change, forward_to_human]
+        summary:
+          type: string
+          minLength: 1
+          maxLength: 20000
+        recommended_outcome_key:
+          type: [string, 'null']
+          description: Must exist in the pinned stage; recommendation never performs a stage transition.
+
+    SubmitHumanResolutionPayload:
+      type: object
+      additionalProperties: false
+      required: [escalation_id, expected_escalation_revision, assignment_id, lease_generation, answer]
+      properties:
+        escalation_id:
+          $ref: '#/components/schemas/UuidV7'
+        expected_escalation_revision:
+          type: integer
+          minimum: 1
+        assignment_id:
+          $ref: '#/components/schemas/UuidV7'
+        lease_generation:
+          type: integer
+          minimum: 1
+        answer:
+          $ref: '#/components/schemas/ResolutionAnswer'
+      description: Human-only question resolution with immutable Task-linked artifact. Continue requires source execution quiescence and clears only the escalation wait, never completes the stage.
+      x-forge-command: submit_human_resolution
+
+    RerouteEscalationPayload:
+      type: object
+      additionalProperties: false
+      required: [escalation_id, expected_escalation_revision, reason]
+      properties:
+        escalation_id:
+          $ref: '#/components/schemas/UuidV7'
+        expected_escalation_revision:
+          type: integer
+          minimum: 1
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 10000
+      description: Explicitly replaces the current assignment with Human fallback and a new fencing generation; history is retained.
+      x-forge-command: reroute_escalation
+
+    CancelTaskResumePayload:
+      type: object
+      additionalProperties: false
+      required: [schedule_id]
+      properties:
+        schedule_id:
+          $ref: '#/components/schemas/UuidV7'
+        reason:
+          type: [string, 'null']
+          minLength: 1
+          maxLength: 10000
+          description: Nonblank audit context without NUL.
+      description: Cancels a pending alarm without changing Task state or removing history.
+      x-forge-command: cancel_task_resume
+
+    OpenEmployeeThreadPayload:
+      type: object
+      additionalProperties: false
+      required: [employee_id]
+      properties:
+        employee_id:
+          $ref: '#/components/schemas/UuidV7'
+        task_id:
+          oneOf:
+            - $ref: '#/components/schemas/UuidV7'
+            - type: 'null'
+      description: Optional Task is conversation context, never a Run assignment.
+      x-forge-command: open_employee_thread
+
+    SendEmployeeMessagePayload:
+      type: object
+      additionalProperties: false
+      required: [thread_id, expected_thread_revision, target, kind, requirement, body]
+      properties:
+        thread_id:
+          $ref: '#/components/schemas/UuidV7'
+        expected_thread_revision:
+          type: integer
+          minimum: 1
+        target:
+          $ref: '#/components/schemas/MessageTarget'
+        kind:
+          type: string
+          enum: [instruction, question, notification, reply]
+        requirement:
+          type: string
+          enum: [informational, acknowledged, answered]
+        body:
+          type: string
+          minLength: 1
+          description: Nonblank UTF-8 text, at most 32768 bytes. Never included in audit Event payloads.
+        reply_to:
+          oneOf:
+            - $ref: '#/components/schemas/UuidV7'
+            - type: 'null'
+      description: >
+        Persists an immutable ordered message, not a delivery claim. Reply needs
+        reply_to in the same thread. Reply and notification must be informational.
+        Stopped Projects may receive messages without starting any Run.
+      x-forge-command: send_employee_message
+
+    WaiveMessageRequirementPayload:
+      type: object
+      additionalProperties: false
+      required: [message_id, reason]
+      properties:
+        message_id:
+          $ref: '#/components/schemas/UuidV7'
+        reason:
+          type: string
+          minLength: 1
+          description: Nonblank operator rationale, at most 4096 UTF-8 bytes.
+      description: >
+        Explicitly remove an obsolete message requirement, including one addressed
+        to a stopped Run or retired Employee. Records an immutable waiver and
+        audit reason; neither edits the message nor fabricates an Employee ACK.
+        To readdress work, send a replacement instruction before waiving the old
+        requirement. This management command is not available as an Employee tool.
+      x-forge-command: waive_message_requirement
+
+    TaskMessageContext:
+      type: object
+      additionalProperties: false
+      required: [task_id, pipeline_version_id, stage_id, stage_visit]
+      properties:
+        task_id:
+          $ref: '#/components/schemas/UuidV7'
+        pipeline_version_id:
+          $ref: '#/components/schemas/UuidV7'
+        stage_id:
+          $ref: '#/components/schemas/StableKey'
+        stage_visit:
+          type: integer
+          minimum: 1
+
+    EmployeeThreadList:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          items:
+            type: object
+            required: [id, project_id, employee_id, task_id, revision, last_sequence, created_by, created_at, updated_at]
+            properties:
+              id:
+                $ref: '#/components/schemas/UuidV7'
+              project_id:
+                $ref: '#/components/schemas/UuidV7'
+              employee_id:
+                $ref: '#/components/schemas/UuidV7'
+              task_id:
+                oneOf:
+                  - $ref: '#/components/schemas/UuidV7'
+                  - type: 'null'
+              revision:
+                type: integer
+                minimum: 1
+              last_sequence:
+                type: integer
+                minimum: 0
+        next_cursor:
+          type: [string, 'null']
+          description: Exclusive UUID passed as after to the next request.
+
+    EmployeeMessageList:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          items:
+            type: object
+            required: [id, project_id, employee_id, thread_id, sequence, sender, target, kind, requirement, body, reply_to, created_at]
+            properties:
+              id:
+                $ref: '#/components/schemas/UuidV7'
+              thread_id:
+                $ref: '#/components/schemas/UuidV7'
+              sequence:
+                type: integer
+                minimum: 1
+              target:
+                $ref: '#/components/schemas/MessageTarget'
+              body:
+                type: string
+              kind:
+                type: string
+                enum: [instruction, question, notification, reply]
+              requirement:
+                type: string
+                enum: [informational, acknowledged, answered]
+        next_cursor:
+          type: [string, 'null']
+          description: Exclusive sequence passed as after to the next request.
+
+    MessageTarget:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [kind]
+          properties:
+            kind:
+              const: inbox
+        - type: object
+          additionalProperties: false
+          required: [kind, context]
+          properties:
+            kind:
+              const: task_execution
+            context:
+              $ref: '#/components/schemas/TaskMessageContext'
+        - type: object
+          additionalProperties: false
+          required: [kind, context, run_id, fencing_token, environment_epoch]
+          properties:
+            kind:
+              const: exact_run
+            context:
+              $ref: '#/components/schemas/TaskMessageContext'
+            run_id:
+              $ref: '#/components/schemas/UuidV7'
+            fencing_token:
+              type: integer
+              minimum: 1
+            environment_epoch:
+              type: integer
+              minimum: 1
+
     CreateTaskPayload:
       type: object
       additionalProperties: false
-      required: [title, kind, pipeline_version_id, priority]
+      required: [title, kind, priority]
+      oneOf:
+        - required: [pipeline_version_id]
+          not: {required: [pipeline_id]}
+        - required: [pipeline_id]
+          not: {required: [pipeline_version_id]}
       properties:
         title:
           $ref: '#/components/schemas/TaskTitle'
@@ -943,6 +1782,9 @@ components:
           $ref: '#/components/schemas/TaskKind'
         pipeline_version_id:
           $ref: '#/components/schemas/UuidV7'
+        pipeline_id:
+          $ref: '#/components/schemas/UuidV7'
+          description: Select the current default under the command transaction; existing Task bindings never follow later default changes.
         priority:
           $ref: '#/components/schemas/StableKey'
           description: A value defined by the Project priority scheme.
@@ -1416,6 +2258,10 @@ components:
         - pipeline_id
         - version
         - name
+        - catalog_revision
+        - default_version_id
+        - latest_version
+        - deleted_at
         - task_kinds
         - entry_stage_id
         - max_stage_visits
@@ -1430,6 +2276,13 @@ components:
           type: integer
           minimum: 1
           format: int32
+        catalog_revision: {type: integer, minimum: 1}
+        default_version_id: {$ref: '#/components/schemas/UuidV7'}
+        latest_version: {type: integer, minimum: 1, maximum: 4294967295}
+        deleted_at:
+          oneOf:
+            - $ref: '#/components/schemas/Rfc3339Timestamp'
+            - type: 'null'
         name:
           type: string
           minLength: 1
@@ -1467,6 +2320,14 @@ components:
       additionalProperties: false
       required: [id, name, executor_kind, outcomes]
       properties:
+        system_action:
+          oneOf:
+            - $ref: '#/components/schemas/SystemStageAction'
+            - type: 'null'
+        acceptance_policy:
+          oneOf:
+            - $ref: '#/components/schemas/StageAcceptancePolicy'
+            - type: 'null'
         id:
           $ref: '#/components/schemas/StableKey'
         name:
@@ -1475,6 +2336,14 @@ components:
           maxLength: 128
         executor_kind:
           $ref: '#/components/schemas/ExecutorKind'
+        instructions:
+          type: string
+          default: ''
+          description: Pinned stage instructions, at most 65536 UTF-8 bytes and no NUL. Empty preserves legacy behavior.
+        workspace:
+          oneOf:
+            - $ref: '#/components/schemas/StageWorkspaceRequirements'
+            - type: 'null'
         outcomes:
           type: array
           minItems: 1
@@ -1486,8 +2355,16 @@ components:
     PipelineStageView:
       type: object
       additionalProperties: false
-      required: [id, name, executor_kind, outcomes]
+      required: [id, name, executor_kind, outcomes, instructions, workspace]
       properties:
+        system_action:
+          oneOf:
+            - $ref: '#/components/schemas/SystemStageAction'
+            - type: 'null'
+        acceptance_policy:
+          oneOf:
+            - $ref: '#/components/schemas/StageAcceptancePolicy'
+            - type: 'null'
         id:
           $ref: '#/components/schemas/StableKey'
         name:
@@ -1496,6 +2373,13 @@ components:
           maxLength: 128
         executor_kind:
           $ref: '#/components/schemas/ExecutorKind'
+        instructions:
+          type: string
+          description: Exact immutable stage instructions, including an empty legacy value.
+        workspace:
+          oneOf:
+            - $ref: '#/components/schemas/StageWorkspaceRequirements'
+            - type: 'null'
         outcomes:
           type: array
           minItems: 1
@@ -1503,6 +2387,202 @@ components:
           uniqueItems: true
           items:
             $ref: '#/components/schemas/StableKey'
+
+    SystemStageAction:
+      oneOf:
+        - $ref: '#/components/schemas/GitIntegrationStageAction'
+        - $ref: '#/components/schemas/ProjectHookStageAction'
+      discriminator:
+        propertyName: kind
+
+    ProjectHookStageAction:
+      type: object
+      additionalProperties: false
+      required: [kind, hook_version_id, outcomes]
+      properties:
+        kind: {type: string, const: project_hook}
+        hook_version_id: {$ref: '#/components/schemas/UuidV7'}
+        outcomes:
+          type: object
+          additionalProperties: false
+          required: [passed, failed, timed_out, skipped]
+          properties:
+            passed: {$ref: '#/components/schemas/StableKey'}
+            failed: {$ref: '#/components/schemas/StableKey'}
+            timed_out: {$ref: '#/components/schemas/StableKey'}
+            skipped: {$ref: '#/components/schemas/StableKey'}
+      description: Explicit provider-free System stage over the current accepted Git candidate. Required failed/timed_out results route only to Employee rework or a waiting stage; interruption holds for management.
+
+    GitIntegrationStageAction:
+      type: object
+      additionalProperties: false
+      required: [kind, outcomes]
+      properties:
+        kind:
+          type: string
+          const: git_integration
+        outcomes:
+          type: object
+          additionalProperties: false
+          required: [applied, no_changes, stale_base]
+          properties:
+            applied:
+              $ref: '#/components/schemas/StableKey'
+            no_changes:
+              $ref: '#/components/schemas/StableKey'
+            stale_base:
+              $ref: '#/components/schemas/StableKey'
+        required_review_stages:
+          type: array
+          maxItems: 64
+          uniqueItems: true
+          default: []
+          items:
+            $ref: '#/components/schemas/StableKey'
+      description: >
+        Explicit System-stage executor. Requires a Task Git binding and no Employee
+        workspace/policy on this stage. Outcome mapping covers the declared matrix;
+        stale_base returns the same Task to a declared Employee stage. Required
+        review stages must declare candidate_review in the same Pipeline version.
+
+    StageWorkspaceRequirements:
+      type: object
+      additionalProperties: false
+      required: [access]
+      properties:
+        kind:
+          type: string
+          enum: [any, filesystem, git]
+          default: any
+        access:
+          type: string
+          enum: [read_only, read_write]
+      description: Restricts the explicit runtime binding; never grants access or chooses a source repository.
+
+    StageAcceptancePolicy:
+      type: object
+      additionalProperties: false
+      required: [kind, verdicts]
+      properties:
+        kind: {const: candidate_review}
+        independent: {type: boolean, default: true}
+        verdicts:
+          type: object
+          minProperties: 1
+          maxProperties: 64
+          propertyNames: {$ref: '#/components/schemas/StableKey'}
+          additionalProperties: {type: string, enum: [accepted, rejected, inconclusive]}
+      description: Requires Task-owned Git and Employee/read-only Git workspace regardless of independence. Every declared outcome must have a verdict.
+
+    ReportFindingPayload:
+      type: object
+      additionalProperties: false
+      required: [source_task_id, description, severity]
+      properties:
+        source_task_id: {$ref: '#/components/schemas/UuidV7'}
+        description: {type: string, minLength: 1, maxLength: 50000}
+        severity: {type: string, minLength: 1, maxLength: 64}
+        evidence: {type: array, uniqueItems: true, maxItems: 64, items: {$ref: '#/components/schemas/UuidV7'}}
+      x-forge-command: report_finding
+      description: Author is authenticated; source Run can only be derived by the fenced Task Gateway.
+
+    TriageFindingPayload:
+      type: object
+      additionalProperties: false
+      required: [finding_id, expected_finding_revision, reason, decision]
+      properties:
+        finding_id: {$ref: '#/components/schemas/UuidV7'}
+        expected_finding_revision: {type: integer, minimum: 1}
+        reason: {type: string, minLength: 1, maxLength: 10000}
+        decision:
+          oneOf:
+            - type: object
+              additionalProperties: false
+              required: [kind, task_id]
+              properties:
+                kind: {const: attach}
+                task_id: {$ref: '#/components/schemas/UuidV7'}
+            - type: object
+              additionalProperties: false
+              required: [kind]
+              properties:
+                kind: {const: ignore}
+      x-forge-command: triage_finding
+
+    PromoteFindingPayload:
+      type: object
+      additionalProperties: false
+      required: [finding_id, expected_finding_revision, reason, task]
+      properties:
+        finding_id: {$ref: '#/components/schemas/UuidV7'}
+        expected_finding_revision: {type: integer, minimum: 1}
+        reason: {type: string, minLength: 1, maxLength: 10000}
+        task: {$ref: '#/components/schemas/CreateTaskPayload'}
+      x-forge-command: promote_finding
+      description: Creates exactly one draft Task and triages the report atomically. Never approves or queues the new Task.
+
+    FindingView:
+      type: object
+      required: [id, project_id, source_task_id, source_run, description, severity, evidence, reported_by, reported_at, revision, state]
+      properties:
+        id: {$ref: '#/components/schemas/UuidV7'}
+        project_id: {$ref: '#/components/schemas/UuidV7'}
+        source_task_id: {$ref: '#/components/schemas/UuidV7'}
+        source_run:
+          oneOf:
+            - type: 'null'
+            - type: object
+              required: [run_id, fencing_token, environment_epoch]
+              properties:
+                run_id: {$ref: '#/components/schemas/UuidV7'}
+                fencing_token: {type: integer, minimum: 1}
+                environment_epoch: {type: integer, minimum: 1}
+        description: {type: string}
+        severity: {type: string}
+        evidence: {type: array, items: {$ref: '#/components/schemas/UuidV7'}}
+        reported_by: {$ref: '#/components/schemas/ActorReference'}
+        reported_at: {type: string, format: date-time}
+        revision: {type: integer, minimum: 1}
+        state:
+          type: object
+          required: [status]
+          properties:
+            status: {type: string, enum: [open, attached, promoted, ignored]}
+            task_id: {$ref: '#/components/schemas/UuidV7'}
+            reason: {type: string}
+            by: {$ref: '#/components/schemas/ActorReference'}
+            at: {type: string, format: date-time}
+
+    CandidateReviewRecord:
+      type: object
+      required: [id, project_id, task_id, pipeline_version_id, stage_id, stage_visit, employee_id, scope, candidate_proposal_id, candidate, subject_artifact_ids, verdict_artifact_ids, outcome, verdict, recorded_at]
+      properties:
+        id: {$ref: '#/components/schemas/UuidV7'}
+        project_id: {$ref: '#/components/schemas/UuidV7'}
+        task_id: {$ref: '#/components/schemas/UuidV7'}
+        pipeline_version_id: {$ref: '#/components/schemas/UuidV7'}
+        stage_id: {$ref: '#/components/schemas/StableKey'}
+        stage_visit: {type: integer, minimum: 1}
+        employee_id: {$ref: '#/components/schemas/UuidV7'}
+        scope:
+          type: object
+          required: [run_id, fencing_token, environment_epoch]
+          properties:
+            run_id: {$ref: '#/components/schemas/UuidV7'}
+            fencing_token: {type: integer, minimum: 1}
+            environment_epoch: {type: integer, minimum: 1}
+        candidate_proposal_id: {$ref: '#/components/schemas/UuidV7'}
+        candidate:
+          type: object
+          required: [commit, tree]
+          properties:
+            commit: {type: string, pattern: '^([0-9a-f]{40}|[0-9a-f]{64})$'}
+            tree: {type: string, pattern: '^([0-9a-f]{40}|[0-9a-f]{64})$'}
+        subject_artifact_ids: {type: array, maxItems: 64, uniqueItems: true, items: {$ref: '#/components/schemas/UuidV7'}}
+        verdict_artifact_ids: {type: array, maxItems: 64, uniqueItems: true, items: {$ref: '#/components/schemas/UuidV7'}}
+        outcome: {$ref: '#/components/schemas/StableKey'}
+        verdict: {type: string, enum: [accepted, rejected, inconclusive]}
+        recorded_at: {type: string, format: date-time}
 
     PipelineTransitionView:
       type: object
@@ -1645,6 +2725,7 @@ components:
         - environment_epoch
         - last_observed_sequence
         - run_spec_version
+        - assignment
       properties:
         diagnostics:
           type: object
@@ -1652,11 +2733,21 @@ components:
         id:
           $ref: '#/components/schemas/UuidV7'
         task_id:
-          $ref: '#/components/schemas/UuidV7'
+          oneOf:
+            - $ref: '#/components/schemas/UuidV7'
+            - type: 'null'
+          description: Present only for TaskStage ownership, never populated from Communication context.
+        assignment:
+          $ref: '#/components/schemas/ExecutionAssignment'
         employee_id:
-          $ref: '#/components/schemas/UuidV7'
+          oneOf:
+            - $ref: '#/components/schemas/UuidV7'
+            - type: 'null'
+          description: Null only for provider-free Hook execution; all agent assignments require an Employee.
         stage_id:
-          $ref: '#/components/schemas/StableKey'
+          oneOf:
+            - $ref: '#/components/schemas/StableKey'
+            - type: 'null'
         attempt:
           type: integer
           minimum: 1
@@ -1684,11 +2775,95 @@ components:
           format: int32
           description: >
             Schema version of the opaque RunSpec supplied to Supervisor. M0
-            uses version 1; raw RunSpec contents are intentionally not exposed.
+            uses version 1, Task sandbox Runs use version 2, Communication uses
+            version 3, Resolution uses version 4, and provider-free Hook execution
+            uses version 5; raw RunSpec contents are intentionally not exposed.
         created_at:
           $ref: '#/components/schemas/Rfc3339Timestamp'
         updated_at:
           $ref: '#/components/schemas/Rfc3339Timestamp'
+
+    ExecutionAssignment:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [purpose, owner]
+          properties:
+            purpose:
+              const: task_stage
+            owner:
+              type: object
+              additionalProperties: false
+              required: [task_id, queue_entry_id, stage_id]
+              properties:
+                task_id:
+                  $ref: '#/components/schemas/UuidV7'
+                queue_entry_id:
+                  $ref: '#/components/schemas/UuidV7'
+                stage_id:
+                  $ref: '#/components/schemas/StableKey'
+        - type: object
+          additionalProperties: false
+          required: [purpose, owner]
+          properties:
+            purpose:
+              const: communication
+            owner:
+              type: object
+              additionalProperties: false
+              required: [assignment_id, thread_id, source_message_id]
+              properties:
+                assignment_id:
+                  $ref: '#/components/schemas/UuidV7'
+                thread_id:
+                  $ref: '#/components/schemas/UuidV7'
+                source_message_id:
+                  $ref: '#/components/schemas/UuidV7'
+        - type: object
+          additionalProperties: false
+          required: [purpose, owner]
+          properties:
+            purpose:
+              const: resolution
+            owner:
+              type: object
+              additionalProperties: false
+              required: [assignment_id, escalation_id, lease_generation]
+              properties:
+                assignment_id:
+                  $ref: '#/components/schemas/UuidV7'
+                escalation_id:
+                  $ref: '#/components/schemas/UuidV7'
+                lease_generation:
+                  type: integer
+                  minimum: 1
+                  format: int64
+        - type: object
+          additionalProperties: false
+          required: [purpose, owner]
+          properties:
+            purpose:
+              const: hook
+            owner:
+              type: object
+              additionalProperties: false
+              required: [invocation_id, task_id, pipeline_version_id, stage_id, stage_visit, candidate_proposal_id]
+              properties:
+                invocation_id:
+                  $ref: '#/components/schemas/UuidV7'
+                task_id:
+                  $ref: '#/components/schemas/UuidV7'
+                pipeline_version_id:
+                  $ref: '#/components/schemas/UuidV7'
+                stage_id:
+                  $ref: '#/components/schemas/StableKey'
+                stage_visit:
+                  type: integer
+                  minimum: 1
+                  format: int64
+                candidate_proposal_id:
+                  $ref: '#/components/schemas/UuidV7'
+      description: Canonical purpose-specific owner. Contextual Task references in Resolution or Hook do not grant a Task writer lease. Inapplicable hooks record a skip without creating a Run.
 
     RunListResponse:
       type: object

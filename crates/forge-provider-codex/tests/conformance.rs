@@ -68,6 +68,36 @@ fn preflight_requires_exact_pinned_version_and_never_assumes_resume() {
 }
 
 #[test]
+fn explicit_live_input_uses_pinned_app_server_without_exec_only_options() {
+    let mut value: ExecutionProfileInput = profile().into();
+    value.capability_profile = CodexAdapter::live_capabilities();
+    let profile = ExecutionProfile::try_from(value).unwrap();
+    let prepared = CodexAdapter::prepare(input(&profile)).unwrap();
+    assert_eq!(prepared.program, "forge-codex-driver");
+    assert_eq!(
+        &prepared.args[..4],
+        ["app-server", "--listen", "stdio://", "--strict-config"]
+    );
+    assert!(!prepared.args.iter().any(|arg| matches!(
+        arg.as_str(),
+        "--ignore-user-config" | "--ignore-rules" | "exec" | "-"
+    )));
+    assert!(
+        CodexAdapter::preflight("codex-cli 0.153.2", &profile)
+            .unwrap()
+            .capabilities
+            .contains(&RuntimeCapability::LiveInput)
+    );
+    assert!(
+        !CodexAdapter::capabilities()
+            .capabilities
+            .contains(&RuntimeCapability::LiveInput)
+    );
+    assert_eq!(prepared.env["FORGE_CODEX_WORKDIR"], "/workspace/task");
+    assert_eq!(prepared.credential_files.len(), 1);
+}
+
+#[test]
 fn domain_valid_native_runtime_binding_can_be_prepared_without_proxy_auth() {
     let profile = profile();
     let binding = forge_domain::runtime::RuntimeBinding {

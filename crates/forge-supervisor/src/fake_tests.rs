@@ -118,6 +118,7 @@ fn fake_spec_rejects_duplicate_task_history_artifact_ids() {
 #[tokio::test]
 async fn fake_run_preserves_fence_epoch_and_message_order() {
     let provision = ProvisionRun {
+        assignment: None,
         command_id: "command-1".into(),
         run_id: "run-1".into(),
         task_id: "task-1".into(),
@@ -217,6 +218,7 @@ async fn fake_run_preserves_fence_epoch_and_message_order() {
 #[tokio::test]
 async fn invalid_spec_emits_one_terminal_failed_observation() {
     let provision = ProvisionRun {
+        assignment: None,
         command_id: "command-1".into(),
         run_id: "run-1".into(),
         task_id: "task-1".into(),

@@ -50,6 +50,11 @@ pub fn router(core: CoreService) -> Router {
         .route("/v1/projects/{project_id}/runs", get(list_runs))
         .route("/v1/projects/{project_id}/runs/{run_id}", get(get_run))
         .route("/v1/projects/{project_id}/events", get(stream_events))
+        .merge(super::communication::routes())
+        .merge(super::candidate_review::routes())
+        .merge(super::git_integration::routes())
+        .merge(super::project_hooks::routes())
+        .merge(super::finding::routes())
         .layer(DefaultBodyLimit::max(MAX_COMMAND_BODY_BYTES))
         .layer(axum::middleware::from_fn_with_state(
             core.clone(),
@@ -290,7 +295,7 @@ fn idempotency_key(headers: &HeaderMap, request_id: &str) -> Result<String, Http
         })
 }
 
-fn project_id(value: &str, request_id: &str) -> Result<ProjectId, HttpError> {
+pub(super) fn project_id(value: &str, request_id: &str) -> Result<ProjectId, HttpError> {
     Ok(ProjectId::from(uuid_id("project_id", value, request_id)?))
 }
 
@@ -306,7 +311,11 @@ fn pipeline_version_id(value: &str, request_id: &str) -> Result<PipelineVersionI
     )?))
 }
 
-fn uuid_id(field: &'static str, value: &str, request_id: &str) -> Result<Uuid, HttpError> {
+pub(super) fn uuid_id(
+    field: &'static str,
+    value: &str,
+    request_id: &str,
+) -> Result<Uuid, HttpError> {
     let parsed = Uuid::from_str(value).map_err(|_| {
         HttpError::invalid_request(request_id.to_owned(), format!("{field} must be a UUIDv7"))
     })?;
@@ -394,7 +403,11 @@ fn event_record(event: &forge_storage::StoredEvent) -> Result<Event, crate::Core
         .data(data))
 }
 
-fn json_response<T: Serialize>(status: StatusCode, body: T, request_id: &str) -> Response {
+pub(super) fn json_response<T: Serialize>(
+    status: StatusCode,
+    body: T,
+    request_id: &str,
+) -> Response {
     with_request_id((status, Json(body)).into_response(), request_id)
 }
 
@@ -407,7 +420,7 @@ fn with_request_id(mut response: Response, request_id: &str) -> Response {
     response
 }
 
-fn request_id() -> String {
+pub(super) fn request_id() -> String {
     Uuid::now_v7().to_string()
 }
 

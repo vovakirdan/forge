@@ -80,13 +80,23 @@ impl Snapshot {
             })
             .collect::<Vec<_>>();
         let runs = snapshot.runs.iter().map(|entry| {
-            json!({"id":entry.scope.id,"project_id":entry.scope.project_id,"task_id":entry.scope.task_id,
+            json!({"id":entry.scope.id,"project_id":entry.scope.project_id,"task_id":entry.scope.assignment.task_stage().map(|owner| owner.task_id),
                 "lease_fencing_token":entry.scope.lease_fencing_token,"environment_epoch":entry.scope.environment_epoch,
                 "queue_entry_id":entry.queue_entry_id,"lease_active":entry.lease_active,
                 "reservation_held":entry.reservation_held,"stop_requested":entry.stop_requested})
         }).collect::<Vec<_>>();
         let raw = json!({
+            "task_handoffs":snapshot.command_handoffs.values().map(|handoff|json!({"body":handoff})).collect::<Vec<_>>(),
+            "resolver_routes":snapshot.resolver_routes.values().collect::<Vec<_>>(),
+            "escalations":snapshot.escalations.values().collect::<Vec<_>>(),
+            "resolution_assignments":snapshot.resolution_assignments.values().collect::<Vec<_>>(),
+            "findings":snapshot.findings,
+            "task_next_run_constraints":snapshot.dispatch_constraints.values().collect::<Vec<_>>(),
+            "task_resume_schedules":snapshot.resume_schedules.values().collect::<Vec<_>>(),
             "projects":snapshot.projects,"tasks":tasks,"employees":snapshot.employees,
+            "project_repositories":snapshot.project_repositories.values().collect::<Vec<_>>(),
+            "employee_threads":snapshot.employee_threads,"employee_messages":snapshot.employee_messages,
+            "employee_message_waivers":snapshot.message_waivers,
             "pipelines":snapshot.pipelines,"pipeline_versions":snapshot.pipeline_versions,
             "artifacts":artifacts,"task_dependencies":snapshot.dependencies.values().collect::<Vec<_>>(),
             "event_log":events,"outbox":outbox,"idempotency_keys":receipts,"queue_entries":queue,
@@ -108,9 +118,21 @@ impl Snapshot {
         let mut raw = json!({});
         // This fixed allowlist reads only the synthetic fixture's private schema.
         for table in [
+            "task_handoffs",
+            "resolver_routes",
+            "escalations",
+            "resolution_assignments",
+            "findings",
+            "task_next_run_constraints",
+            "task_resume_schedules",
             "projects",
             "tasks",
             "employees",
+            "employee_threads",
+            "project_repositories",
+            "employee_messages",
+            "employee_message_receipts",
+            "employee_message_waivers",
             "pipelines",
             "pipeline_versions",
             "artifacts",

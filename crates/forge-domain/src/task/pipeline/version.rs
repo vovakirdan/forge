@@ -89,7 +89,7 @@ impl PipelineVersion {
         validation::validate_cycle_limit(&stages, input.max_stage_visits)?;
         validation::validate_reachability(&stages, &input.entry_stage_id)?;
         validation::validate_terminal_route(&stages, &input.entry_stage_id)?;
-        Ok(Self {
+        let version = Self {
             id: input.id,
             pipeline_id: input.pipeline_id,
             project_id: input.project_id,
@@ -100,7 +100,13 @@ impl PipelineVersion {
             stages,
             created_by: input.created_by,
             created_at: input.created_at,
-        })
+        };
+        for stage in version.stages() {
+            if let Some(action) = stage.system_action() {
+                action.validate_version(stage, &version)?;
+            }
+        }
+        Ok(version)
     }
 
     /// Returns immutable version identity.

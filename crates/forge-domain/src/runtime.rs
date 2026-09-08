@@ -3,6 +3,14 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+mod execution;
+mod hook;
+pub use execution::{
+    COMMUNICATION_RUN_SPEC_VERSION, CommunicationRunSpec, RESOLUTION_RUN_SPEC_VERSION,
+    ResolutionRunSpec, RuntimeLaunchSpec,
+};
+pub use hook::{HOOK_RUN_SPEC_VERSION, HookRunSpec, SandboxLaunchSpec};
+
 /// Version of the first real sandbox RunSpec; historical fake specs remain v1.
 pub const SANDBOX_RUN_SPEC_VERSION: u16 = 2;
 
@@ -32,9 +40,14 @@ pub struct RuntimeBinding {
 }
 
 impl RuntimeBinding {
-    /// Checks the M1 sandbox engines and their non-negotiable trust boundary.
+    /// Checks supported sandbox engines and their non-negotiable trust boundary.
     pub fn validate(&self) -> Result<(), RuntimeSpecError> {
         self.surface.validate()?;
+        if matches!(self.surface, SurfaceSpec::GitCandidateSnapshot { .. })
+            && self.access != SurfaceAccess::ReadOnly
+        {
+            return Err(RuntimeSpecError::InvalidSurface);
+        }
         self.limits.validate()?;
         self.budget.validate()?;
         let profile = &self.execution_profile;
@@ -50,6 +63,15 @@ impl RuntimeBinding {
                 profile.credential_delivery() == crate::CredentialDeliveryMode::ProxyOnly
                     && profile.capability_profile().transport_engine
                         == crate::TransportEngine::ApiRuntime
+            }
+            "claude_code_cli" => {
+                profile.adapter_version() == "2.1.263"
+                    && profile.provider_id() == "anthropic"
+                    && profile.credential_binding().account_id.is_some()
+                    && profile.credential_delivery()
+                        == crate::CredentialDeliveryMode::IsolatedRuntimeSecret
+                    && profile.capability_profile().transport_engine
+                        == crate::TransportEngine::CliWrapper
             }
             _ => false,
         };
@@ -173,6 +195,16 @@ pub enum SurfaceSpec {
         /// Explicit base commit or ref resolved during preparation.
         base_ref: String,
     },
+    /// Core-derived read-only copy of an accepted Task revision, never an
+    /// operator-selected Employee source or the mutable writer directory.
+    GitCandidateSnapshot {
+        /// Original Task source, checked against its host-owned manifest.
+        repository: String,
+        /// Original pinned Task base, not the snapshot checkout revision.
+        base_ref: String,
+        /// Exact accepted commit and tree selected from canonical storage.
+        candidate: crate::git::GitCandidate,
+    },
 }
 
 /// Hard local resource bounds, not inferred provider-cost guarantees.
@@ -275,6 +307,22 @@ pub enum RuntimeSpecError {
 impl SurfaceSpec {
     /// Validates the non-secret source descriptor without accessing the filesystem.
     pub fn validate(&self) -> Result<(), RuntimeSpecError> {
+        if let Self::GitCandidateSnapshot {
+            repository,
+            base_ref,
+            candidate,
+        } = self
+        {
+            crate::git::LocalGitPath::new(repository)
+                .map_err(|_| RuntimeSpecError::InvalidSurface)?;
+            let base = crate::git::GitObjectId::new(base_ref)
+                .map_err(|_| RuntimeSpecError::InvalidSurface)?;
+            if base.as_str().len() != candidate.commit.as_str().len()
+                || candidate.commit.as_str().len() != candidate.tree.as_str().len()
+            {
+                return Err(RuntimeSpecError::InvalidSurface);
+            }
+        }
         if let Self::GitWorktree {
             repository,
             base_ref,

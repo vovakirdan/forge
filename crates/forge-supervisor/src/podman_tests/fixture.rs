@@ -203,6 +203,7 @@ impl Fixture {
         private_directory(grant.parent().unwrap()).unwrap();
         private_directory(&grant).unwrap();
         let invocation = RunnerInvocation {
+            runtime_input: None,
             adapter_id: "codex_cli".into(),
             program: "codex".into(),
             args: Vec::new(),

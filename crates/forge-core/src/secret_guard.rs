@@ -25,7 +25,11 @@ impl CoreService {
         run: &forge_storage::RunProjection,
     ) -> Result<zeroize::Zeroizing<Vec<Vec<u8>>>, CoreError> {
         let mut secrets = zeroize::Zeroizing::new(Vec::new());
-        let spec: forge_domain::runtime::SandboxRunSpec =
+        if run.assignment.hook().is_some() {
+            // Provider-free Hook sandboxes receive no Forge credential material.
+            return Ok(secrets);
+        }
+        let spec: forge_domain::runtime::RuntimeLaunchSpec =
             serde_json::from_value(run.run_spec.clone()).map_err(|_| credential_error())?;
         let record = transaction
             .run_credential(run.id)
@@ -34,6 +38,7 @@ impl CoreService {
         let secret = self.open_runtime_credential(
             &record,
             spec.binding.execution_profile.credential_binding(),
+            spec.binding.execution_profile.adapter_id(),
         )?;
         if spec.binding.execution_profile.adapter_id() == "codex_cli" {
             add_auth_tokens(&secret, &mut secrets)?;

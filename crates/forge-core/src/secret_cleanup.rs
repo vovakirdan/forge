@@ -21,11 +21,12 @@ impl CoreService {
                 .lock_project(run.project_id)
                 .await?
                 .ok_or_else(credential_error)?;
-            let codex = run
+            let adapter = run
                 .run_spec
                 .pointer("/binding/execution_profile/adapter_id")
                 .and_then(serde_json::Value::as_str)
-                == Some("codex_cli");
+                .ok_or_else(credential_error)?;
+            let codex = adapter == "codex_cli";
             let safe = !codex || transaction.auth_cleanup_is_safe(run_id).await?;
             let grants = std::path::PathBuf::from("grants")
                 .join(run.id.to_string())
@@ -38,14 +39,17 @@ impl CoreService {
             let mut files = vec![
                 grants.join("auth.json"),
                 grants.join("api-key"),
+                grants.join("claude-setup-token"),
                 grants.join("stdin"),
             ];
             if safe {
-                files.push(runtime.join(if codex {
-                    "codex-home/auth.json"
-                } else {
-                    "opencode/virtual-key"
-                }));
+                let path = match adapter {
+                    "codex_cli" => "codex-home/auth.json",
+                    "opencode_runtime" => "opencode/virtual-key",
+                    "claude_code_cli" => "claude-home/setup-token",
+                    _ => return Err(credential_error()),
+                };
+                files.push(runtime.join(path));
             }
             let root = execution.root.clone();
             let removed = tokio::task::spawn_blocking(move || {
