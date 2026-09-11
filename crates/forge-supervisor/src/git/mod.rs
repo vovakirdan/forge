@@ -19,6 +19,8 @@ mod candidate;
 mod command;
 mod integration;
 mod repository;
+mod source;
+pub(crate) use source::{GitSourceDescriptor, GitSourceSelection, format_name};
 
 pub use integration::GitIntegrationRequest;
 
@@ -88,6 +90,9 @@ pub enum GitBackendError {
     /// The target is not an ancestor of the accepted candidate.
     #[error("Git candidate needs an explicit merge of the current target")]
     StaleBase,
+    /// A previously established target may not be reclassified as an empty project.
+    #[error("Git source target was deleted")]
+    TargetMissing,
     /// Includes main, linked, locked, and missing-but-registered worktrees.
     #[error("Git integration target is checked out in a worktree")]
     TargetCheckedOut,

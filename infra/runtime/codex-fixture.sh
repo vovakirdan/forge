@@ -7,9 +7,16 @@ if [ "${1:-}" = "--version" ]; then
     exit 0
 fi
 input=$(cat)
+hold=${FORGE_FIXTURE_HOLD:-0}
+# Explicit whole-line marker used only by the keyless Core-to-Podman acceptance fixture.
+while IFS= read -r line; do
+    [ "$line" != FORGE_ACCEPTANCE_HOLD_FOR_STOP ] || hold=1
+done <<EOF
+$input
+EOF
 printf '{"type":"turn.started"}\n'
 printf '%s\n' "$input" > fixture-result.txt
-if [ "${FORGE_FIXTURE_HOLD:-0}" = 1 ]; then
+if [ "$hold" = 1 ]; then
     trap 'exit 130' INT TERM
     while :; do sleep 1; done
 fi

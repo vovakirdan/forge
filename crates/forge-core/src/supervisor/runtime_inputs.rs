@@ -48,7 +48,7 @@ impl CoreService {
             };
             let spec: RuntimeLaunchSpec = serde_json::from_value(run.run_spec.clone())
                 .map_err(|_| invalid("invalid native input profile"))?;
-            if !matches!(spec.schema_version, 2 | 3)
+            if !matches!(spec.schema_version, 2 | 3 | 6)
                 || !matches!(
                     spec.binding.execution_profile.adapter_id(),
                     "claude_code_cli" | "codex_cli" | "opencode_runtime"
@@ -280,6 +280,15 @@ impl CoreService {
             event_payload([
                 ("run_id", json!(run.id)),
                 ("input_id", json!(id)),
+                (
+                    "source_message_id",
+                    json!(match &input.action {
+                        RuntimeInputAction::Message { source } => Some(source.data().id),
+                        RuntimeInputAction::CloseAfterTurn { .. } => None,
+                    }),
+                ),
+                ("fencing_token", json!(run.lease_fencing_token)),
+                ("environment_epoch", json!(run.environment_epoch)),
                 ("outcome", json!(outcome)),
                 ("undelivered_inputs_retired", json!(retired)),
             ]),

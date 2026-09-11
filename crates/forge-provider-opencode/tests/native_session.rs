@@ -170,11 +170,13 @@ async fn two_turns_share_one_session_and_usage_and_require_native_user_message()
     let (client, state, server) = fixture().await;
     let session = client.create_session().await.unwrap();
     let (_root, mut mailbox, inputs, receipts) = setup();
+    let source_id = Uuid::now_v7();
+    let source = json!({"id":source_id,"body":"follow-up"});
     let input = command(
         &mailbox,
         1,
         Action::Message(RuntimeMessageInput {
-            source_message_json: "{\"body\":\"follow-up\"}".into(),
+            source_message_json: source.to_string(),
         }),
     );
     put(&inputs, &input);
@@ -212,6 +214,10 @@ async fn two_turns_share_one_session_and_usage_and_require_native_user_message()
     finish(&state, first_id, "msg_assistant_first").await;
     let second = wait_prompt(&state, 2).await;
     let second_id = second["messageID"].as_str().unwrap();
+    let text = second["parts"][0]["text"].as_str().unwrap();
+    assert!(text.starts_with(&format!("Forge addressed instruction {source_id}.")));
+    assert!(!text.contains(&input.command_id));
+    assert!(text.ends_with(&source.to_string()));
     assert_eq!(
         second_id,
         format!(
@@ -247,18 +253,27 @@ async fn two_turns_share_one_session_and_usage_and_require_native_user_message()
     assert!(
         matches!(metadata.last().unwrap(),NativeDriverEvent::TurnFinished{usage:Some(usage),..} if usage.input_tokens==20&&usage.output_tokens==4)
     );
-    let statuses: Vec<_> = std::fs::read_dir(receipts)
-        .unwrap()
-        .map(|entry| {
-            serde_json::from_slice::<RuntimeInputReceipt>(
-                &std::fs::read(entry.unwrap().path()).unwrap(),
-            )
-            .unwrap()
-            .status
-        })
-        .collect();
-    assert!(statuses.contains(&(RuntimeInputStatus::RuntimeAccepted as i32)));
-    assert!(statuses.contains(&(RuntimeInputStatus::InputClosed as i32)));
+    assert!(matches!(
+        &metadata[2],
+        NativeDriverEvent::InputAccepted { input_id, turn_id, .. }
+            if input_id.to_string() == input.command_id && turn_id == second_id
+    ));
+    assert_eq!(std::fs::read_dir(&receipts).unwrap().count(), 2);
+    for (command, status) in [
+        (&input, RuntimeInputStatus::RuntimeAccepted),
+        (&close, RuntimeInputStatus::InputClosed),
+    ] {
+        let receipt: RuntimeInputReceipt = serde_json::from_slice(
+            &std::fs::read(receipts.join(format!("{}.json", command.command_id))).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(receipt.input_command_id, command.command_id);
+        assert_eq!(receipt.run_id, command.run_id);
+        assert_eq!(receipt.lease_fencing_token, 7);
+        assert_eq!(receipt.environment_epoch, 3);
+        assert_eq!(receipt.status, status as i32);
+    }
+    assert_eq!(state.prompts.lock().unwrap().len(), 2);
     assert_eq!(state.aborts.load(Ordering::SeqCst), 0);
     server.abort();
 }

@@ -204,6 +204,21 @@ Redis supports cache and short-lived coordination only. AgentMemory is a retriev
 projection; Core rechecks scope/visibility/revision before context injection.
 LiteLLM and Prometheus use isolated service schemas/volumes.
 
+M2 source inputs are separate from the retained TaskWorkSurface and GitCandidate.
+Versioned Task Git source policy freezes into each new writer Run; Supervisor
+journals the exact selected revision before exporting a read-only bundle. A true
+unborn repository needs no synthetic commit: first publication uses create-only
+CAS, while established targets keep exact-candidate merge/CAS semantics. See
+[Git source policy](M2_GIT_SOURCE_POLICY.md).
+
+Selected-file snapshots use immutable Artifact manifests in PostgreSQL and
+byte-exact bodies through the existing object_store adapter. Pending captures
+reserve stopped surfaces against writer and Integration admission. Future RunSpec
+v6 freezes attached inputs for a separate read-only mount; imports never overlay
+the WorkSurface or become candidate approvals. Legacy Task RunSpec v2 remains
+readable; Communication, Resolution and Hook retain v3/v4/v5. See
+[file snapshots](M2_FILE_SNAPSHOTS.md).
+
 ## 8. Execution, async work and failure handling
 
 The synchronous path is only validation and a short database transaction. The

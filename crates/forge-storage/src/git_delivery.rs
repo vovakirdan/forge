@@ -158,7 +158,7 @@ impl StorageTransaction<'_> {
     ) -> Result<std::collections::BTreeSet<EmployeeId>, StorageError> {
         // Conservative: every Task execution with a writable surface is attributed,
         // including interrupted/failed Runs, regardless of untrusted Git author text.
-        let ids:Vec<Uuid>=sqlx::query_scalar("SELECT DISTINCT r.employee_id FROM runs r WHERE r.task_id=$1 AND r.run_spec_version=2 AND COALESCE(r.run_spec->'binding'->>'access','read_write')='read_write'")
+        let ids:Vec<Uuid>=sqlx::query_scalar("SELECT DISTINCT r.employee_id FROM runs r WHERE r.task_id=$1 AND r.run_spec_version IN (2,6) AND COALESCE(r.run_spec->'binding'->>'access','read_write')='read_write'")
             .bind(task_id.as_uuid()).fetch_all(&mut *self.transaction).await?;
         Ok(ids.into_iter().map(EmployeeId::from).collect())
     }

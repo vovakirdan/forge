@@ -14,7 +14,7 @@ impl Task {
     pub fn bind_git_repository(
         &mut self,
         repository: &crate::ProjectRepository,
-        initial_base: crate::git::GitObjectId,
+        initial_base: impl Into<crate::git::GitInitialRevision>,
         surface_id: uuid::Uuid,
         changed_at: Timestamp,
     ) -> Result<(), DomainError> {

@@ -1,6 +1,7 @@
 //! Bounded local evidence collection and an S3-compatible upload adapter.
 //! Canonical metadata publication and Task decisions remain Core-owned.
 
+mod files;
 mod redaction;
 mod spool;
 mod stream;

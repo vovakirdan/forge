@@ -83,6 +83,7 @@ fn record(presence: EnvironmentPresence, confirmed: bool) -> RunRecord {
     let provision = crate::tests::provision();
     let payload_hash = provision_hash(&provision).expect("fixture hash");
     let mut record = RunRecord {
+        source_selection: None,
         git_source: None,
         provision,
         payload_hash,

@@ -265,6 +265,66 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /v1/projects/{projectId}/tasks/{taskId}/git-source-policy:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+      - $ref: '#/components/parameters/TaskId'
+    get:
+      tags: [tasks]
+      operationId: getTaskGitSourcePolicy
+      summary: Read the source policy for future writer Runs of a Git-bound Task.
+      responses:
+        '200':
+          description: Current immutable source-policy revision; default is revision one.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TaskGitSourceSetting'}
+        '404': {$ref: '#/components/responses/NotFound'}
+
+  /v1/projects/{projectId}/tasks/{taskId}/file-snapshots:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+      - $ref: '#/components/parameters/TaskId'
+      - $ref: '#/components/parameters/PageCursor'
+      - $ref: '#/components/parameters/PageLimit'
+    get:
+      tags: [tasks]
+      operationId: listTaskFileSnapshots
+      summary: Read capture operations and immutable manifests without host paths.
+      responses:
+        '200':
+          description: Capture status is separate from Task lifecycle. Only sealed operations have an Artifact.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, next_cursor]
+                properties:
+                  items: {type: array, items: {$ref: '#/components/schemas/FileSnapshotView'}}
+                  next_cursor: {type: [string, 'null']}
+        '400': {$ref: '#/components/responses/InvalidRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+
+  /v1/projects/{projectId}/tasks/{taskId}/file-inputs:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+      - $ref: '#/components/parameters/TaskId'
+    get:
+      tags: [tasks]
+      operationId: listTaskFileInputs
+      summary: Read immutable snapshots attached to future Runs of this Task.
+      responses:
+        '200':
+          description: At most eight same-Project snapshots; existing RunSpecs never change.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: {type: array, maxItems: 8, items: {$ref: '#/components/schemas/TaskFileInput'}}
+        '404': {$ref: '#/components/responses/NotFound'}
+
   /v1/projects/{projectId}/pipelines:
     parameters:
       - $ref: '#/components/parameters/ProjectId'
@@ -819,6 +879,12 @@ components:
         - send_employee_message
         - waive_message_requirement
         - create_task
+        - register_project_repository
+        - bind_task_git_repository
+        - set_task_git_source_policy
+        - import_task_file_snapshot
+        - capture_task_file_snapshot
+        - attach_task_file_input
         - amend_draft
         - approve_task
         - cancel_task
@@ -868,6 +934,12 @@ components:
             - $ref: '#/components/schemas/TriageFindingPayload'
             - $ref: '#/components/schemas/PromoteFindingPayload'
             - $ref: '#/components/schemas/CreateProjectPayload'
+            - $ref: '#/components/schemas/RegisterProjectRepositoryPayload'
+            - $ref: '#/components/schemas/BindTaskGitRepositoryPayload'
+            - $ref: '#/components/schemas/SetTaskGitSourcePolicyPayload'
+            - $ref: '#/components/schemas/ImportTaskFileSnapshotPayload'
+            - $ref: '#/components/schemas/CaptureTaskFileSnapshotPayload'
+            - $ref: '#/components/schemas/AttachTaskFileInputPayload'
             - $ref: '#/components/schemas/CreatePipelinePayload'
             - $ref: '#/components/schemas/PublishPipelineVersionPayload'
             - $ref: '#/components/schemas/SetPipelineDefaultVersionPayload'
@@ -910,6 +982,172 @@ components:
             The schema must match the `{name}` path parameter. `anyOf` is used
             because empty start/stop payloads intentionally overlap; Core still
             enforces the path-to-payload pairing.
+
+    GitCommitId:
+      type: string
+      pattern: '^(?!0+$)([a-fA-F0-9]{40}|[a-fA-F0-9]{64})$'
+
+    GitInitialRevision:
+      oneOf:
+        - $ref: '#/components/schemas/GitCommitId'
+        - type: object
+          additionalProperties: false
+          required: [kind, commit]
+          properties:
+            kind: {const: commit}
+            commit: {$ref: '#/components/schemas/GitCommitId'}
+        - type: object
+          additionalProperties: false
+          required: [kind, object_format]
+          properties:
+            kind: {const: unborn}
+            object_format: {type: string, enum: [sha1, sha256]}
+      description: No null or all-zero commit. Explicit committed input serializes in the legacy SHA-string form.
+
+    TaskGitSourcePolicy:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [mode]
+          properties:
+            mode: {const: latest_target}
+        - type: object
+          additionalProperties: false
+          required: [mode, commit]
+          properties:
+            mode: {const: pinned_commit}
+            commit: {$ref: '#/components/schemas/GitCommitId'}
+
+    TaskGitSourceSetting:
+      type: object
+      additionalProperties: false
+      required: [revision, policy]
+      properties:
+        revision: {type: integer, minimum: 1}
+        policy: {$ref: '#/components/schemas/TaskGitSourcePolicy'}
+
+    RegisterProjectRepositoryPayload:
+      type: object
+      additionalProperties: false
+      required: [name, source, target_ref]
+      properties:
+        name: {type: string, minLength: 1, maxLength: 128}
+        source: {type: string, minLength: 2, maxLength: 4096, description: 'Operator-owned normalized absolute local path, never a remote URL or implicit Forge checkout.'}
+        target_ref: {type: string, pattern: '^refs/heads/', maxLength: 1024}
+      x-forge-command: register_project_repository
+
+    BindTaskGitRepositoryPayload:
+      type: object
+      additionalProperties: false
+      required: [task_id, expected_task_revision, repository_id, initial_base]
+      properties:
+        task_id: {$ref: '#/components/schemas/UuidV7'}
+        expected_task_revision: {$ref: '#/components/schemas/TaskRevision'}
+        repository_id: {$ref: '#/components/schemas/UuidV7'}
+        initial_base: {$ref: '#/components/schemas/GitInitialRevision'}
+      x-forge-command: bind_task_git_repository
+
+    SetTaskGitSourcePolicyPayload:
+      type: object
+      additionalProperties: false
+      required: [task_id, expected_policy_revision, policy, reason]
+      properties:
+        task_id: {$ref: '#/components/schemas/UuidV7'}
+        expected_policy_revision: {type: integer, minimum: 1}
+        policy: {$ref: '#/components/schemas/TaskGitSourcePolicy'}
+        reason: {type: string, minLength: 1, maxLength: 4096}
+      description: Human or System Manager only. Appends source-policy history for future writer Runs without changing Task revision, current proposals, existing RunSpecs or retained files.
+      x-forge-command: set_task_git_source_policy
+
+    SelectedFilePaths:
+      type: array
+      minItems: 1
+      maxItems: 64
+      uniqueItems: true
+      items: {type: string, minLength: 1, maxLength: 1024}
+      description: Explicit normalized relative regular files. No glob, directory recursion, traversal, credential/service paths, symlinks or hardlinks. Total bytes at most 16 MiB.
+
+    ImportTaskFileSnapshotPayload:
+      type: object
+      additionalProperties: false
+      required: [task_id, expected_task_revision, title, root, paths]
+      properties:
+        task_id: {$ref: '#/components/schemas/UuidV7'}
+        expected_task_revision: {$ref: '#/components/schemas/TaskRevision'}
+        title: {type: string, minLength: 1, maxLength: 240}
+        root: {type: string, minLength: 2, maxLength: 4096}
+        paths: {$ref: '#/components/schemas/SelectedFilePaths'}
+      description: Human/Manager imports explicit files from an operator-owned canonical local directory. Configured runtime and SecretStore directories are excluded. Commits pending intent before I/O; terminal Tasks reject new evidence.
+      x-forge-command: import_task_file_snapshot
+
+    CaptureTaskFileSnapshotPayload:
+      type: object
+      additionalProperties: false
+      required: [task_id, expected_task_revision, title, paths]
+      properties:
+        task_id: {$ref: '#/components/schemas/UuidV7'}
+        expected_task_revision: {$ref: '#/components/schemas/TaskRevision'}
+        title: {type: string, minLength: 1, maxLength: 240}
+        paths: {$ref: '#/components/schemas/SelectedFilePaths'}
+      description: Human/Manager captures a nonterminal Task's retained writer surface after explicit stop and physical quiescence. Does not stop implicitly. Pending capture blocks new writers and Integration until sealed or completed failure.
+      x-forge-command: capture_task_file_snapshot
+
+    AttachTaskFileInputPayload:
+      type: object
+      additionalProperties: false
+      required: [task_id, expected_task_revision, artifact_id]
+      properties:
+        task_id: {$ref: '#/components/schemas/UuidV7'}
+        expected_task_revision: {$ref: '#/components/schemas/TaskRevision'}
+        artifact_id: {$ref: '#/components/schemas/UuidV7'}
+      description: Human/Manager attaches a sealed file snapshot from another Task in the same Project as a future Run input. No Task revision/lifecycle change, GitCandidate, overlay or automatic copy; terminal Tasks reject attachment.
+      x-forge-command: attach_task_file_input
+
+    SnapshotFile:
+      type: object
+      additionalProperties: false
+      required: [path, size_bytes, executable, sha256, object_key]
+      properties:
+        path: {type: string, minLength: 1, maxLength: 1024}
+        size_bytes: {type: integer, minimum: 0, maximum: 16777216}
+        executable: {type: boolean}
+        sha256: {type: string, pattern: '^[0-9a-f]{64}$'}
+        object_key: {type: string, description: Immutable file-snapshots/Project/Artifact/digest object key, not a host path.}
+
+    FileSnapshotManifest:
+      type: object
+      additionalProperties: false
+      required: [schema_version, project_id, source_task_id, files]
+      properties:
+        schema_version: {type: integer, const: 1}
+        project_id: {$ref: '#/components/schemas/UuidV7'}
+        source_task_id: {$ref: '#/components/schemas/UuidV7'}
+        files: {type: array, minItems: 1, maxItems: 64, items: {$ref: '#/components/schemas/SnapshotFile'}}
+
+    TaskFileInput:
+      type: object
+      additionalProperties: false
+      required: [artifact_id, manifest]
+      properties:
+        artifact_id: {$ref: '#/components/schemas/UuidV7'}
+        manifest: {$ref: '#/components/schemas/FileSnapshotManifest'}
+
+    FileSnapshotView:
+      type: object
+      additionalProperties: false
+      required: [id, artifact_id, task_id, title, state, error_code, manifest, created_at]
+      properties:
+        id: {$ref: '#/components/schemas/UuidV7'}
+        artifact_id: {$ref: '#/components/schemas/UuidV7'}
+        task_id: {$ref: '#/components/schemas/UuidV7'}
+        title: {type: string}
+        state: {type: string, enum: [pending, sealed, failed]}
+        error_code: {type: [string, 'null']}
+        manifest:
+          oneOf:
+            - $ref: '#/components/schemas/FileSnapshotManifest'
+            - {type: 'null'}
+        created_at: {type: string, format: date-time}
 
     ConfigureProjectHookPayload:
       type: object
@@ -1021,7 +1259,7 @@ components:
             - type: object
               required: [expected_target, merge_commit]
               properties:
-                expected_target: {type: string}
+                expected_target: {type: [string, 'null'], description: 'Explicit null means create-only initial publication; it is not an unknown target.'}
                 merge_commit: {type: string}
         result_code:
           type: [string, 'null']
@@ -2729,7 +2967,7 @@ components:
       properties:
         diagnostics:
           type: object
-          description: Present on single-Run GET only. Bounded evidence receipts, incidents, immutable handoff, provider-reported usage/exit and proxy usage; no prompts, tokens or raw exception bodies. Missing reports are null until collection completes.
+          description: Present on single-Run GET only. Bounded evidence receipts, incidents, immutable handoff, provider-reported usage/exit and proxy usage; no prompts, tokens or raw exception bodies. Missing reports are null until collection completes. git_source retains the validated path-free immutable source selection for v6 Git writer Runs, or null when absent.
         id:
           $ref: '#/components/schemas/UuidV7'
         task_id:

@@ -27,7 +27,7 @@ pub(crate) fn validate(provision: &ProvisionRun) -> Result<(), SupervisorError> 
         (1 | 2, None) => {
             uuid(&provision.task_id).is_some() && StageId::new(&provision.stage_id).is_ok()
         }
-        (1 | 2, Some(Assignment::TaskStage(owner))) => {
+        (1 | 2 | 6, Some(Assignment::TaskStage(owner))) => {
             owner.task_id == provision.task_id
                 && owner.stage_id == provision.stage_id
                 && uuid(&owner.task_id).is_some()

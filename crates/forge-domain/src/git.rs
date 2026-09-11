@@ -6,9 +6,20 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use uuid::Uuid;
 
+mod descriptor;
+mod source;
+pub use descriptor::GitSourceDescriptor;
+pub use source::{
+    GitInitialRevision, GitObjectFormat, GitSourceRequest, TaskGitSourcePolicy,
+    TaskGitSourceSetting,
+};
+
 /// Invalid input at the Git domain boundary; values are omitted from diagnostics.
 #[derive(Clone, Copy, Debug, Eq, Error, PartialEq)]
 pub enum GitValueError {
+    /// Source policy revisions and pinned object formats must be consistent.
+    #[error("invalid Git source policy")]
+    SourcePolicy,
     /// Object IDs must be complete, nonzero SHA-1 or SHA-256 hexadecimal values.
     #[error("invalid complete Git object id")]
     ObjectId,
@@ -155,8 +166,9 @@ pub struct GitIntegrationIntent {
     pub target_repository: LocalGitPath,
     /// Explicit target branch; never HEAD or a symbolic alias.
     pub target_ref: GitBranchRef,
-    /// Target used as merge parent one and compare-and-swap expectation.
-    pub expected_target: GitObjectId,
+    /// Existing merge parent/CAS expectation; explicit null is first publication.
+    #[serde(deserialize_with = "required_optional_target")]
+    pub expected_target: Option<GitObjectId>,
     /// Approved candidate used as merge parent two and sole source of its tree.
     pub candidate: GitCandidate,
     /// Exact prepared merge; retries never regenerate commit metadata.
@@ -166,11 +178,15 @@ pub struct GitIntegrationIntent {
 impl GitIntegrationIntent {
     /// Checks cross-field identity constraints; the adapter also verifies objects.
     pub fn validate(&self) -> Result<(), GitValueError> {
-        let width = self.expected_target.as_str().len();
+        let width = self.candidate.commit.as_str().len();
         if self.operation_id.is_nil()
-            || self.expected_target == self.candidate.commit
-            || self.merge_commit == self.expected_target
-            || self.merge_commit == self.candidate.commit
+            || self.expected_target.as_ref().is_some_and(|target| {
+                target == &self.candidate.commit
+                    || target == &self.merge_commit
+                    || target.as_str().len() != width
+                    || self.merge_commit == self.candidate.commit
+            })
+            || (self.expected_target.is_none() && self.merge_commit != self.candidate.commit)
             || [
                 &self.candidate.commit,
                 &self.candidate.tree,
@@ -189,6 +205,14 @@ impl GitIntegrationIntent {
     pub fn receipt_ref(&self) -> String {
         format!("refs/forge/integrations/{}", self.operation_id)
     }
+}
+
+// Missing fields in old/corrupt intents must not grant first-publication authority.
+fn required_optional_target<'de, D>(deserializer: D) -> Result<Option<GitObjectId>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Option::<GitObjectId>::deserialize(deserializer)
 }
 
 /// Observed result of reconciling an intent against the actual target history.
@@ -240,5 +264,25 @@ mod tests {
         for value in ["/", "relative/repo", "/tmp/../repo", "/tmp/./repo"] {
             assert!(LocalGitPath::new(value).is_err(), "{value}");
         }
+    }
+
+    #[test]
+    fn absent_expected_target_is_not_an_implicit_first_publication() {
+        let intent = GitIntegrationIntent {
+            operation_id: Uuid::now_v7(),
+            target_repository: LocalGitPath::new("/tmp/target.git").unwrap(),
+            target_ref: GitBranchRef::new("refs/heads/main").unwrap(),
+            expected_target: None,
+            candidate: GitCandidate {
+                commit: GitObjectId::new("a".repeat(40)).unwrap(),
+                tree: GitObjectId::new("b".repeat(40)).unwrap(),
+            },
+            merge_commit: GitObjectId::new("a".repeat(40)).unwrap(),
+        };
+        intent.validate().unwrap();
+        let mut json = serde_json::to_value(intent).unwrap();
+        assert!(serde_json::from_value::<GitIntegrationIntent>(json.clone()).is_ok());
+        json.as_object_mut().unwrap().remove("expected_target");
+        assert!(serde_json::from_value::<GitIntegrationIntent>(json).is_err());
     }
 }

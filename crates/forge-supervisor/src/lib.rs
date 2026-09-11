@@ -304,7 +304,7 @@ async fn serve_session(
                             let worker_registry = registry.clone();
                             let worker_backend = backend.clone();
                             workers.spawn(async move {
-                                if matches!(provision.run_spec_version,2..=5) {
+                                if matches!(provision.run_spec_version,2..=6) {
                                     return worker_backend.run(provision, worker_registry, control, false).await;
                                 }
                                 let result = fake::execute_provision(provision.clone(), worker_registry.sink(), control).await;
@@ -352,6 +352,11 @@ async fn serve_session(
                 Some(CoreToSupervisor { message: Some(core_to_supervisor::Message::GitIntegration(request)) }) => {
                     let backend=backend.clone();let registry=registry.clone();
                     workers.spawn(async move {backend.integrate_git(request,registry).await});
+                }
+                Some(CoreToSupervisor { message: Some(core_to_supervisor::Message::CaptureFileSnapshot(request)) }) => {
+                    let backend = backend.clone();
+                    let registry = registry.clone();
+                    workers.spawn(async move { backend.capture_file_snapshot(request, registry).await });
                 }
                 Some(CoreToSupervisor { message: None }) => warn!("received empty Core-to-Supervisor envelope"),
                 None => return Ok(SessionEnd::Disconnected),

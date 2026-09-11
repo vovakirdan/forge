@@ -97,6 +97,7 @@ impl StorageTransaction<'_> {
                     OR EXISTS (SELECT 1 FROM run_recovery_decisions rd WHERE rd.recovery_queue_entry_id=q.id AND rd.assessment='not_started_confirmed'))
                   AND t.lifecycle IN ('ready','in_progress') AND t.revision=q.task_revision AND t.current_stage_id=q.stage_id
                   AND NOT EXISTS (SELECT 1 FROM run_environment_reservations r WHERE r.task_id=t.id AND r.released_at IS NULL)
+                  AND NOT EXISTS (SELECT 1 FROM task_file_snapshots s WHERE s.task_id=t.id AND s.state='pending' AND s.capture_surface)
                   AND NOT EXISTS (SELECT 1 FROM git_integrations i WHERE i.task_id=t.id AND i.state NOT IN ('completed','retired'))
                   AND NOT EXISTS (SELECT 1 FROM task_dependencies d JOIN tasks blocker ON blocker.id=d.blocker_task_id AND blocker.project_id=d.project_id
                     WHERE d.project_id=q.project_id AND d.blocked_task_id=q.task_id AND blocker.lifecycle<>d.required_blocker_lifecycle)
@@ -209,6 +210,13 @@ impl StorageTransaction<'_> {
         if task_current.is_none() {
             return Err(StorageError::StaleRevision {
                 aggregate: "task dispatch state",
+            });
+        }
+        let capturing: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM task_file_snapshots WHERE task_id=$1 AND state='pending' AND capture_surface)")
+            .bind(request.queue_entry.input.task_id.as_uuid()).fetch_one(&mut *self.transaction).await?;
+        if capturing {
+            return Err(StorageError::InvalidInput {
+                reason: "Task surface is reserved for a file capture".into(),
             });
         }
         let integrating:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM git_integrations WHERE project_id=$1 AND task_id=$2 AND state NOT IN ('completed','retired'))")

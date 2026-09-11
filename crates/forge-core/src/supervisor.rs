@@ -18,6 +18,8 @@ mod inventory;
 pub(crate) mod outcome;
 #[path = "supervisor/runtime_inputs.rs"]
 mod runtime_inputs;
+#[path = "supervisor/source.rs"]
+mod source;
 #[path = "supervisor/validation.rs"]
 mod validation;
 

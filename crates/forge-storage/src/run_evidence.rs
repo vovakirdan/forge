@@ -12,13 +12,20 @@ impl PostgresStore {
     pub async fn run_diagnostics(&self, run_id: Uuid) -> Result<Value, StorageError> {
         let row:Value=sqlx::query_scalar("SELECT jsonb_build_object('runtime_report',(SELECT report FROM run_runtime_reports WHERE run_id=$1),'handoff',(SELECT body FROM task_handoffs WHERE run_id=$1),'incidents',COALESCE((SELECT jsonb_agg(to_jsonb(i)) FROM (SELECT id,kind,assessment,created_at FROM run_incidents WHERE run_id=$1 ORDER BY created_at LIMIT 100) i),'[]'::jsonb),'evidence',COALESCE((SELECT jsonb_agg(receipt) FROM (SELECT receipt FROM run_evidence_objects WHERE run_id=$1 ORDER BY id LIMIT 4096) e),'[]'::jsonb),'streams',COALESCE((SELECT jsonb_agg(jsonb_build_object('stream',stream,'incomplete',incomplete)) FROM run_evidence_streams WHERE run_id=$1),'[]'::jsonb),'proxy_usage',(SELECT usage FROM run_proxy_keys WHERE run_id=$1))")
             .bind(run_id).fetch_one(&self.pool).await?;
+        let source: Option<Value> =
+            sqlx::query_scalar("SELECT descriptor FROM run_git_source_selections WHERE run_id=$1")
+                .bind(run_id)
+                .fetch_optional(&self.pool)
+                .await?;
+        let mut row = row;
+        row["git_source"] = source.unwrap_or(Value::Null);
         Ok(row)
     }
     pub async fn evidence_import_candidates(
         &self,
         only_run: Option<Uuid>,
     ) -> Result<Vec<Uuid>, StorageError> {
-        Ok(sqlx::query_scalar("SELECT r.id FROM runs r JOIN run_environment_reservations e ON e.run_id=r.id WHERE ($1::uuid IS NULL OR r.id=$1) AND e.released_at IS NOT NULL AND r.run_spec_version IN (2,3,4,5) AND ((SELECT count(*) FROM run_evidence_streams s WHERE s.run_id=r.id)<2 OR (r.purpose<>'hook' AND NOT EXISTS(SELECT 1 FROM run_runtime_reports rr WHERE rr.run_id=r.id))) ORDER BY e.released_at LIMIT 32")
+        Ok(sqlx::query_scalar("SELECT r.id FROM runs r JOIN run_environment_reservations e ON e.run_id=r.id WHERE ($1::uuid IS NULL OR r.id=$1) AND e.released_at IS NOT NULL AND r.run_spec_version IN (2,3,4,5,6) AND ((SELECT count(*) FROM run_evidence_streams s WHERE s.run_id=r.id)<2 OR (r.purpose<>'hook' AND NOT EXISTS(SELECT 1 FROM run_runtime_reports rr WHERE rr.run_id=r.id))) ORDER BY e.released_at LIMIT 32")
             .bind(only_run).fetch_all(&self.pool).await?)
     }
     pub async fn list_run_evidence(&self, run_id: Uuid) -> Result<Vec<Value>, StorageError> {

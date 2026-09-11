@@ -97,6 +97,7 @@ pub enum SecretStoreError {
 pub struct SecretStore {
     pub(crate) binding: MasterKeyBinding,
     pub(crate) key: SecretBytes,
+    pub(crate) directory: std::path::PathBuf,
 }
 
 impl fmt::Debug for SecretStore {
@@ -110,6 +111,12 @@ impl fmt::Debug for SecretStore {
 }
 
 impl SecretStore {
+    /// Host-side import guards must exclude all files in the configured store,
+    /// including installations outside the normal execution directory.
+    pub fn contains_path(&self, path: &std::path::Path) -> bool {
+        path.starts_with(&self.directory)
+    }
+
     pub fn binding(&self) -> &MasterKeyBinding {
         &self.binding
     }

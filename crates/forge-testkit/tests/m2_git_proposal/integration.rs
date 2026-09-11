@@ -6,6 +6,9 @@ use forge_domain::{
 };
 use forge_testkit::m0::ManualSupervisor;
 
+#[path = "integration_rework.rs"]
+mod rework;
+
 pub(super) fn pipeline(mode: &str) -> Value {
     let missing = mode == "integration_missing_review";
     let mut stages = vec![
@@ -102,27 +105,16 @@ pub(super) async fn finish(
     {
         return Ok(());
     }
-    if mode == "integration_stale" {
-        accepted(
-            supervisor,
-            reply(&prepare, IntegrationCode::StaleBase, None),
-        )
-        .await?;
-        assert_eq!(
-            harness
-                .store
-                .load_task(task)
-                .await?
-                .context("Task")?
-                .task
-                .current_stage_id()
-                .context("stage")?
-                .as_str(),
-            "work"
-        );
-        harness.core.dispatch_available(project).await?;
-        supervisor.next_provision_for_task(task).await?;
-        return Ok(());
+    if matches!(
+        mode,
+        "integration_stale"
+            | "integration_future_source"
+            | "integration_pinned_stale"
+            | "integration_stale_dispatch_failure"
+            | "integration_stale_replay_stopped"
+            | "integration_stale_stopped"
+    ) {
+        return rework::finish(harness, supervisor, project, task, &prepare, mode).await;
     }
     let intent = intent(&prepare)?;
     let mut apply = prepare_apply(harness, supervisor, project, &prepare, &intent).await?;
@@ -168,7 +160,7 @@ fn intent(prepare: &IntegrationRequest) -> Result<GitIntegrationIntent> {
                 .into_owned(),
         )?,
         target_ref: prepare.operation.binding.target_ref.clone(),
-        expected_target: GitObjectId::new("a".repeat(40))?,
+        expected_target: Some(GitObjectId::new("a".repeat(40))?),
         candidate: prepare.operation.candidate.clone(),
         merge_commit: GitObjectId::new("d".repeat(40))?,
     })
@@ -418,7 +410,8 @@ async fn integration_previous_core_owner_cannot_silently_apply_domain_outcome() 
 }
 #[tokio::test]
 #[ignore = "requires PG/NATS; synthetic Integration peer, no model"]
-async fn integration_stale_base_returns_same_task_to_declared_employee_stage() -> Result<()> {
+async fn integration_stale_base_dispatches_rework_after_all_runs_stopped_without_external_wake()
+-> Result<()> {
     scenario("integration_stale").await
 }
 #[tokio::test]

@@ -40,6 +40,14 @@ impl EvidenceRuntime {
 }
 
 impl CoreService {
+    /// Supplies an isolated maintained ObjectStore adapter in acceptance tests.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn with_test_object_store(mut self, store: ObjectEvidenceStore) -> Result<Self, CoreError> {
+        let runtime = Arc::get_mut(self.evidence.as_mut().ok_or_else(credential_error)?)
+            .ok_or_else(credential_error)?;
+        runtime.object_store = Some(store);
+        Ok(self)
+    }
     /// Optional remote durable body storage. Without it, bounded local receipts
     /// remain explicitly PendingUpload, rather than pretending MinIO is healthy.
     pub fn with_evidence_store(mut self, config: S3EvidenceConfig) -> Result<Self, CoreError> {

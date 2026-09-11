@@ -71,7 +71,7 @@ impl CoreService {
                     || context.data().task_id != owner.task_id
                     || Some(context.data().employee_id) != run.employee_id
                     || context.data().stage_id != owner.stage_id
-                    || !matches!(run.run_spec_version, 1 | 2)
+                    || !matches!(run.run_spec_version, 1 | 2 | 6)
                 {
                     return Err(invalid("stored context scope differs from Run"));
                 }

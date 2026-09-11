@@ -10,19 +10,36 @@ pub(super) async fn prepare(
     provision: &ProvisionRun,
     spec: &RuntimeLaunchSpec,
 ) -> Result<PreparedSurface, SupervisorError> {
-    let SurfaceSpec::GitCandidateSnapshot {
-        repository,
-        base_ref,
-        candidate,
-    } = &spec.binding.surface
-    else {
-        return Err(SupervisorError::UnsafeSurface);
+    let (original, candidate) = match &spec.binding.surface {
+        SurfaceSpec::GitCandidateSnapshot {
+            repository,
+            base_ref,
+            candidate,
+        } => (
+            SurfaceSpec::GitWorktree {
+                repository: repository.clone(),
+                base_ref: base_ref.clone(),
+            },
+            candidate,
+        ),
+        SurfaceSpec::GitUnbornCandidateSnapshot {
+            repository,
+            object_format,
+            candidate,
+        } => (
+            SurfaceSpec::GitUnborn {
+                repository: repository.clone(),
+                object_format: *object_format,
+            },
+            candidate,
+        ),
+        _ => return Err(SupervisorError::UnsafeSurface),
     };
     crate::execution_assignment::validate(provision)?;
     spec.validate()
         .map_err(|_| SupervisorError::InvalidRunSpec)?;
-    if provision.run_spec_version != 2
-        || spec.schema_version != 2
+    if !matches!(provision.run_spec_version, 2 | 6)
+        || !matches!(spec.schema_version, 2 | 6)
         || spec.communication.is_some()
         || spec.resolution.is_some()
         || spec.binding.access != SurfaceAccess::ReadOnly
@@ -39,10 +56,7 @@ pub(super) async fn prepare(
     let source = GitSourceScope {
         project_id: spec.project_id,
         surface_id: spec.surface_id,
-        source: SurfaceSpec::GitWorktree {
-            repository: repository.clone(),
-            base_ref: base_ref.clone(),
-        },
+        source: original,
     };
     // This is a readonly lookup. An absent, replaced, or mismatched original
     // writer manifest fails without preparing a new source or repairing it.

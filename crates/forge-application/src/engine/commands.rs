@@ -123,7 +123,8 @@ impl Engine<'_> {
                 .await
             }
             CommandPayload::RegisterProjectRepository { .. }
-            | CommandPayload::BindTaskGitRepository { .. } => {
+            | CommandPayload::BindTaskGitRepository { .. }
+            | CommandPayload::SetTaskGitSourcePolicy { .. } => {
                 self.manage_repository(
                     transaction,
                     project,
@@ -168,6 +169,9 @@ impl Engine<'_> {
             | CommandPayload::AcceptGitIntegrationResult { .. }
             | CommandPayload::EnrollCredential { .. }
             | CommandPayload::ConfigureProjectHook(_)
+            | CommandPayload::ImportTaskFileSnapshot(_)
+            | CommandPayload::CaptureTaskFileSnapshot(_)
+            | CommandPayload::AttachTaskFileInput(_)
             | CommandPayload::ConfigureEmployeeRuntime { .. } => {
                 Err(CommandError::UnsupportedCommand)
             }

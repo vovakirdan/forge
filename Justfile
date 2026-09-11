@@ -58,6 +58,10 @@ test-codex-live:
 run-m1 *args:
     @bash ./scripts/run-m1.sh "$@"
 
+# Explicit operator Git workflow in a separate empty playground; run requires approval.
+run-m2 *args:
+    @bash ./scripts/run-m2.sh "$@"
+
 # Create a private toy bare Git repository; no credentials, providers or Core mutation.
 prepare-m2-repository:
     @bash ./scripts/prepare-m2-repository.sh

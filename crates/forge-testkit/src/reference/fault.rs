@@ -91,6 +91,8 @@ impl<T: CommandTransaction> CommandTransaction for FaultTransaction<T> {
     forward!(update_task_dispatch_constraint(constraint: &forge_domain::NextRunEmployeeConstraint, expected: &forge_domain::NextRunConstraintState) -> (), Some(FaultPoint::AfterAggregateWrite));
     forward!(insert_message_requirement_waiver(waiver: &forge_domain::communication::MessageRequirementWaiver) -> (), Some(FaultPoint::AfterAggregateWrite));
     forward!(load_project_repository(id: Uuid) -> Option<forge_domain::ProjectRepository>, None);
+    forward!(task_git_source_setting(project_id: ProjectId, task_id: TaskId) -> forge_domain::git::TaskGitSourceSetting, None);
+    forward!(insert_task_git_source_setting(project_id: ProjectId, task_id: TaskId, setting: &forge_domain::git::TaskGitSourceSetting) -> (), Some(FaultPoint::AfterAggregateWrite));
     forward!(insert_project_repository(repository: &forge_domain::ProjectRepository) -> (), Some(FaultPoint::AfterAggregateWrite));
     forward!(lock_employee_thread(id: Uuid) -> Option<forge_domain::communication::EmployeeThread>, None);
     forward!(insert_employee_thread(thread: &forge_domain::communication::EmployeeThread) -> (), Some(FaultPoint::AfterAggregateWrite));

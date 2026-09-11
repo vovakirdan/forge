@@ -26,7 +26,7 @@ pub struct S3EvidenceConfig {
 /// Maintained object_store S3 adapter. It uses conditional creation and never
 /// overwrites a previously stored immutable object.
 pub struct ObjectEvidenceStore {
-    store: Arc<dyn ObjectStore>,
+    pub(super) store: Arc<dyn ObjectStore>,
 }
 
 impl ObjectEvidenceStore {

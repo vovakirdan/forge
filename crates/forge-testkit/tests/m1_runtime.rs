@@ -12,6 +12,8 @@ use serde_json::json;
 use std::{collections::BTreeSet, fs, os::unix::fs::PermissionsExt, path::PathBuf, time::Duration};
 use uuid::Uuid;
 
+#[path = "m1_runtime/input_acceptance.rs"]
+mod input_acceptance;
 #[path = "m1_runtime/review_regressions.rs"]
 mod review_regressions;
 
@@ -119,10 +121,22 @@ async fn two_runs_share_auth_but_not_files_and_stop_creates_handoff() -> Result<
     harness.approve_task(project, first).await?;
     harness.approve_task(project, second).await?;
     harness.start_project(project).await?;
-    supervisor.next_provision_for_task(first).await?;
-    supervisor.next_provision_for_task(second).await?;
+    let provision_a = supervisor.next_provision_for_task(first).await?;
+    let provision_b = supervisor.next_provision_for_task(second).await?;
     let run_a = harness.wait_for_run_count(first, 1).await?.remove(0);
     let run_b = harness.wait_for_run_count(second, 1).await?.remove(0);
+    for (provision, run) in [(&provision_a, &run_a), (&provision_b, &run_b)] {
+        assert_eq!(provision.run_spec_version, 6);
+        let Some(forge_protocol::supervisor::v1::provision_run::Assignment::TaskStage(owner)) =
+            &provision.assignment
+        else {
+            anyhow::bail!("v6 requires explicit TaskStage authority on the Supervisor wire");
+        };
+        let expected = run.require_task_stage()?;
+        assert_eq!(owner.task_id, expected.task_id.to_string());
+        assert_eq!(owner.stage_id, expected.stage_id.to_string());
+        assert_eq!(owner.queue_entry_id, expected.queue_entry_id.to_string());
+    }
     assert_ne!(run_a.run_spec["surface_id"], run_b.run_spec["surface_id"]);
     for run in [&run_a, &run_b] {
         let grant = root

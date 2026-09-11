@@ -139,12 +139,20 @@ async fn workspace_matches(
         return Ok(false);
     };
     let surface = match task.work_surface() {
-        forge_domain::TaskWorkSurface::Git(git) => {
-            forge_domain::runtime::SurfaceSpec::GitWorktree {
-                repository: git.source.as_path().to_string_lossy().into_owned(),
-                base_ref: git.initial_base.as_str().into(),
+        forge_domain::TaskWorkSurface::Git(git) => match &git.initial_base {
+            forge_domain::git::GitInitialRevision::Commit(base) => {
+                forge_domain::runtime::SurfaceSpec::GitWorktree {
+                    repository: git.source.as_path().to_string_lossy().into_owned(),
+                    base_ref: base.as_str().into(),
+                }
             }
-        }
+            forge_domain::git::GitInitialRevision::Unborn { object_format } => {
+                forge_domain::runtime::SurfaceSpec::GitUnborn {
+                    repository: git.source.as_path().to_string_lossy().into_owned(),
+                    object_format: *object_format,
+                }
+            }
+        },
         forge_domain::TaskWorkSurface::None => binding.surface,
     };
     Ok(requirement.is_compatible(&surface, binding.access))

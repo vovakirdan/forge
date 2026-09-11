@@ -46,15 +46,30 @@ impl Journal {
             || source.project_id != operation.project_id
             || source.surface_id != operation.binding.surface_id
             || source.source
-                != (forge_domain::runtime::SurfaceSpec::GitWorktree {
-                    repository: operation
-                        .binding
-                        .source
-                        .as_path()
-                        .to_string_lossy()
-                        .into_owned(),
-                    base_ref: operation.binding.initial_base.as_str().into(),
-                })
+                != match &operation.binding.initial_base {
+                    forge_domain::git::GitInitialRevision::Commit(commit) => {
+                        forge_domain::runtime::SurfaceSpec::GitWorktree {
+                            repository: operation
+                                .binding
+                                .source
+                                .as_path()
+                                .to_string_lossy()
+                                .into_owned(),
+                            base_ref: commit.as_str().into(),
+                        }
+                    }
+                    forge_domain::git::GitInitialRevision::Unborn { object_format } => {
+                        forge_domain::runtime::SurfaceSpec::GitUnborn {
+                            repository: operation
+                                .binding
+                                .source
+                                .as_path()
+                                .to_string_lossy()
+                                .into_owned(),
+                            object_format: *object_format,
+                        }
+                    }
+                }
             || self
                 .snapshot
                 .git_surface_owners

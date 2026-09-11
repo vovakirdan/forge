@@ -179,6 +179,12 @@ pub enum DomainEventKind {
     ProjectRepositoryRegistered,
     /// A draft Task pinned its repository, initial base and persistent surface.
     TaskGitRepositoryBound,
+    /// A future-only source selection changed independently from the Task revision.
+    TaskGitSourcePolicyChanged,
+    /// Explicit selected-file capture/import was requested or finished.
+    TaskFileSnapshotChanged,
+    /// Future Run inputs changed independently of Task lifecycle.
+    TaskFileInputAttached,
     /// A Project-scoped Employee conversation was opened.
     EmployeeThreadOpened,
     /// An immutable input message was accepted for delivery.

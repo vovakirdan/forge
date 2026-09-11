@@ -38,6 +38,9 @@ impl IdempotencyKey {
 /// Typed intent selected by one named HTTP command path.
 #[derive(Clone, Debug, PartialEq)]
 pub enum CommandPayload {
+    ImportTaskFileSnapshot(file_snapshot_input::ImportFileSnapshotInput),
+    CaptureTaskFileSnapshot(file_snapshot_input::CaptureFileSnapshotInput),
+    AttachTaskFileInput(file_snapshot_input::AttachFileInput),
     ConfigureProjectHook(Box<crate::ConfigureProjectHookInput>),
     ConfigureResolverRoute(resolver_input::ConfigureResolverRouteInput),
     RaiseEscalation(resolver_input::RaiseEscalationInput),
@@ -97,7 +100,14 @@ pub enum CommandPayload {
         task_id: TaskId,
         expected_task_revision: u64,
         repository_id: Uuid,
-        initial_base: forge_domain::git::GitObjectId,
+        initial_base: forge_domain::git::GitInitialRevision,
+    },
+    /// Future-only Git selection; does not alter the current Task/Run revision.
+    SetTaskGitSourcePolicy {
+        task_id: TaskId,
+        expected_policy_revision: u64,
+        policy: forge_domain::git::TaskGitSourcePolicy,
+        reason: String,
     },
     /// Open an independent durable Employee conversation.
     OpenEmployeeThread(crate::OpenEmployeeThreadCommand),
@@ -351,6 +361,9 @@ impl CommandEnvelope {
 impl CommandPayload {
     fn parse(name: CommandName, value: Value) -> Result<Self, ApplicationError> {
         match name {
+            CommandName::ImportTaskFileSnapshot
+            | CommandName::CaptureTaskFileSnapshot
+            | CommandName::AttachTaskFileInput => file_snapshot_input::parse(name, value),
             CommandName::ReportFinding => parse_typed(name, value).map(Self::ReportFinding),
             CommandName::TriageFinding => parse_typed(name, value).map(Self::TriageFinding),
             CommandName::PromoteFinding => parse_typed(name, value).map(Self::PromoteFinding),
@@ -365,9 +378,9 @@ impl CommandPayload {
             CommandName::ScheduleTaskResume | CommandName::CancelTaskResume => {
                 resume_input::parse(name, value)
             }
-            CommandName::RegisterProjectRepository | CommandName::BindTaskGitRepository => {
-                repository_input::parse(name, value)
-            }
+            CommandName::RegisterProjectRepository
+            | CommandName::BindTaskGitRepository
+            | CommandName::SetTaskGitSourcePolicy => repository_input::parse(name, value),
             CommandName::OpenEmployeeThread => {
                 parse_typed(name, value).map(Self::OpenEmployeeThread)
             }
@@ -792,6 +805,7 @@ mod tests;
 
 #[path = "command/employee_input.rs"]
 mod employee_input;
+mod file_snapshot_input;
 mod manager_input;
 mod pipeline_management_input;
 mod repository_input;

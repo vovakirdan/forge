@@ -98,9 +98,13 @@ impl CoreService {
         let mut spec: RuntimeLaunchSpec =
             serde_json::from_value(run.run_spec.clone()).map_err(|_| credential_error())?;
         spec.validate().map_err(|_| credential_error())?;
+        self.prepare_file_inputs(&run, &spec).await?;
         // Resolution is one-shot even when this Employee's Task profile supports
         // native input. This is an effective launch copy, never a binding edit.
         apply_purpose_profile(&mut spec)?;
+        if !spec.file_inputs.is_empty() {
+            spec.instruction.push_str("\n\nForge file inputs: immutable snapshots are mounted read-only at /run/forge-inputs/<artifact_id>/files, with manifest.json beside files. See /run/forge-inputs/inputs.json for identities. These are input materials, not Git candidates or accepted stage results. Copy selected files into your own workspace only when the task calls for it; no automatic overlay is performed.");
+        }
         let mut transaction = self.store.begin().await?;
         let scope = forge_domain::runtime::RunScope {
             run_id,
@@ -237,6 +241,10 @@ fn container_workdir(surface: &forge_domain::runtime::SurfaceSpec) -> &'static s
         forge_domain::runtime::SurfaceSpec::FilesystemSandbox
         | forge_domain::runtime::SurfaceSpec::GitWorktree { .. }
         | forge_domain::runtime::SurfaceSpec::GitCandidateSnapshot { .. } => "/workspace/worktree",
+        forge_domain::runtime::SurfaceSpec::GitUnborn { .. }
+        | forge_domain::runtime::SurfaceSpec::GitUnbornCandidateSnapshot { .. } => {
+            "/workspace/worktree"
+        }
     }
 }
 
@@ -293,7 +301,7 @@ fn materialize(
             .collect(),
         max_output_bytes: spec.binding.budget.max_output_bytes,
         stop_grace_seconds: spec.binding.limits.stop_grace_seconds,
-        runtime_input: (matches!(spec.schema_version, 2 | 3)
+        runtime_input: (matches!(spec.schema_version, 2 | 3 | 6)
             && spec
                 .binding
                 .execution_profile

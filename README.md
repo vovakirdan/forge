@@ -10,9 +10,13 @@ four explicit profiles are Codex CLI, Claude CLI, OpenRouter API and OpenAI API.
 The [execution ledger](docs/2026-09-06-m2-tasks.md) records verification status;
 synthetic tests and registration do not establish authenticated live behavior.
 
-Start with the [M2 walkthrough](docs/M2_WALKTHROUGH.md),
+For a real provider exercise from an empty repository, use the
+[M2 operator launcher and scenario](docs/M2_OPERATOR_SCENARIO.md).
+For keyless acceptance, start with the [M2 walkthrough](docs/M2_WALKTHROUGH.md),
 [provider profiles](docs/M2_PROVIDER_PROFILES.md),
 [native input](docs/M2_NATIVE_INPUT.md),
+[Git source policy](docs/M2_GIT_SOURCE_POLICY.md),
+[selected-file snapshots](docs/M2_FILE_SNAPSHOTS.md),
 [shared admission limits](docs/M2_ADMISSION_LIMITS.md), and
 [project hooks](docs/M2_PROJECT_HOOKS.md). Run the keyless suite with
 `just test-m2`; `just prepare-m2-repository` creates a separate toy Git source

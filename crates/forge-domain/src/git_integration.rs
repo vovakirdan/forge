@@ -238,6 +238,13 @@ impl GitIntegrationOperation {
         if intent.operation_id != self.id
             || intent.candidate != self.candidate
             || intent.target_ref != self.binding.target_ref
+            || (intent.expected_target.is_none()
+                && !matches!(
+                    self.binding.initial_base,
+                    crate::git::GitInitialRevision::Unborn { .. }
+                ))
+            || crate::git::GitObjectFormat::for_object(&intent.candidate.commit)
+                != self.binding.initial_base.object_format()
         {
             return Err(invalid(
                 "integration.intent",

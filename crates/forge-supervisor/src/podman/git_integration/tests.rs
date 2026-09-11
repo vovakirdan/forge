@@ -43,7 +43,7 @@ async fn request(fixture: &Fixture) -> IntegrationRequest {
                 repository_id: Uuid::now_v7(),
                 source: LocalGitPath::new(repository).unwrap(),
                 target_ref: GitBranchRef::new("refs/heads/main").unwrap(),
-                initial_base: GitObjectId::new(base_ref).unwrap(),
+                initial_base: GitObjectId::new(base_ref).unwrap().into(),
                 surface_id: fixture.spec.surface_id,
             },
             writer: RunScope {
@@ -151,7 +151,7 @@ async fn incomplete_apply_admission_only_reconciles_and_target_movement_is_never
             &["rev-parse", "refs/heads/main"]
         )
         .await,
-        intent.expected_target.as_str()
+        intent.expected_target.as_ref().unwrap().as_str()
     );
     let target = apply.operation.binding.source.as_path();
     git(

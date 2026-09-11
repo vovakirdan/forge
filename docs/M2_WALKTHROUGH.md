@@ -4,6 +4,11 @@ Use a disposable project and a separate repository. These are developer
 acceptance tools, not an installer or an automatic test runner for owner projects.
 No command below discovers credentials or starts paid inference implicitly.
 
+For the real end-to-end operator exercise in a separate empty repository, use
+the [M2 launcher and Russian scenario](M2_OPERATOR_SCENARIO.md). It asks for
+explicit provider/auth approval and drives work, review, QA and integration.
+The keyless checks below remain separate proof.
+
 ## Keyless checks
 
 With the existing local PostgreSQL/NATS development services prepared:

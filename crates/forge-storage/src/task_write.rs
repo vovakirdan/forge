@@ -136,7 +136,10 @@ impl TaskColumns {
                 }
                 (
                     Some(binding.repository_id),
-                    Some(binding.initial_base.as_str().to_owned()),
+                    binding
+                        .initial_base
+                        .commit()
+                        .map(|commit| commit.as_str().to_owned()),
                 )
             }
         };

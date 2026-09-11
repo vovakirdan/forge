@@ -1,0 +1,47 @@
+{
+  "name": "M2 real isolated Git workflow",
+  "task_kinds": ["delivery"],
+  "entry_stage_id": "work",
+  "max_stage_visits": 12,
+  "stages": [
+    {
+      "id": "work", "name": "Implementation", "executor_kind": "employee",
+      "outcomes": ["completed"], "workspace": {"kind": "git", "access": "read_write"},
+      "instructions": "Implement the assigned Task in its own Git surface. First visit only: reply READY to the required initial instruction and wait for its addressed GO instruction before editing files; do not sleep or spawn background work. Later rework visits proceed immediately. Read /run/forge-source/descriptor.json using Node (jq is not installed). selected_revision is either an exact commit SHA or an unborn descriptor, which has no bundle. A moved target must be fetched explicitly with git fetch /run/forge-source/source.bundle +refs/forge/source:refs/forge/source and merged by its exact selected_revision SHA into your retained branch. This exercise starts with unrelated root commits, so use --allow-unrelated-histories when required; preserve both independent files. Never reset or discard prior work. Commit explicitly with local Git identity Forge Employee <employee@invalid>. Verify clean tracked/untracked state and record exact HEAD. Submit a work_report artifact describing actual changes and checks, then outcome completed with candidate_commit HEAD and its artifact submission message id. Do not claim success without committing."
+    },
+    {
+      "id": "review", "name": "Independent review", "executor_kind": "employee",
+      "outcomes": ["accepted", "rejected"], "workspace": {"kind": "git", "access": "read_only"},
+      "acceptance_policy": {"kind": "candidate_review", "independent": true,
+        "verdicts": {"accepted": "accepted", "rejected": "rejected"}},
+      "instructions": "Independently review the pinned read-only candidate against this Task description. The first candidate intentionally contains only that Task's own file; do not reject it for absence of the other Task's file. After stale-base rework inspect the preserved combined result. Do not modify the source or invent findings. Submit a review_report artifact with actual findings and rationale, then the honest accepted/rejected outcome with candidate_commit equal to the inspected HEAD and that artifact message id. Rejected returns this same Task to work."
+    },
+    {
+      "id": "qa", "name": "Report-only QA", "executor_kind": "employee",
+      "outcomes": ["passed", "failed"], "workspace": {"kind": "git", "access": "read_only"},
+      "instructions": "Perform real task-specific QA on this pinned read-only candidate. For normalize-lines.sh choose and execute stdin examples covering duplicates, ordering and empty input; report observed versus expected results. For README.md inspect accuracy, requirements and examples; absence of the independently developed script on its first candidate is expected, not a defect. Source stays read-only; use private scratch if needed. No mandatory test framework or hook exists. Submit a qa_report artifact containing checks and observations, then honest passed/failed outcome with exact candidate_commit HEAD and the artifact message id. Failed returns this same Task to work."
+    },
+    {
+      "id": "integrate", "name": "Publish accepted candidate", "executor_kind": "system",
+      "outcomes": ["applied", "no_changes", "stale_base"],
+      "system_action": {"kind": "git_integration", "outcomes": {
+        "applied": "applied", "no_changes": "no_changes", "stale_base": "stale_base"
+      }, "required_review_stages": ["review"]}
+    }
+  ],
+  "transitions": [
+    {"from_stage_id":"work","outcome":"completed","target":{"kind":"stage","stage_id":"review"},
+      "artifact_requirements":[{"kind":"work_report","minimum_count":1,"scope":"current_stage"}]},
+    {"from_stage_id":"review","outcome":"accepted","target":{"kind":"stage","stage_id":"qa"},
+      "artifact_requirements":[{"kind":"review_report","minimum_count":1,"scope":"current_stage"}]},
+    {"from_stage_id":"review","outcome":"rejected","target":{"kind":"stage","stage_id":"work"},
+      "artifact_requirements":[{"kind":"review_report","minimum_count":1,"scope":"current_stage"}]},
+    {"from_stage_id":"qa","outcome":"passed","target":{"kind":"stage","stage_id":"integrate"},
+      "artifact_requirements":[{"kind":"qa_report","minimum_count":1,"scope":"current_stage"}]},
+    {"from_stage_id":"qa","outcome":"failed","target":{"kind":"stage","stage_id":"work"},
+      "artifact_requirements":[{"kind":"qa_report","minimum_count":1,"scope":"current_stage"}]},
+    {"from_stage_id":"integrate","outcome":"applied","target":{"kind":"done"}},
+    {"from_stage_id":"integrate","outcome":"no_changes","target":{"kind":"done"}},
+    {"from_stage_id":"integrate","outcome":"stale_base","target":{"kind":"stage","stage_id":"work"}}
+  ]
+}

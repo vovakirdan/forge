@@ -227,7 +227,10 @@ async fn run(arguments: Arguments) -> Result<()> {
         let mut tick = tokio::time::interval(Duration::from_secs(5));
         loop {
             tokio::select! {
-                _=tick.tick()=>if let Err(error)=evidence_core.evidence_tick().await {tracing::warn!(error=%error,"evidence remains pending");},
+                _=tick.tick()=>{
+                    if let Err(error)=evidence_core.evidence_tick().await {tracing::warn!(error=%error,"evidence remains pending");}
+                    if let Err(error)=evidence_core.file_snapshot_tick().await {tracing::warn!(error=%error,"file snapshot remains pending");}
+                },
                 _=evidence_shutdown.changed()=>break,
             }
         }

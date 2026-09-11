@@ -95,15 +95,28 @@ impl PodmanBackend {
         let source = GitSourceScope {
             project_id: spec.project_id,
             surface_id: spec.binding.surface_id,
-            source: SurfaceSpec::GitWorktree {
-                repository: spec
+            source: {
+                let repository = spec
                     .binding
                     .source
                     .as_path()
                     .to_str()
                     .ok_or(SupervisorError::UnsafeSurface)?
-                    .into(),
-                base_ref: spec.binding.initial_base.as_str().into(),
+                    .into();
+                match &spec.binding.initial_base {
+                    forge_domain::git::GitInitialRevision::Commit(commit) => {
+                        SurfaceSpec::GitWorktree {
+                            repository,
+                            base_ref: commit.as_str().into(),
+                        }
+                    }
+                    forge_domain::git::GitInitialRevision::Unborn { object_format } => {
+                        SurfaceSpec::GitUnborn {
+                            repository,
+                            object_format: *object_format,
+                        }
+                    }
+                }
             },
         };
         let worktree = surface::inspection_worktree(

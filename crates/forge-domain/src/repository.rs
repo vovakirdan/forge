@@ -4,7 +4,7 @@ use uuid::Uuid;
 
 use crate::{
     Actor, DomainError, ProjectId, Timestamp,
-    git::{GitBranchRef, GitObjectId, LocalGitPath},
+    git::{GitBranchRef, GitInitialRevision, LocalGitPath},
 };
 
 /// Immutable Project source allowlist entry; changing a source requires a new entry.
@@ -48,14 +48,14 @@ pub struct TaskGitBinding {
     pub source: LocalGitPath,
     pub target_ref: GitBranchRef,
     /// Full operator-selected commit identity, not a claim of source verification.
-    pub initial_base: GitObjectId,
+    pub initial_base: GitInitialRevision,
     pub surface_id: Uuid,
 }
 
 impl TaskGitBinding {
     pub fn from_repository(
         repository: &ProjectRepository,
-        initial_base: GitObjectId,
+        initial_base: impl Into<GitInitialRevision>,
         surface_id: Uuid,
     ) -> Result<Self, DomainError> {
         repository.validate_snapshot()?;
@@ -63,7 +63,7 @@ impl TaskGitBinding {
             repository_id: repository.id,
             source: repository.source.clone(),
             target_ref: repository.target_ref.clone(),
-            initial_base,
+            initial_base: initial_base.into(),
             surface_id,
         };
         binding.validate_snapshot()?;

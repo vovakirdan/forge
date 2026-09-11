@@ -58,7 +58,7 @@ fn launch(fixture: &Fixture) -> (PodmanBackend, ProvisionRun, HookRunSpec) {
             repository_id: Uuid::now_v7(),
             source: LocalGitPath::new(repository).unwrap(),
             target_ref: GitBranchRef::new("refs/heads/main").unwrap(),
-            initial_base: GitObjectId::new(base_ref).unwrap(),
+            initial_base: GitObjectId::new(base_ref).unwrap().into(),
             surface_id: fixture.spec.surface_id,
         },
         candidate: fixture.candidate.clone(),

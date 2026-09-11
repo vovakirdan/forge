@@ -34,7 +34,7 @@ pub(crate) fn validate(
     }
     let spec: RuntimeLaunchSpec = serde_json::from_str(&provision.run_spec_json)?;
     if provision.run_spec_version != u32::from(spec.schema_version)
-        || !matches!(spec.schema_version, 2 | 3)
+        || !matches!(spec.schema_version, 2 | 3 | 6)
         || !matches!(
             spec.binding.execution_profile.adapter_id(),
             "claude_code_cli" | "codex_cli" | "opencode_runtime"

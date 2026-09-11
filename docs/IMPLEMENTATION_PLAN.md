@@ -1,6 +1,6 @@
 # Forge: Implementation Plan
 
-**Статус:** M0 и M1 закрыты; код M2 и keyless-регрессия завершены, четыре live-gate ещё не выполнены; M3–M4 остаются roadmap
+**Статус:** M0, M1 и M2 закрыты; M2 — по пересогласованной приёмке 11 сентября, provider live-gates отложены; M3–M4 остаются roadmap
 **Дата обновления:** 7 сентября 2026
 **Граница:** local Linux-first MVP. План покрывает control plane, execution
 runtime, provider boundary, local install и knowledge loop. Existing `frontend/`
@@ -513,6 +513,10 @@ Git-чистота и exact-candidate snapshot предшествуют пере
 Employee; автоматические hooks выполняются только при явной настройке владельца.
 Добавлены taskless Communication, native input, shared-purpose capacity и
 Resolution Run. Реальные ключи и платные проверки требуют отдельного opt-in.
+По решению владельца 11 сентября authenticated provider gates отложены, а
+закрытие M2 определяется Codex Git evidence, физической keyless-приёмкой pin и
+snapshots и регрессией M0–M2. Статус и ограничения — в
+[отчёте закрытия](2026-09-11-m2-closeout.md).
 
 **Exit gate:** delivery Task проходит реальный Git worktree,
 independent review и Integration, а настроенный hook следует своему Pipeline;
@@ -794,9 +798,10 @@ Workspace tests, strict Clippy, общий integration target и CLI smoke та�
 моделей и provider lanes. Одиночный Run с принятым Artifact/outcome и API lane
 с локальным upstream stub проверены отдельно. Evidence и ограничения —
 в [M1_RUNTIME.md](M1_RUNTIME.md).
-M2 реализуется по [уточнённой спецификации](2026-09-06-m2-specs.md) и
+M2 реализована по [уточнённой спецификации](2026-09-06-m2-specs.md) и
 [execution ledger](2026-09-06-m2-tasks.md). Они фиксируют текущий объём,
-выполненные проверки и оставшиеся live-gates. TASK-21/22/23 и M3–M4 остаются
+выполненные проверки и отложенные live-gates; актуальная приёмка — в
+[M2 closeout](2026-09-11-m2-closeout.md). TASK-21/22/23 и M3–M4 остаются
 roadmap; наличие их описаний не означает реализацию.
 
 ## 8. Task readiness notes
@@ -804,9 +809,10 @@ roadmap; наличие их описаний не означает реализ
 ### Ready now
 
 M0–M1 прошли acceptance, включая завершённую TASK-05 и operator-approved live
-проверку после refactoring. Текущий продуктовый этап — реализация и acceptance
-M2; выбор стека не переоткрывается. Память Employee и knowledge loop относятся
-к M3. Четыре M2 provider lanes требуют отдельных разрешённых live-проверок.
+проверку после refactoring. M2 закрыта по [приёмке 11 сентября](2026-09-11-m2-closeout.md).
+Следующая продуктовая веха — M3: память Employee и knowledge loop; выбор стека
+не переоткрывается. Четыре M2 provider lanes требуют отдельных разрешённых live-проверок
+для подтверждения authenticated behavior; они отложены, не засчитаны как passed.
 
 ### Explicit configuration work, not architecture blockers
 

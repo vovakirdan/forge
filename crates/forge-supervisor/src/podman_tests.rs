@@ -28,6 +28,8 @@ use crate::{
 };
 
 mod fixture;
+mod input_acceptance;
+mod receipt_admission;
 use fixture::*;
 
 #[tokio::test]

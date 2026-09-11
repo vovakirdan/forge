@@ -13,6 +13,7 @@ source "$SCRIPT_DIR/lib/dev.sh"
 require_command cargo
 require_command podman
 bash "$SCRIPT_DIR/tests/m0-demo-test.sh"
+bash "$SCRIPT_DIR/tests/m2-launcher-test.sh"
 require_dev_environment
 podman image exists localhost/forge-runner-fixture:m1 \
     || fail "synthetic runtime fixture missing; run just build-runtime-fixture first"
@@ -36,6 +37,7 @@ env \
     cargo test --package forge-core --package forge-storage --package forge-testkit \
         --package forge-supervisor --all-features --locked -- \
         --ignored --skip uploads_redacted_evidence_to_minio \
+        --skip snapshot_files_roundtrip_empty_and_binary_bytes_with_create_only_replay \
         --skip actual_pinned_image_probes_both_clis_without_credentials \
         --skip actual_api_run_is_scoped_accounted_and_revoked_without_task_success \
         --skip live_codex_subscription_two_parallel_runs_isolated_stop_and_evidence \

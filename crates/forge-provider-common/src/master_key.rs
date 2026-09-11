@@ -60,6 +60,7 @@ impl SecretStore {
         Ok(Self {
             binding,
             key: generated,
+            directory: directory.canonicalize()?,
         })
     }
 
@@ -101,7 +102,11 @@ impl SecretStore {
         if key.expose().len() != 32 {
             return Err(SecretStoreError::KeyUnavailable);
         }
-        Ok(Self { binding, key })
+        Ok(Self {
+            binding,
+            key,
+            directory: directory.canonicalize()?,
+        })
     }
 }
 

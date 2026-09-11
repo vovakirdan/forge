@@ -147,7 +147,7 @@ impl GitBackend {
         }
     }
 
-    pub(super) async fn text(
+    pub(crate) async fn text(
         &self,
         directory: &Path,
         args: &[&str],

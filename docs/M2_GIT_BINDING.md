@@ -43,7 +43,12 @@ Before approval, `bind_task_git_repository` pins the source exactly once:
 }
 ```
 
-The Task retains the repository ID, source and target-ref snapshot, full initial SHA and
+For a genuinely empty source, `initial_base` is instead
+`{"kind":"unborn","object_format":"sha1"}` (or `sha256`). No placeholder commit is made.
+See [future Run source policy](M2_GIT_SOURCE_POLICY.md) for refreshing repository input
+without replacing the original Task binding.
+
+The Task retains the repository ID, source and target-ref snapshot, initial revision and
 generated persistent `surface_id`. The SHA is explicit operator input, not a verified claim;
 Supervisor provisioning must resolve it to a commit in the selected repository before a Run
 starts. A missing source or commit is an execution failure, never permission to fall back to
@@ -114,12 +119,14 @@ M2 fails closed on effective `filter.*` configuration (including includes/worktr
 submodule/gitlink candidates, hidden index changes and redirected worktree metadata. Git
 config is not silently stripped and project filters are not run outside the worker sandbox.
 
-Integration is local merge-commit only. For current target `T` and approved candidate `H`,
+For an existing target, integration is local merge-commit only. For current target `T` and approved candidate `H`,
 `T` must be an ancestor of `H`; prepared merge `M` has parents `[T,H]` and exactly `tree(H)`.
 No controller semantic merge, rebase or squash occurs after approval. Stale base needs an
 explicit same-Task Pipeline return and fresh configured gates. No changes is an explicit
 outcome. Preparation leaves the target untouched; Core must persist the exact intent before
 apply. Apply uses a physical-repository/ref lock and compare-and-swap against `T`.
+The first publication from an unborn source instead publishes the exact accepted root
+candidate using an absent-target create-only CAS; it does not fabricate a merge parent.
 
 Bare targets are supported. Non-bare targets are supported only if the target branch is not
 checked out, including all linked worktrees. Concurrent operator checkout/worktree operations

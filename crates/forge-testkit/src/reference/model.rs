@@ -88,6 +88,8 @@ pub struct MemorySnapshot {
     pub message_waivers: BTreeMap<Uuid, forge_domain::communication::MessageRequirementWaiver>,
     /// Immutable operator-selected Project source allowlist.
     pub project_repositories: BTreeMap<Uuid, forge_domain::ProjectRepository>,
+    pub git_source_policies:
+        BTreeMap<(ProjectId, TaskId, u64), forge_domain::git::TaskGitSourceSetting>,
     /// Durable task-optional Employee conversations.
     pub employee_threads: BTreeMap<Uuid, forge_domain::communication::EmployeeThread>,
     /// Immutable messages; delivery is separate from this command reference.

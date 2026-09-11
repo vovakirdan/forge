@@ -19,6 +19,7 @@ use tokio::{process::Command, sync::Mutex, time::sleep};
 use crate::{RunControl, SupervisorConfig, SupervisorError, registry::RunRegistry, surface};
 
 mod capacity;
+mod file_snapshot;
 mod git_inspection;
 mod git_integration;
 mod hook;
@@ -27,7 +28,9 @@ mod monitor;
 mod nonstart_tests;
 mod reconcile;
 mod sandbox_arguments;
+mod source;
 mod version;
+pub(crate) use source::PreparedSource;
 
 #[derive(Clone)]
 pub(crate) struct PodmanBackend {
@@ -192,7 +195,7 @@ impl PodmanBackend {
             return Err(SupervisorError::InvalidRunSpec);
         }
         validate_program(&invocation)?;
-        let live = matches!(spec.schema_version, 2 | 3)
+        let live = matches!(spec.schema_version, 2 | 3 | 6)
             && spec
                 .binding
                 .execution_profile
@@ -215,7 +218,17 @@ impl PodmanBackend {
             return Err(SupervisorError::InvalidRunSpec);
         }
         capacity::check(&self.config, registry).await?;
-        let surface = surface::prepare(&self.config.state_directory, provision, spec).await?;
+        let source = self.prepare_source(provision, spec, registry).await?;
+        if control.stopped() {
+            return Ok(false);
+        }
+        let surface = surface::prepare_selected(
+            &self.config.state_directory,
+            provision,
+            spec,
+            source.as_ref(),
+        )
+        .await?;
         let runtime = scoped_directory(&self.config.state_directory.join("runtime"), provision);
         let evidence = scoped_directory(&self.config.state_directory.join("evidence"), provision);
         prepare_scoped_directory(&runtime)?;
@@ -233,6 +246,9 @@ impl PodmanBackend {
         // Socket entries must be replaceable after Core restart. Binding the
         // inode itself strands an adopted container on the old socket forever.
         add_mount(&mut args, &gateway, "/run/forge-gateway", true)?;
+        if let Some(source) = &source {
+            add_mount(&mut args, &source.directory, "/run/forge-source", true)?;
+        }
         for credential in &invocation.credential_files {
             let file = match (invocation.adapter_id.as_str(), credential.source.as_str()) {
                 ("codex_cli", "/run/forge-secrets/auth.json") => "auth.json",
@@ -247,6 +263,7 @@ impl PodmanBackend {
             };
             add_mount(&mut args, &grant.join(file), &credential.source, true)?;
         }
+        self.mount_file_inputs(provision, spec, &mut args)?;
         if let Some(path) = surface.mount {
             add_mount(&mut args, &path, "/workspace", surface.read_only)?;
         } else {
@@ -454,7 +471,9 @@ fn add_mount(
     Ok(())
 }
 
-fn read_private_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T, SupervisorError> {
+pub(crate) fn read_private_json<T: serde::de::DeserializeOwned>(
+    path: &Path,
+) -> Result<T, SupervisorError> {
     use std::os::unix::fs::MetadataExt;
     let metadata = std::fs::symlink_metadata(path)?;
     if !metadata.is_file()

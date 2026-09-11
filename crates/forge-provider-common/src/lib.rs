@@ -13,6 +13,7 @@ pub mod native_event;
 pub mod native_input;
 mod private_file;
 mod secret;
+pub mod selected_file;
 
 pub use codex_auth::{
     AuthSnapshotLease, AuthWriteback, AuthWritebackConflict, ManagedAuthSnapshot,

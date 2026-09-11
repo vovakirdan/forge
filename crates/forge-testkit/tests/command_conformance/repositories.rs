@@ -58,7 +58,14 @@ pub async fn binding_round_trip(kind: BackendKind) -> Result<()> {
         anyhow::bail!("missing Git binding")
     };
     assert_eq!(binding.repository_id, repository);
-    assert_eq!(binding.initial_base.as_str(), "a".repeat(40));
+    assert_eq!(
+        binding
+            .initial_base
+            .commit()
+            .context("committed base")?
+            .as_str(),
+        "a".repeat(40)
+    );
     assert_eq!(task.revision().get(), 2);
     assert_eq!(
         fixture

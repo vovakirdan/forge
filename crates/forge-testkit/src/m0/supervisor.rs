@@ -202,6 +202,25 @@ impl ManualSupervisor {
         sequence: u64,
         kind: RunEventKind,
     ) -> Result<CoreAcknowledgement> {
+        self.send_observation_details(
+            run,
+            lease_fencing_token,
+            sequence,
+            kind,
+            serde_json::json!({}),
+        )
+        .await
+    }
+
+    /// Sends explicitly selected non-secret metadata for source-delivery contract tests.
+    pub async fn send_observation_details(
+        &mut self,
+        run: &RunProjection,
+        lease_fencing_token: u64,
+        sequence: u64,
+        kind: RunEventKind,
+        details: serde_json::Value,
+    ) -> Result<CoreAcknowledgement> {
         let message_id = Uuid::now_v7().to_string();
         self.outbound
             .send(SupervisorToCore {
@@ -214,7 +233,7 @@ impl ManualSupervisor {
                         sequence,
                         occurred_at_unix_ms: 0,
                         kind: kind as i32,
-                        details_json: "{}".to_owned(),
+                        details_json: serde_json::to_string(&details)?,
                     },
                 )),
             })

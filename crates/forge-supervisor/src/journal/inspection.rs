@@ -1,7 +1,7 @@
 //! Independent inspection receipts never reopen or advance the completed Run stream.
 use forge_domain::{
     ProjectId,
-    runtime::{SandboxRunSpec, SurfaceAccess, SurfaceSpec},
+    runtime::{RuntimeLaunchSpec, SurfaceAccess, SurfaceSpec},
 };
 use forge_protocol::supervisor::v1::{
     EnvironmentPresence, GitCandidateInspectionCode as Code, GitCandidateInspectionResult,
@@ -23,7 +23,7 @@ pub(crate) struct GitSourceScope {
 
 impl GitSourceScope {
     pub(super) fn from_provision(provision: &ProvisionRun) -> Option<Self> {
-        if provision.run_spec_version != 2
+        if !matches!(provision.run_spec_version, 2 | 6)
             || Uuid::parse_str(&provision.task_id).ok()?.get_version_num() != 7
         {
             return None;
@@ -39,10 +39,13 @@ impl GitSourceScope {
                 _ => return None,
             }
         }
-        let spec: SandboxRunSpec = serde_json::from_str(&provision.run_spec_json).ok()?;
+        let spec: RuntimeLaunchSpec = serde_json::from_str(&provision.run_spec_json).ok()?;
         spec.validate().ok()?;
         if spec.binding.access != SurfaceAccess::ReadWrite
-            || !matches!(spec.binding.surface, SurfaceSpec::GitWorktree { .. })
+            || !matches!(
+                spec.binding.surface,
+                SurfaceSpec::GitWorktree { .. } | SurfaceSpec::GitUnborn { .. }
+            )
         {
             return None;
         }

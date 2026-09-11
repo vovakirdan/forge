@@ -1,7 +1,7 @@
 //! Bounded operational replay state. This is not Forge canonical storage.
 
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     fs::{self, File, OpenOptions},
     io::{self, Write},
     os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt},
@@ -20,6 +20,7 @@ use crate::{SupervisorError, new_id};
 mod inspection;
 mod integration;
 mod runtime_inputs;
+mod source;
 pub(crate) use inspection::GitSourceScope;
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -27,6 +28,8 @@ pub(crate) struct RunRecord {
     /// Minimal host-owned source identity survives prompt/spec tombstone compaction.
     #[serde(default)]
     pub git_source: Option<GitSourceScope>,
+    #[serde(default)]
+    pub source_selection: Option<crate::git::GitSourceSelection>,
     pub provision: ProvisionRun,
     #[serde(default)]
     pub payload_hash: String,
@@ -94,6 +97,8 @@ struct Snapshot {
     integrations: BTreeMap<uuid::Uuid, integration::IntegrationRecord>,
     #[serde(default)]
     integration_receipts: BTreeMap<uuid::Uuid, integration::IntegrationReceipt>,
+    #[serde(default)]
+    established_targets: BTreeSet<String>,
 }
 
 pub(crate) struct Journal {
@@ -142,6 +147,7 @@ impl Journal {
                 git_inspections: BTreeMap::new(),
                 integrations: BTreeMap::new(),
                 integration_receipts: BTreeMap::new(),
+                established_targets: BTreeSet::new(),
             },
             Err(error) => return Err(error.into()),
         };
@@ -206,14 +212,14 @@ impl Journal {
         }) {
             return Err(SupervisorError::ConflictingProvision);
         }
-        if provision.run_spec_version == 2 {
+        if matches!(provision.run_spec_version, 2 | 6) {
             let surface_id = serde_json::from_str::<serde_json::Value>(&provision.run_spec_json)?
                 .get("surface_id")
                 .and_then(serde_json::Value::as_str)
                 .map(str::to_owned)
                 .ok_or(SupervisorError::InvalidJournalMessage)?;
             if self.snapshot.runs.values().any(|record| {
-                record.provision.run_spec_version == 2
+                matches!(record.provision.run_spec_version, 2 | 6)
                     && record.presence != EnvironmentPresence::Quiescent
                     && serde_json::from_str::<serde_json::Value>(&record.provision.run_spec_json)
                         .ok()
@@ -249,6 +255,7 @@ impl Journal {
                 key,
                 RunRecord {
                     git_source,
+                    source_selection: None,
                     provision: provision.clone(),
                     payload_hash,
                     environment_id: String::new(),
@@ -283,6 +290,15 @@ impl Journal {
                 return Err(SupervisorError::InvalidJournalMessage);
             }
             record.last_sequence = sequence;
+            if matches!(&message.message,
+                Some(supervisor_to_core::Message::ObservedRunEvent(event))
+                if event.kind == forge_protocol::supervisor::v1::RunEventKind::Stopped as i32)
+            {
+                // Stopped is emitted only after physical proof. Persist that
+                // proof with its envelope: Core may dispatch the next Run as
+                // soon as the pending event becomes visible, before finish().
+                record.presence = EnvironmentPresence::Quiescent;
+            }
             if let Some(supervisor_to_core::Message::ObservedRunEvent(event)) = &message.message
                 && event.kind == forge_protocol::supervisor::v1::RunEventKind::Stopping as i32
                 && let Ok(details) = serde_json::from_str::<serde_json::Value>(&event.details_json)

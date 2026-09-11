@@ -52,13 +52,14 @@ impl CoreService {
             return Err(invalid("result scope mismatch"));
         }
         if let Some(previous) = previous {
-            return if previous == result {
-                Ok(InboundResult::Accepted(
-                    "Integration receipt already recorded",
-                ))
-            } else {
-                Err(CoreError::IdempotencyConflict)
-            };
+            if previous != result {
+                return Err(CoreError::IdempotencyConflict);
+            }
+            tx.commit().await?;
+            self.dispatch_after_integration(project_id).await;
+            return Ok(InboundResult::Accepted(
+                "Integration receipt already recorded",
+            ));
         }
         if let Some(intent) = &result.intent {
             stored.operation.validate_intent(intent)?;
@@ -78,10 +79,15 @@ impl CoreService {
             result.code,
             IntegrationCode::Prepared | IntegrationCode::Applied | IntegrationCode::Retryable
         ) && result.intent.is_none()
-            || (matches!(
-                result.code,
-                IntegrationCode::NoChanges | IntegrationCode::StaleBase
-            ) && request.phase != IntegrationPhase::Prepare)
+            || (result.code == IntegrationCode::NoChanges
+                && request.phase != IntegrationPhase::Prepare)
+            || (result.code == IntegrationCode::StaleBase
+                && request.phase != IntegrationPhase::Prepare
+                && !(request.phase == IntegrationPhase::Apply
+                    && request
+                        .intent
+                        .as_ref()
+                        .is_some_and(|intent| intent.expected_target.is_none())))
             || (result.code == IntegrationCode::NoPreparation
                 && (request.phase != IntegrationPhase::Reconcile
                     || request.intent.is_some()
@@ -131,6 +137,15 @@ impl CoreService {
                 .integration_gates(&mut tx, &project, &task, &stored)
                 .await?;
         let resolution = stored.resolution.take();
+        // A fixed source cannot repair staleness automatically: preserve the pin
+        // and require an explicit source-policy/recovery decision.
+        let pinned_stale = result.code == IntegrationCode::StaleBase
+            && matches!(
+                tx.task_git_source_setting(project_id, task.id())
+                    .await?
+                    .policy,
+                forge_domain::git::TaskGitSourcePolicy::PinnedCommit { .. }
+            );
         match result.code {
             IntegrationCode::NoPreparation
                 if authorized
@@ -163,6 +178,7 @@ impl CoreService {
             }
             IntegrationCode::Applied | IntegrationCode::NoChanges | IntegrationCode::StaleBase
                 if authorized
+                    && !pinned_stale
                     && ((stored.state != IntegrationState::Held
                         && request.phase != IntegrationPhase::Reconcile)
                         || (resolution.as_deref() == Some("accept")
@@ -192,7 +208,18 @@ impl CoreService {
         )
         .await?;
         tx.commit().await?;
+        self.dispatch_after_integration(project_id).await;
         Ok(InboundResult::Accepted("Integration result recorded"))
+    }
+
+    async fn dispatch_after_integration(&self, project_id: forge_domain::ProjectId) {
+        // Integration can queue rework after the final Run has already stopped;
+        // no later Run observation is guaranteed to wake the scheduler for us.
+        // Replays retry the wake, not the accepted outcome; a dispatch failure
+        // must not turn a committed integration receipt into a rejected one.
+        if let Err(error) = self.dispatch_available(project_id).await {
+            tracing::warn!(%project_id, error = %error, "could not dispatch work after integration result");
+        }
     }
 
     pub(super) async fn apply_integration_outcome(

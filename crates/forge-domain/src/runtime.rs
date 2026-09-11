@@ -5,11 +5,13 @@ use uuid::Uuid;
 
 mod execution;
 mod hook;
+mod task_v6;
 pub use execution::{
     COMMUNICATION_RUN_SPEC_VERSION, CommunicationRunSpec, RESOLUTION_RUN_SPEC_VERSION,
     ResolutionRunSpec, RuntimeLaunchSpec,
 };
 pub use hook::{HOOK_RUN_SPEC_VERSION, HookRunSpec, SandboxLaunchSpec};
+pub use task_v6::{TASK_RUN_SPEC_VERSION, TaskRunSpecV6};
 
 /// Version of the first real sandbox RunSpec; historical fake specs remain v1.
 pub const SANDBOX_RUN_SPEC_VERSION: u16 = 2;
@@ -43,8 +45,11 @@ impl RuntimeBinding {
     /// Checks supported sandbox engines and their non-negotiable trust boundary.
     pub fn validate(&self) -> Result<(), RuntimeSpecError> {
         self.surface.validate()?;
-        if matches!(self.surface, SurfaceSpec::GitCandidateSnapshot { .. })
-            && self.access != SurfaceAccess::ReadOnly
+        if matches!(
+            self.surface,
+            SurfaceSpec::GitCandidateSnapshot { .. }
+                | SurfaceSpec::GitUnbornCandidateSnapshot { .. }
+        ) && self.access != SurfaceAccess::ReadOnly
         {
             return Err(RuntimeSpecError::InvalidSurface);
         }
@@ -159,6 +164,10 @@ impl SandboxRunSpec {
     /// Refuses unknown schema versions and malformed snapshots before provision.
     pub fn validate(&self) -> Result<(), RuntimeSpecError> {
         if self.schema_version != SANDBOX_RUN_SPEC_VERSION
+            || matches!(
+                self.binding.surface,
+                SurfaceSpec::GitUnborn { .. } | SurfaceSpec::GitUnbornCandidateSnapshot { .. }
+            )
             || self.surface_id.is_nil()
             || self.instruction.trim().is_empty()
             || self.instruction.len() > 512 * 1024
@@ -194,6 +203,17 @@ pub enum SurfaceSpec {
         repository: String,
         /// Explicit base commit or ref resolved during preparation.
         base_ref: String,
+    },
+    /// Task-private Git with no initial commit; the Employee creates the first one.
+    GitUnborn {
+        repository: String,
+        object_format: crate::git::GitObjectFormat,
+    },
+    /// Read-only accepted candidate of a Task whose original surface was unborn.
+    GitUnbornCandidateSnapshot {
+        repository: String,
+        object_format: crate::git::GitObjectFormat,
+        candidate: crate::git::GitCandidate,
     },
     /// Core-derived read-only copy of an accepted Task revision, never an
     /// operator-selected Employee source or the mutable writer directory.
@@ -307,6 +327,26 @@ pub enum RuntimeSpecError {
 impl SurfaceSpec {
     /// Validates the non-secret source descriptor without accessing the filesystem.
     pub fn validate(&self) -> Result<(), RuntimeSpecError> {
+        match self {
+            Self::GitUnborn { repository, .. } => {
+                crate::git::LocalGitPath::new(repository)
+                    .map_err(|_| RuntimeSpecError::InvalidSurface)?;
+            }
+            Self::GitUnbornCandidateSnapshot {
+                repository,
+                object_format,
+                candidate,
+            } => {
+                crate::git::LocalGitPath::new(repository)
+                    .map_err(|_| RuntimeSpecError::InvalidSurface)?;
+                if crate::git::GitObjectFormat::for_object(&candidate.commit) != *object_format
+                    || candidate.commit.as_str().len() != candidate.tree.as_str().len()
+                {
+                    return Err(RuntimeSpecError::InvalidSurface);
+                }
+            }
+            _ => {}
+        }
         if let Self::GitCandidateSnapshot {
             repository,
             base_ref,

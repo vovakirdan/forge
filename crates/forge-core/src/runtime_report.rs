@@ -50,7 +50,7 @@ impl CoreService {
         }
         let spec: RuntimeLaunchSpec =
             serde_json::from_value(run.run_spec.clone()).map_err(|_| credential_error())?;
-        let live_inputs = if matches!(spec.schema_version, 2 | 3)
+        let live_inputs = if matches!(spec.schema_version, 2 | 3 | 6)
             && spec
                 .binding
                 .execution_profile

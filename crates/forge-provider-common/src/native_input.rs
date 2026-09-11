@@ -133,16 +133,40 @@ impl NativeMailbox {
     }
 }
 
+/// Render the canonical Inbox identity, never the transport command identity.
+/// Missing or malformed source IDs fail without including source text in errors.
 pub fn addressed_prompt(input: &DeliverRuntimeInput) -> io::Result<SecretBytes> {
+    #[derive(serde::Deserialize)]
+    struct SourceIdentity {
+        id: Uuid,
+    }
+
     let Some(Action::Message(message)) = &input.action else {
         return Err(invalid());
     };
-    if message.source_message_json.is_empty()
-        || message.source_message_json.len() > MAX_INPUT_BYTES as usize
+    // Serde structs also accept arrays; a canonical source must be a JSON object.
+    if message.source_message_json.len() > MAX_INPUT_BYTES as usize
+        || !message.source_message_json.trim_start().starts_with('{')
     {
         return Err(invalid());
     }
-    Ok(SecretBytes::new(format!("Forge addressed instruction {}. Read the canonical source below, then acknowledge or reply through the Forge Inbox tools.\n{}",input.command_id,message.source_message_json).into_bytes()))
+    let source: SourceIdentity =
+        serde_json::from_str(&message.source_message_json).map_err(|_| invalid())?;
+    if source.id.get_version_num() != 7 {
+        return Err(invalid());
+    }
+    Ok(SecretBytes::new(
+        format!(
+            "Forge addressed instruction {}.\n\
+             For Forge Inbox acknowledgment/reply, use this canonical message ID \
+             (the source JSON id), never a transport delivery ID.\n\
+             This same message may already appear in your initial context or Inbox; \
+             check existing acknowledgments/replies before repeating work.\n\
+             Canonical source JSON:\n{}",
+            source.id, message.source_message_json
+        )
+        .into_bytes(),
+    ))
 }
 
 pub fn validate_scope(scope: &RuntimeInputConfig) -> io::Result<()> {

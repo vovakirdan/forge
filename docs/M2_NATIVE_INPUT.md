@@ -21,6 +21,25 @@ source. Core validates its Project, recipient, immutable Task visit and, where
 specified, exact Run/fencing token/environment epoch. An unrelated general Inbox
 message cannot enter a Task Run. The Employee's own replies are output, not input.
 
+Canonical Inbox identity and transport identity have different consumers:
+
+| Identity | Consumer |
+| --- | --- |
+| Top-level `id` in `source_message_json` | Model-facing message reference; `inbox.acknowledge` and `inbox.reply` |
+| `DeliverRuntimeInput.command_id` | Durable delivery intent, native transport correlation, events and receipts |
+
+The addressed wrapper renders the canonical Inbox ID, not the delivery command
+ID. It parses that top-level field as a UUIDv7; missing, malformed or duplicate
+`id` fields fail closed with a generic error that excludes the source payload.
+This is a small rendering-boundary check, not a second implementation of Core's
+Inbox authorization or complete Message validation. Transport IDs and receipt
+correlation remain unchanged.
+
+A message already visible in the bootstrap ContextSnapshot can still arrive
+through at-least-once native delivery. Both presentations refer to the same
+canonical Inbox message. Correct rendering does not synthesize an Employee ACK,
+suppress later deliveries, deduplicate model turns or change Inbox policy.
+
 Under the Project mutation lock, Core creates an append-only input intent with a
 stable UUID, scope, sequence and full source reference. Migration `0026` stores
 intents and observations separately. Each reconciliation admits at most 128
@@ -79,6 +98,13 @@ Resolution v4 is deliberately one-shot even when its Employee's pinned profile
 also advertises `live_input`; it receives no native message/close channel.
 
 ## Verification boundary
+
+The canonical-ID regression requires Codex's bootstrap READY → native READY
+redelivery → GO → typed close sequence, plus OpenCode coverage separating the
+canonical message ID from native transport IDs. Malformed, missing and duplicate
+source IDs must produce payload-free errors. These are offline regression
+requirements; the latest fix's verification status is recorded in the
+[live-workflow notes](2026-09-09-m2-live-workflow-specs.md#исправление-после-второго-live-запуска).
 
 Offline tests cover queueing while busy, matching native echoes, restart refusal,
 durable journal replay, legacy capability rejection, more than 200 sequential

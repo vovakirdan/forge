@@ -226,6 +226,7 @@ impl CoreService {
             let (run_spec_version, run_spec) = if self.fake_runtime_enabled {
                 (1_u16, fake_run_spec(stage, &scoped.task)?)
             } else {
+                let mut source_request = None;
                 let mut binding = transaction
                     .runtime_binding(employee.id())
                     .await?
@@ -237,7 +238,6 @@ impl CoreService {
                 })?;
                 if let forge_domain::TaskWorkSurface::Git(git) = scoped.task.work_surface() {
                     let repository = git.source.as_path().to_string_lossy().into_owned();
-                    let base_ref = git.initial_base.as_str().to_owned();
                     binding.surface = if binding.access
                         == forge_domain::runtime::SurfaceAccess::ReadOnly
                     {
@@ -247,15 +247,47 @@ impl CoreService {
                             field: "task.work_surface",
                             reason: "read-only Git execution requires an accepted candidate for this Task surface".into(),
                         })?;
-                        forge_domain::runtime::SurfaceSpec::GitCandidateSnapshot {
-                            repository,
-                            base_ref,
-                            candidate: accepted.candidate,
+                        match &git.initial_base {
+                            forge_domain::git::GitInitialRevision::Commit(base) => {
+                                forge_domain::runtime::SurfaceSpec::GitCandidateSnapshot {
+                                    repository,
+                                    base_ref: base.as_str().to_owned(),
+                                    candidate: accepted.candidate,
+                                }
+                            }
+                            forge_domain::git::GitInitialRevision::Unborn { object_format } => {
+                                forge_domain::runtime::SurfaceSpec::GitUnbornCandidateSnapshot {
+                                    repository,
+                                    object_format: *object_format,
+                                    candidate: accepted.candidate,
+                                }
+                            }
                         }
                     } else {
-                        forge_domain::runtime::SurfaceSpec::GitWorktree {
-                            repository,
-                            base_ref,
+                        let setting = transaction
+                            .task_git_source_setting(project_id, scoped.task.id())
+                            .await?;
+                        source_request = Some(forge_domain::git::GitSourceRequest {
+                            repository_id: git.repository_id,
+                            source: git.source.clone(),
+                            target_ref: git.target_ref.clone(),
+                            initial_revision: git.initial_base.clone(),
+                            policy_revision: setting.revision,
+                            policy: setting.policy,
+                        });
+                        match &git.initial_base {
+                            forge_domain::git::GitInitialRevision::Commit(base) => {
+                                forge_domain::runtime::SurfaceSpec::GitWorktree {
+                                    repository,
+                                    base_ref: base.as_str().to_owned(),
+                                }
+                            }
+                            forge_domain::git::GitInitialRevision::Unborn { object_format } => {
+                                forge_domain::runtime::SurfaceSpec::GitUnborn {
+                                    repository,
+                                    object_format: *object_format,
+                                }
+                            }
                         }
                     };
                 }
@@ -292,6 +324,7 @@ impl CoreService {
                 let instruction = serde_json::to_string(&json!({
                 "task": scoped.task.spec(), "stage": stage,
                 "previous_handoff": transaction.latest_handoff(scoped.task.id()).await?,
+                "git_source_input": source_request.as_ref().map(|_| "Read /run/forge-source/descriptor.json for this Run's immutable source selection. A committed selection includes /run/forge-source/source.bundle; fetch its selected_revision into your own Git refs and explicitly merge/rebase when needed. Forge preserves retained files and never resets your branch or performs a semantic merge. An unborn selection has no bundle or existing commit. Do not access another Task's host directory."),
                 "submission_policy": if matches!(scoped.task.work_surface(), forge_domain::TaskWorkSurface::Git(_))
                     && binding.access == forge_domain::runtime::SurfaceAccess::ReadWrite {
                     "Use Forge Gateway to attach artifacts and explicitly submit a permitted stage outcome with candidate_commit set to the full committed HEAD SHA. Commit the intended changes yourself and leave tracked/untracked work clean before submitting; Forge never automatically adds, commits, or discards your files. Submission is a proposal: final acceptance follows physical stop and exact clean-HEAD inspection. Exit status alone does not complete the Task."
@@ -299,12 +332,16 @@ impl CoreService {
                     "Use Forge Gateway to attach artifacts and explicitly submit one of the permitted stage outcomes. Exit status alone does not complete the task."
                 },
             })).map_err(|_| CoreError::InvalidTransport { field: "context", reason: "cannot serialize task contract".into() })?;
-                let spec = forge_domain::runtime::SandboxRunSpec {
-                    schema_version: forge_domain::runtime::SANDBOX_RUN_SPEC_VERSION,
+                let spec = forge_domain::runtime::TaskRunSpecV6 {
+                    schema_version: forge_domain::runtime::TASK_RUN_SPEC_VERSION,
                     project_id,
                     surface_id,
                     binding,
                     instruction,
+                    source_request,
+                    file_inputs: transaction
+                        .task_file_inputs(project_id, scoped.task.id())
+                        .await?,
                 };
                 spec.validate()
                     .map_err(|error| CoreError::InvalidTransport {
@@ -515,7 +552,15 @@ impl CoreService {
                     run_spec_json,
                     run_spec_version: u32::from(run_spec_version),
                     traceparent: crate::observability::current_traceparent(),
-                    assignment: None,
+                    assignment: (!self.fake_runtime_enabled).then(|| {
+                        forge_protocol::supervisor::v1::provision_run::Assignment::TaskStage(
+                            forge_protocol::supervisor::v1::TaskStageExecutionAssignment {
+                                task_id: task.id().to_string(),
+                                stage_id: queue_entry.input.stage_id.to_string(),
+                                queue_entry_id: queue_entry.id.to_string(),
+                            },
+                        )
+                    }),
                 })),
             }));
         }

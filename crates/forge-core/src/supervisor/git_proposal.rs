@@ -12,7 +12,7 @@ use crate::{
 use forge_domain::{
     ArtifactId, CommandId, DomainError, DomainEventKind, TaskWorkSurface,
     git_delivery::{GitProposalState, GitStageProposal},
-    runtime::{RunScope, SandboxRunSpec, SurfaceAccess},
+    runtime::{RunScope, RuntimeLaunchSpec, SurfaceAccess},
 };
 use forge_storage::{FencedWrite, StorageTransaction};
 use serde_json::json;
@@ -34,11 +34,11 @@ impl CoreService {
             .candidate_commit
             .clone()
             .ok_or_else(|| invalid("Git writer must submit an explicit full candidate_commit"))?;
-        let spec: SandboxRunSpec = serde_json::from_value(context.run.run_spec.clone())
+        let spec: RuntimeLaunchSpec = serde_json::from_value(context.run.run_spec.clone())
             .map_err(|_| invalid("Git writer RunSpec is invalid"))?;
         spec.validate()
             .map_err(|_| invalid("Git writer RunSpec is invalid"))?;
-        if context.run.run_spec_version != 2
+        if !matches!(context.run.run_spec_version, 2 | 6)
             || spec.surface_id != binding.surface_id
             || spec.binding.access != SurfaceAccess::ReadWrite
         {

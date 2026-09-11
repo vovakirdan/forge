@@ -4,9 +4,9 @@
 M1_LAUNCHER_PID=$BASHPID
 
 m1_session_error() {
-    printf 'forge M1: %s\n' "$*" >&2
+    printf 'forge %s: %s\n' "${M1_SESSION_NAME:-M1}" "$*" >&2
     if [[ -n "${M1_ROOT:-}" && -d "$M1_ROOT" && ! -L "$M1_ROOT/cleanup.log" ]]; then
-        printf 'forge M1: %s\n' "$*" >>"$M1_ROOT/cleanup.log" || true
+        printf 'forge %s: %s\n' "${M1_SESSION_NAME:-M1}" "$*" >>"$M1_ROOT/cleanup.log" || true
     fi
     return 1
 }
@@ -196,7 +196,7 @@ m1_cleanup() {
     M1_CLEANUP_STATUS=0
     [[ -n "${M1_ROOT:-}" ]] || return 0
     local deadline scan
-    printf 'forge M1: stopping this session; retained files: %q\n' "$M1_ROOT" >&2
+    printf 'forge %s: stopping this session; retained files: %q\n' "${M1_SESSION_NAME:-M1}" "$M1_ROOT" >&2
     if [[ -n "${M1_PROJECT_ID:-}" ]]; then
         if ! m1_stop_project; then
             m1_session_error 'named project stop failed; continuing independent physical cleanup' || true
@@ -230,9 +230,9 @@ m1_cleanup() {
     fi
     m1_stop_process M1_CORE || M1_CLEANUP_STATUS=1
     if ((M1_CLEANUP_STATUS != 0)); then
-        printf 'forge M1: cleanup needed force or could not prove a clean stop; inspect %q\n' "$M1_ROOT" >&2
+        printf 'forge %s: cleanup needed force or could not prove a clean stop; inspect %q\n' "${M1_SESSION_NAME:-M1}" "$M1_ROOT" >&2
     else
-        printf 'forge M1: session processes stopped; no running session containers remain.\n' >&2
+        printf 'forge %s: session processes stopped; no running session containers remain.\n' "${M1_SESSION_NAME:-M1}" >&2
     fi
     return "$M1_CLEANUP_STATUS"
 }

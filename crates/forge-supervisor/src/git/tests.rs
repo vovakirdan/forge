@@ -14,6 +14,9 @@ use super::{GitBackend, GitBackendError, GitIntegrationRequest};
 
 mod integration_failures;
 mod security;
+mod source;
+mod unborn;
+mod unborn_workflow;
 
 struct Fixture {
     root: PathBuf,
@@ -137,6 +140,7 @@ impl Fixture {
             committed_at: Timestamp::from_offset_date_time(
                 time::OffsetDateTime::from_unix_timestamp(1_788_710_400).unwrap(),
             ),
+            allow_initial_publication: false,
         }
     }
 }

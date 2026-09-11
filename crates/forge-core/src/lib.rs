@@ -19,6 +19,7 @@ mod error;
 mod event;
 mod event_projection;
 mod evidence_collection;
+mod file_snapshots;
 mod gateway;
 mod git_integration;
 mod handoff;
@@ -86,6 +87,7 @@ pub struct CoreService {
     pub(crate) actors: CoreActors,
     pub(crate) supervisor: Arc<SupervisorHub>,
     pub(crate) runtime_input_cursor: Arc<tokio::sync::Mutex<Option<uuid::Uuid>>>,
+    pub(crate) file_snapshot_serial: Arc<tokio::sync::Mutex<Option<uuid::Uuid>>>,
     pub(crate) resolution_cursor: Arc<tokio::sync::Mutex<Option<uuid::Uuid>>>,
     pub(crate) resolution_admission_cursors:
         Arc<tokio::sync::Mutex<std::collections::BTreeMap<forge_domain::ProjectId, uuid::Uuid>>>,
@@ -108,6 +110,7 @@ impl CoreService {
             actors,
             supervisor,
             runtime_input_cursor: Arc::default(),
+            file_snapshot_serial: Arc::default(),
             resolution_cursor: Arc::default(),
             resolution_admission_cursors: Arc::default(),
             fake_runtime_enabled: false,

@@ -223,6 +223,8 @@ pub enum CommandName {
     RegisterProjectRepository,
     /// Pin a draft Task to a registered source and explicit initial commit.
     BindTaskGitRepository,
+    /// Configure the source selection for future Task writer Runs only.
+    SetTaskGitSourcePolicy,
     /// Configure audited Project reboot behavior.
     ConfigureBootRecoveryPolicy,
     /// Accept a candidate assessment for one interrupted execution.
@@ -300,6 +302,12 @@ pub enum CommandName {
     ConfigureEmployeeRuntime,
     /// Register a new immutable version of an explicit provider-free project hook.
     ConfigureProjectHook,
+    /// Import explicitly selected local files as immutable Task evidence.
+    ImportTaskFileSnapshot,
+    /// Capture explicitly selected files after the Task writer has stopped.
+    CaptureTaskFileSnapshot,
+    /// Supply one immutable snapshot to future Runs of another Task.
+    AttachTaskFileInput,
     /// Enroll a new credential from an explicitly selected private local file.
     EnrollCredential,
 }

@@ -83,6 +83,7 @@ pub fn command_name(envelope: &CommandEnvelope) -> String {
             "register_project_repository"
         }
         forge_protocol::wire::CommandName::BindTaskGitRepository => "bind_task_git_repository",
+        forge_protocol::wire::CommandName::SetTaskGitSourcePolicy => "set_task_git_source_policy",
         forge_protocol::wire::CommandName::CreateProject => "create_project",
         forge_protocol::wire::CommandName::CreatePipeline => "create_pipeline",
         forge_protocol::wire::CommandName::PublishPipelineVersion => "publish_pipeline_version",
@@ -123,6 +124,9 @@ pub fn command_name(envelope: &CommandEnvelope) -> String {
         }
         forge_protocol::wire::CommandName::ConfigureEmployeeRuntime => "configure_employee_runtime",
         forge_protocol::wire::CommandName::ConfigureProjectHook => "configure_project_hook",
+        forge_protocol::wire::CommandName::ImportTaskFileSnapshot => "import_task_file_snapshot",
+        forge_protocol::wire::CommandName::CaptureTaskFileSnapshot => "capture_task_file_snapshot",
+        forge_protocol::wire::CommandName::AttachTaskFileInput => "attach_task_file_input",
         forge_protocol::wire::CommandName::EnrollCredential => "enroll_credential",
         forge_protocol::wire::CommandName::ConfigureBootRecoveryPolicy => {
             "configure_boot_recovery_policy"

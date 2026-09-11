@@ -48,7 +48,7 @@ impl RunRegistry {
             provision.lease_fencing_token,
             provision.environment_epoch,
         );
-        control.detachable = matches!(provision.run_spec_version, 2..=5);
+        control.detachable = matches!(provision.run_spec_version, 2..=6);
         let control = Arc::new(control);
         self.active
             .lock()
@@ -135,6 +135,8 @@ impl RunRegistry {
         control
     }
 
+    /// `Stopped` requires physical proof and durably releases the environment
+    /// with the event, before the Core stream can observe either change.
     pub async fn emit(
         &self,
         provision: &ProvisionRun,
@@ -255,3 +257,6 @@ impl RunControl {
         self.stop_notification.notified().await;
     }
 }
+
+#[cfg(test)]
+mod tests;

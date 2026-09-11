@@ -12,6 +12,7 @@ use tokio::process::Command;
 
 use crate::SupervisorError;
 mod pinned;
+mod selected;
 #[cfg(test)]
 pub(crate) use pinned::tests::fixture as pinned_fixture;
 
@@ -27,6 +28,40 @@ struct SurfaceManifest {
     task_id: String,
     source: SurfaceSpec,
     base_commit: Option<String>,
+}
+
+/// Resolves only a host-owned Task surface; capture is separately fenced and quiescent.
+pub(crate) fn capture_worktree(
+    root: &Path,
+    task_id: &str,
+    surface_id: uuid::Uuid,
+) -> Result<PathBuf, SupervisorError> {
+    let surfaces = root.join("surfaces");
+    let path = surfaces.join(surface_id.to_string());
+    let manifests = root.join("surface-manifests");
+    for directory in [root, &surfaces, &path, &manifests] {
+        use std::os::unix::fs::MetadataExt;
+        let metadata = fs::symlink_metadata(directory)?;
+        if !metadata.is_dir()
+            || metadata.uid() != nix::unistd::Uid::effective().as_raw()
+            || metadata.mode() & 0o077 != 0
+            || fs::canonicalize(directory)? != directory
+        {
+            return Err(SupervisorError::UnsafeSurface);
+        }
+    }
+    let manifest = read_manifest(&manifests.join(format!("{surface_id}.json")))?;
+    if manifest.task_id != task_id
+        || !matches!(
+            manifest.source,
+            SurfaceSpec::FilesystemSandbox
+                | SurfaceSpec::GitWorktree { .. }
+                | SurfaceSpec::GitUnborn { .. }
+        )
+    {
+        return Err(SupervisorError::UnsafeSurface);
+    }
+    Ok(path.join("worktree"))
 }
 
 /// Resolves a retained host-owned manifest without creating or repairing any path.
@@ -52,24 +87,35 @@ pub(crate) fn inspection_worktree(
     let manifest = read_manifest(&manifests.join(format!("{}.json", source.surface_id)))?;
     if manifest.task_id != task_id
         || manifest.source != source.source
-        || manifest
-            .base_commit
-            .as_deref()
-            .is_none_or(|commit| forge_domain::git::GitObjectId::new(commit).is_err())
+        || match (&manifest.source, manifest.base_commit.as_deref()) {
+            (SurfaceSpec::GitUnborn { .. }, None) => false,
+            (_, Some(commit)) => forge_domain::git::GitObjectId::new(commit).is_err(),
+            _ => true,
+        }
     {
         return Err(SupervisorError::UnsafeSurface);
     }
     Ok(path.join("worktree"))
 }
 
+#[cfg(test)]
 pub(crate) async fn prepare(
     root: &Path,
     provision: &ProvisionRun,
     spec: &RuntimeLaunchSpec,
 ) -> Result<PreparedSurface, SupervisorError> {
+    prepare_selected(root, provision, spec, None).await
+}
+
+pub(crate) async fn prepare_selected(
+    root: &Path,
+    provision: &ProvisionRun,
+    spec: &RuntimeLaunchSpec,
+    source: Option<&crate::podman::PreparedSource>,
+) -> Result<PreparedSurface, SupervisorError> {
     if matches!(
         spec.binding.surface,
-        SurfaceSpec::GitCandidateSnapshot { .. }
+        SurfaceSpec::GitCandidateSnapshot { .. } | SurfaceSpec::GitUnbornCandidateSnapshot { .. }
     ) {
         return pinned::prepare(root, provision, spec).await;
     }
@@ -96,17 +142,23 @@ pub(crate) async fn prepare(
         }
     } else {
         private_directory(&path)?;
-        let base_commit = match &spec.binding.surface {
-            SurfaceSpec::GitWorktree {
-                repository,
-                base_ref,
-            } => Some(prepare_git(&path, repository, base_ref).await?),
-            SurfaceSpec::FilesystemSandbox => {
-                private_directory(&path.join("worktree"))?;
-                None
+        let base_commit = if let Some(source) = source {
+            selected::prepare_git(&path, source).await?
+        } else {
+            match &spec.binding.surface {
+                SurfaceSpec::GitWorktree {
+                    repository,
+                    base_ref,
+                } => Some(prepare_git(&path, repository, base_ref).await?),
+                SurfaceSpec::FilesystemSandbox => {
+                    private_directory(&path.join("worktree"))?;
+                    None
+                }
+                SurfaceSpec::None => None,
+                SurfaceSpec::GitCandidateSnapshot { .. }
+                | SurfaceSpec::GitUnbornCandidateSnapshot { .. }
+                | SurfaceSpec::GitUnborn { .. } => return Err(SupervisorError::UnsafeSurface),
             }
-            SurfaceSpec::None => None,
-            SurfaceSpec::GitCandidateSnapshot { .. } => return Err(SupervisorError::UnsafeSurface),
         };
         let manifest = SurfaceManifest {
             task_id: provision.task_id.clone(),

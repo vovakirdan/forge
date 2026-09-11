@@ -93,3 +93,57 @@ fn review_gate_ids_must_name_real_review_policies_and_old_none_stays_none() {
     required_review_stages.insert(StageId::new("work").unwrap());
     assert!(version(stage().with_system_action(Some(action)).unwrap()).is_err());
 }
+
+#[test]
+fn initial_publication_requires_explicit_unborn_task_identity() {
+    use crate::git::{
+        GitBranchRef, GitInitialRevision, GitObjectFormat, GitObjectId, LocalGitPath,
+    };
+    let candidate = GitCandidate {
+        commit: GitObjectId::new("a".repeat(40)).unwrap(),
+        tree: GitObjectId::new("b".repeat(40)).unwrap(),
+    };
+    let mut operation = GitIntegrationOperation {
+        id: Uuid::now_v7(),
+        fence: 1,
+        project_id: ProjectId::new(),
+        task_id: TaskId::new(),
+        pipeline_version_id: PipelineVersionId::new(),
+        stage_id: StageId::new("publish_here").unwrap(),
+        stage_visit: 1,
+        task_revision: 3,
+        candidate_proposal_id: Uuid::now_v7(),
+        candidate: candidate.clone(),
+        binding: TaskGitBinding {
+            repository_id: Uuid::now_v7(),
+            surface_id: Uuid::now_v7(),
+            source: LocalGitPath::new("/tmp/source").unwrap(),
+            target_ref: GitBranchRef::new("refs/heads/main").unwrap(),
+            initial_base: GitInitialRevision::Unborn {
+                object_format: GitObjectFormat::Sha1,
+            },
+        },
+        writer: RunScope {
+            run_id: Uuid::now_v7(),
+            fencing_token: 1,
+            environment_epoch: 1,
+        },
+        created_at: Timestamp::now_utc(),
+    };
+    let intent = GitIntegrationIntent {
+        operation_id: operation.id,
+        target_repository: operation.binding.source.clone(),
+        target_ref: operation.binding.target_ref.clone(),
+        expected_target: None,
+        merge_commit: candidate.commit.clone(),
+        candidate,
+    };
+    operation.validate().unwrap();
+    assert!(operation.validate_intent(&intent).is_ok());
+    operation.binding.initial_base = GitObjectId::new("c".repeat(40)).unwrap().into();
+    assert!(operation.validate_intent(&intent).is_err());
+    operation.binding.initial_base = GitInitialRevision::Unborn {
+        object_format: GitObjectFormat::Sha256,
+    };
+    assert!(operation.validate_intent(&intent).is_err());
+}

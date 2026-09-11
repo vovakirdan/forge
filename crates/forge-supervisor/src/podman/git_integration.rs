@@ -179,11 +179,34 @@ impl PodmanBackend {
         let root = self.config.state_directory.join("integrations");
         surface::private_directory(&root).map_err(|_| GitBackendError::UnsafePath)?;
         let staging = root.join(op.id.to_string());
+        let backend = GitBackend::default();
+        let target_key = backend
+            .target_key(op.binding.source.as_path(), &op.binding.target_ref)
+            .await?;
+        if backend
+            .target_exists(op.binding.source.as_path(), &op.binding.target_ref)
+            .await?
+        {
+            registry
+                .journal
+                .lock()
+                .await
+                .mark_target_established(&target_key)
+                .map_err(|_| GitBackendError::InvalidIntent)?;
+        }
         if request.phase == IntegrationPhase::Prepare {
             if retained.is_some() {
                 return Err(GitBackendError::InvalidIntent);
             }
-            let intent = GitBackend::default()
+            let allow_initial_publication = matches!(
+                op.binding.initial_base,
+                forge_domain::git::GitInitialRevision::Unborn { .. }
+            ) && !registry
+                .journal
+                .lock()
+                .await
+                .target_established(&target_key);
+            let intent = backend
                 .prepare_integration(GitIntegrationRequest {
                     target: op.binding.source.as_path(),
                     branch: &op.binding.target_ref,
@@ -192,8 +215,17 @@ impl PodmanBackend {
                     staging_directory: &staging,
                     operation_id: op.id,
                     committed_at: op.created_at,
+                    allow_initial_publication,
                 })
                 .await?;
+            if intent.expected_target.is_some() {
+                registry
+                    .journal
+                    .lock()
+                    .await
+                    .mark_target_established(&target_key)
+                    .map_err(|_| GitBackendError::InvalidIntent)?;
+            }
             return Ok((IntegrationCode::Prepared, Some(intent)));
         }
         let intent = request
@@ -203,6 +235,14 @@ impl PodmanBackend {
         if retained.as_ref() != Some(intent) {
             return Err(GitBackendError::InvalidIntent);
         }
+        // A delivered create may survive a crash before its reply. Never reclassify
+        // this branch as unborn simply because an operator later removed its ref.
+        registry
+            .journal
+            .lock()
+            .await
+            .mark_target_established(&target_key)
+            .map_err(|_| GitBackendError::InvalidIntent)?;
         let state = GitBackend::default()
             .apply_integration(op.binding.source.as_path(), &staging, intent)
             .await?;

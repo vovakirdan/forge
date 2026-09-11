@@ -128,6 +128,19 @@ pub trait CommandTransaction: Send {
         &mut self,
         repository: &forge_domain::ProjectRepository,
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    /// Reads the latest future-only source policy, or its revision-one default.
+    fn task_git_source_setting(
+        &mut self,
+        project_id: ProjectId,
+        task_id: TaskId,
+    ) -> impl Future<Output = Result<forge_domain::git::TaskGitSourceSetting, RepositoryError>> + Send;
+    /// Appends an immutable policy revision under the Project lock.
+    fn insert_task_git_source_setting(
+        &mut self,
+        project_id: ProjectId,
+        task_id: TaskId,
+        setting: &forge_domain::git::TaskGitSourceSetting,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
     /// Locks a conversation under its already-locked Project.
     fn lock_employee_thread(
         &mut self,

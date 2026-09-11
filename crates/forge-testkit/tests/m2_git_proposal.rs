@@ -33,6 +33,8 @@ mod qa_writer;
 mod review;
 #[path = "m2_git_proposal/setup.rs"]
 mod setup;
+#[path = "m2_git_proposal/source_policy.rs"]
+mod source_policy;
 
 async fn scenario(mode: &str) -> Result<()> {
     // Keep each phase's alternative async states off the test-thread stack;
@@ -152,6 +154,13 @@ async fn exercise(setup: setup::Setup, mode: &str) -> Result<Option<ScenarioResu
     let response = call("outcome.submit", args, outcome_id).send().await?;
     assert!(response.status().is_success(), "{}", response.text().await?);
     assert_eq!(response.json::<Value>().await?["status"], "proposal_saved");
+    let source_observed = matches!(
+        mode,
+        "integration_future_source" | "integration_pinned_stale"
+    );
+    if source_observed {
+        source_policy::freeze_and_change(&harness, &mut supervisor, project, task, &run).await?;
+    }
     if with_review && mode != "qa_report" {
         // An equally capable former writer is still not an independent reviewer.
         let mut readonly_binding = binding.clone();
@@ -198,7 +207,12 @@ async fn exercise(setup: setup::Setup, mode: &str) -> Result<Option<ScenarioResu
             "kind":"instruction","requirement":"answered","body":"Explain this result before closing."})).await?;
     }
     let stopped = supervisor
-        .send_observation_kind(&run, run.lease_fencing_token, 1, RunEventKind::Stopped)
+        .send_observation_kind(
+            &run,
+            run.lease_fencing_token,
+            if source_observed { 2 } else { 1 },
+            RunEventKind::Stopped,
+        )
         .await?;
     assert_eq!(
         stopped.disposition,

@@ -53,8 +53,10 @@ pub fn router(core: CoreService) -> Router {
         .merge(super::communication::routes())
         .merge(super::candidate_review::routes())
         .merge(super::git_integration::routes())
+        .merge(super::git_source_policy::routes())
         .merge(super::project_hooks::routes())
         .merge(super::finding::routes())
+        .merge(super::file_snapshots::routes())
         .layer(DefaultBodyLimit::max(MAX_COMMAND_BODY_BYTES))
         .layer(axum::middleware::from_fn_with_state(
             core.clone(),

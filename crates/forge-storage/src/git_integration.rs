@@ -234,7 +234,7 @@ impl StorageTransaction<'_> {
         project: ProjectId,
         task: TaskId,
     ) -> Result<bool, StorageError> {
-        Ok(sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM projects p WHERE p.id=$1 AND p.execution_enabled AND NOT EXISTS(SELECT 1 FROM project_recovery_settings h WHERE h.project_id=p.id AND h.hold)) AND NOT EXISTS(SELECT 1 FROM runs r LEFT JOIN leases l ON l.id=r.lease_id LEFT JOIN run_environment_reservations e ON e.run_id=r.id WHERE r.project_id=$1 AND r.task_id=$2 AND (l.lease_state='active' OR e.released_at IS NULL)) AND NOT EXISTS(SELECT 1 FROM task_dependencies d JOIN tasks b ON b.id=d.blocker_task_id WHERE d.project_id=$1 AND d.blocked_task_id=$2 AND b.lifecycle<>d.required_blocker_lifecycle)")
+        Ok(sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM projects p WHERE p.id=$1 AND p.execution_enabled AND NOT EXISTS(SELECT 1 FROM project_recovery_settings h WHERE h.project_id=p.id AND h.hold)) AND NOT EXISTS(SELECT 1 FROM runs r LEFT JOIN leases l ON l.id=r.lease_id LEFT JOIN run_environment_reservations e ON e.run_id=r.id WHERE r.project_id=$1 AND r.task_id=$2 AND (l.lease_state='active' OR e.released_at IS NULL)) AND NOT EXISTS(SELECT 1 FROM task_dependencies d JOIN tasks b ON b.id=d.blocker_task_id WHERE d.project_id=$1 AND d.blocked_task_id=$2 AND b.lifecycle<>d.required_blocker_lifecycle) AND NOT EXISTS(SELECT 1 FROM task_file_snapshots s WHERE s.project_id=$1 AND s.task_id=$2 AND s.state='pending' AND s.capture_surface)")
             .bind(project.as_uuid()).bind(task.as_uuid()).fetch_one(&mut *self.transaction).await?)
     }
     pub async fn integration_reviews_accepted(

@@ -11,7 +11,7 @@ use crate::{
 use forge_domain::{
     AggregateRef, ArtifactId, CommandId, DomainEventKind,
     candidate_review::CandidateReviewRecord,
-    runtime::{RunScope, SandboxRunSpec, SurfaceAccess, SurfaceSpec},
+    runtime::{RunScope, RuntimeLaunchSpec, SurfaceAccess, SurfaceSpec},
 };
 use forge_storage::StorageTransaction;
 use serde_json::json;
@@ -27,11 +27,13 @@ impl CoreService {
     ) -> Result<(), CoreError> {
         let task = &context.stored_task.task;
         let run = &context.run;
-        let spec: SandboxRunSpec = serde_json::from_value(run.run_spec.clone())
+        let spec: RuntimeLaunchSpec = serde_json::from_value(run.run_spec.clone())
             .map_err(|_| invalid("invalid read-only RunSpec"))?;
         spec.validate()
             .map_err(|_| invalid("invalid read-only RunSpec"))?;
-        let SurfaceSpec::GitCandidateSnapshot { candidate, .. } = &spec.binding.surface else {
+        let (SurfaceSpec::GitCandidateSnapshot { candidate, .. }
+        | SurfaceSpec::GitUnbornCandidateSnapshot { candidate, .. }) = &spec.binding.surface
+        else {
             return Err(invalid(
                 "read-only Git result requires a pinned commit snapshot",
             ));

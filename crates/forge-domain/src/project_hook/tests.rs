@@ -68,7 +68,7 @@ fn provider_free_spec_has_no_employee_or_provider_and_keeps_task_context_separat
             repository_id: Uuid::now_v7(),
             source: LocalGitPath::new("/operator/toy-repository").unwrap(),
             target_ref: GitBranchRef::new("refs/heads/main").unwrap(),
-            initial_base: GitObjectId::new("1".repeat(40)).unwrap(),
+            initial_base: GitObjectId::new("1".repeat(40)).unwrap().into(),
             surface_id: Uuid::now_v7(),
         },
         candidate: GitCandidate {

@@ -37,7 +37,10 @@ impl StageWorkspaceRequirements {
                 StageWorkspaceKind::Filesystem => matches!(surface, SurfaceSpec::FilesystemSandbox),
                 StageWorkspaceKind::Git => matches!(
                     surface,
-                    SurfaceSpec::GitWorktree { .. } | SurfaceSpec::GitCandidateSnapshot { .. }
+                    SurfaceSpec::GitWorktree { .. }
+                        | SurfaceSpec::GitCandidateSnapshot { .. }
+                        | SurfaceSpec::GitUnborn { .. }
+                        | SurfaceSpec::GitUnbornCandidateSnapshot { .. }
                 ),
             }
     }

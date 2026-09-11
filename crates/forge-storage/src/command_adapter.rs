@@ -260,6 +260,25 @@ impl CommandTransaction for StorageTransaction<'_> {
             .await
             .map_err(Into::into)
     }
+    async fn task_git_source_setting(
+        &mut self,
+        project_id: forge_domain::ProjectId,
+        task_id: forge_domain::TaskId,
+    ) -> Result<forge_domain::git::TaskGitSourceSetting, RepositoryError> {
+        StorageTransaction::task_git_source_setting(self, project_id, task_id)
+            .await
+            .map_err(Into::into)
+    }
+    async fn insert_task_git_source_setting(
+        &mut self,
+        project_id: forge_domain::ProjectId,
+        task_id: forge_domain::TaskId,
+        setting: &forge_domain::git::TaskGitSourceSetting,
+    ) -> Result<(), RepositoryError> {
+        StorageTransaction::insert_task_git_source_setting(self, project_id, task_id, setting)
+            .await
+            .map_err(Into::into)
+    }
     async fn lock_employee_thread(
         &mut self,
         id: Uuid,

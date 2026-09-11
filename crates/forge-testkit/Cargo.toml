@@ -37,3 +37,5 @@ forge-provider-common = { path = "../forge-provider-common" }
 reqwest = { version = "0.13.4", default-features = false, features = ["json", "stream"] }
 forge-provider-opencode = { path = "../forge-provider-opencode" }
 time.workspace = true
+object_store = "0.14.1"
+tempfile = "3"

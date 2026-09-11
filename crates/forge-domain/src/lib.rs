@@ -16,6 +16,7 @@ mod error;
 mod event;
 mod evidence;
 pub mod execution_profile;
+pub mod file_snapshot;
 pub mod finding;
 pub mod git;
 pub mod git_delivery;

@@ -84,6 +84,20 @@ async fn runtime_acceptance_is_fenced_durable_and_does_not_satisfy_employee_ack(
             .disposition,
         Disposition::Accepted as i32
     );
+    let native_audit: serde_json::Value = sqlx::query_scalar(
+        "SELECT payload FROM event_log WHERE project_id=$1 AND event_type='runtime_input_observed' AND payload->>'input_id'=$2 ORDER BY project_sequence DESC LIMIT 1"
+    ).bind(project.as_uuid()).bind(&input.command_id).fetch_one(&harness.pool).await?;
+    assert_eq!(native_audit["source_message_id"], json!(message));
+    assert_eq!(native_audit["run_id"], json!(run.id));
+    assert_eq!(
+        native_audit["fencing_token"],
+        json!(run.lease_fencing_token)
+    );
+    assert_eq!(
+        native_audit["environment_epoch"],
+        json!(run.environment_epoch)
+    );
+    assert_eq!(native_audit["outcome"], json!("runtime_accepted"));
     assert_eq!(
         supervisor
             .input_receipt(&input, RuntimeInputStatus::RuntimeAccepted, receipt)

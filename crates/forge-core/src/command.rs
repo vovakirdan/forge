@@ -83,6 +83,19 @@ impl CoreService {
         now: Timestamp,
     ) -> Result<CommandReceipt, CoreError> {
         match &envelope.payload {
+            CommandPayload::ImportTaskFileSnapshot(_)
+            | CommandPayload::CaptureTaskFileSnapshot(_)
+            | CommandPayload::AttachTaskFileInput(_) => {
+                self.manage_file_snapshot(
+                    transaction,
+                    project,
+                    envelope,
+                    request_hash,
+                    command_id,
+                    now,
+                )
+                .await
+            }
             CommandPayload::ConfigureProjectHook(_) => {
                 self.configure_project_hook(
                     transaction,
@@ -253,6 +266,9 @@ fn is_runtime_command(payload: &CommandPayload) -> bool {
             | CommandPayload::EnrollCredential { .. }
             | CommandPayload::ConfigureEmployeeRuntime { .. }
             | CommandPayload::ConfigureProjectHook(_)
+            | CommandPayload::ImportTaskFileSnapshot(_)
+            | CommandPayload::CaptureTaskFileSnapshot(_)
+            | CommandPayload::AttachTaskFileInput(_)
     )
 }
 

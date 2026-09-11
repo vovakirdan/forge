@@ -207,6 +207,9 @@ fn require_m0(envelope: &CommandEnvelope) -> Result<(), CommandError> {
             | CommandName::EnrollCredential
             | CommandName::ConfigureEmployeeRuntime
             | CommandName::ConfigureProjectHook
+            | CommandName::ImportTaskFileSnapshot
+            | CommandName::CaptureTaskFileSnapshot
+            | CommandName::AttachTaskFileInput
     ) {
         return Err(CommandError::UnsupportedCommand);
     }

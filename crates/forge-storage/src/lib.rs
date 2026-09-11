@@ -20,11 +20,13 @@ mod employee_capacity;
 mod error;
 pub mod evidence;
 mod executor_artifacts;
+mod file_snapshots;
 mod finding;
 mod gateway;
 mod git_candidates;
 mod git_delivery;
 mod git_integration;
+mod git_source_policy;
 mod health;
 mod hook_invocations;
 mod manager;
@@ -228,6 +230,12 @@ struct ColumnContractItem {
 }
 
 const REQUIRED_TABLES: &[NamedContractItem] = &[
+    NamedContractItem {
+        name: "task_git_source_policies",
+    },
+    NamedContractItem {
+        name: "run_git_source_selections",
+    },
     NamedContractItem {
         name: "local_admission_policy",
     },

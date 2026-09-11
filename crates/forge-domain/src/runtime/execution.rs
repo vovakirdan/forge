@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use super::{RuntimeBinding, RuntimeSpecError, SandboxRunSpec, SurfaceSpec};
+use super::{RuntimeBinding, RuntimeSpecError, SandboxRunSpec, SurfaceSpec, TaskRunSpecV6};
 use crate::{CommunicationAssignmentRef, ExecutionAssignment, ProjectId, ResolutionAssignmentRef};
 
 pub const COMMUNICATION_RUN_SPEC_VERSION: u16 = 3;
@@ -81,11 +81,28 @@ pub struct RuntimeLaunchSpec {
     pub instruction: String,
     pub communication: Option<CommunicationAssignmentRef>,
     pub resolution: Option<ResolutionAssignmentRef>,
+    pub source_request: Option<crate::git::GitSourceRequest>,
+    pub file_inputs: Vec<crate::file_snapshot::TaskFileInput>,
 }
 
 impl RuntimeLaunchSpec {
     pub fn validate(&self) -> Result<(), RuntimeSpecError> {
+        if self.schema_version != 6
+            && (self.source_request.is_some() || !self.file_inputs.is_empty())
+        {
+            return Err(RuntimeSpecError::InvalidProfile);
+        }
         match (self.schema_version, &self.communication, &self.resolution) {
+            (6, None, None) => TaskRunSpecV6 {
+                schema_version: 6,
+                project_id: self.project_id,
+                surface_id: self.surface_id,
+                binding: self.binding.clone(),
+                instruction: self.instruction.clone(),
+                source_request: self.source_request.clone(),
+                file_inputs: self.file_inputs.clone(),
+            }
+            .validate(),
             (2, None, None) => SandboxRunSpec {
                 schema_version: 2,
                 project_id: self.project_id,
@@ -127,6 +144,24 @@ impl From<SandboxRunSpec> for RuntimeLaunchSpec {
             instruction: spec.instruction,
             communication: None,
             resolution: None,
+            source_request: None,
+            file_inputs: vec![],
+        }
+    }
+}
+
+impl From<TaskRunSpecV6> for RuntimeLaunchSpec {
+    fn from(spec: TaskRunSpecV6) -> Self {
+        Self {
+            schema_version: spec.schema_version,
+            project_id: spec.project_id,
+            surface_id: spec.surface_id,
+            binding: spec.binding,
+            instruction: spec.instruction,
+            communication: None,
+            resolution: None,
+            source_request: spec.source_request,
+            file_inputs: spec.file_inputs,
         }
     }
 }
@@ -139,6 +174,7 @@ impl<'de> Deserialize<'de> for RuntimeLaunchSpec {
             .and_then(serde_json::Value::as_u64)
         {
             Some(2) => serde_json::from_value::<SandboxRunSpec>(value).map(Into::into),
+            Some(6) => serde_json::from_value::<TaskRunSpecV6>(value).map(Into::into),
             Some(3) => serde_json::from_value::<CommunicationRunSpec>(value).map(|spec| Self {
                 schema_version: spec.schema_version,
                 project_id: spec.project_id,
@@ -147,6 +183,8 @@ impl<'de> Deserialize<'de> for RuntimeLaunchSpec {
                 instruction: spec.instruction,
                 communication: Some(spec.assignment),
                 resolution: None,
+                source_request: None,
+                file_inputs: vec![],
             }),
             Some(4) => serde_json::from_value::<ResolutionRunSpec>(value).map(|spec| Self {
                 schema_version: spec.schema_version,
@@ -156,6 +194,8 @@ impl<'de> Deserialize<'de> for RuntimeLaunchSpec {
                 instruction: spec.instruction,
                 communication: None,
                 resolution: Some(spec.assignment),
+                source_request: None,
+                file_inputs: vec![],
             }),
             _ => return Err(serde::de::Error::custom("unsupported runtime spec schema")),
         }

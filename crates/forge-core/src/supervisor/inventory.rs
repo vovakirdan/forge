@@ -81,7 +81,7 @@ impl CoreService {
             {
                 continue;
             }
-            if matches!(run.run_spec_version, 2..=5) && entry.provision_boot_id != identity.boot_id
+            if matches!(run.run_spec_version, 2..=6) && entry.provision_boot_id != identity.boot_id
             {
                 continue;
             }
@@ -193,7 +193,7 @@ impl CoreService {
                 )?)
                 .await?;
             transaction.commit().await?;
-            if matches!(run.run_spec_version, 2..=4)
+            if matches!(run.run_spec_version, 2..=4 | 6)
                 && presence == EnvironmentPresence::Active
                 && state.is_some_and(|state| state.lease_active)
                 && matches!(

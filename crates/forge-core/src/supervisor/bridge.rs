@@ -176,7 +176,7 @@ impl CoreService {
         let observed_wall = Timestamp::now_utc();
         let now = crate::canonical_clock::project_mutation_time_at(&project, observed_wall);
         // Provider failure is not proof that the shell/container has stopped.
-        let must_stop = matches!(run.run_spec_version, 2..=5)
+        let must_stop = matches!(run.run_spec_version, 2..=6)
             && matches!(
                 observation.kind,
                 forge_protocol::supervisor::v1::RunEventKind::ProviderFailed
@@ -214,6 +214,12 @@ impl CoreService {
                 transaction.commit().await?;
             }
             return Ok(refused_fenced_write(result));
+        }
+        let git_source = super::source::source_descriptor(&run.run_spec, &observation)?;
+        if let Some(descriptor) = &git_source {
+            transaction
+                .record_git_source_selection(run.id, descriptor)
+                .await?;
         }
         if matches!(
             observation.kind,
@@ -413,6 +419,7 @@ impl CoreService {
                     json!(observation.lease_fencing_token),
                 ),
                 ("environment_epoch", json!(observation.environment_epoch)),
+                ("git_source", json!(git_source)),
             ]),
             now,
         )?;

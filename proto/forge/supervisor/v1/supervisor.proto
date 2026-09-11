@@ -38,6 +38,7 @@ message CoreToSupervisor {
     InspectGitCandidate inspect_git_candidate = 5;
     GitIntegrationCommand git_integration = 6;
     DeliverRuntimeInput deliver_runtime_input = 9;
+    CaptureFileSnapshot capture_file_snapshot = 10;
   }
 }
 
@@ -46,6 +47,11 @@ message CoreToSupervisor {
 // the immutable operator-registered Task binding, never an Employee request.
 message GitIntegrationCommand { string command_id = 1; string request_json = 2; }
 message GitIntegrationReply { string message_id = 1; string result_json = 2; }
+
+// Idempotent stopped-surface capture. Its byte-exact sealed result is retained
+// under the shared private execution root, like grants and runtime evidence.
+// Core keeps the maintenance reservation until it consumes that result.
+message CaptureFileSnapshot { string request_json = 1; }
 
 // Durable exact-scope control, never a shell command or a provider-specific flag.
 message DeliverRuntimeInput {

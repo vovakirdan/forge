@@ -310,6 +310,41 @@ impl CommandTransaction for MemoryTransaction {
     ) -> Result<Option<forge_domain::ProjectRepository>, RepositoryError> {
         Ok(self.staged.project_repositories.get(&id).cloned())
     }
+    async fn task_git_source_setting(
+        &mut self,
+        project: ProjectId,
+        task: TaskId,
+    ) -> Result<forge_domain::git::TaskGitSourceSetting, RepositoryError> {
+        Ok(self
+            .staged
+            .git_source_policies
+            .iter()
+            .rev()
+            .find(|((p, t, _), _)| *p == project && *t == task)
+            .map(|(_, setting)| setting.clone())
+            .unwrap_or_default())
+    }
+    async fn insert_task_git_source_setting(
+        &mut self,
+        project: ProjectId,
+        task: TaskId,
+        setting: &forge_domain::git::TaskGitSourceSetting,
+    ) -> Result<(), RepositoryError> {
+        self.require_task_scope(project, task)?;
+        let current = self.task_git_source_setting(project, task).await?;
+        if current.revision.checked_add(1) != Some(setting.revision)
+            || !matches!(
+                self.staged.tasks.get(&task).map(|s| s.task.work_surface()),
+                Some(forge_domain::TaskWorkSurface::Git(_))
+            )
+        {
+            return Err(invalid("stale or out-of-scope Task Git source policy"));
+        }
+        self.staged
+            .git_source_policies
+            .insert((project, task, setting.revision), setting.clone());
+        Ok(())
+    }
     async fn insert_project_repository(
         &mut self,
         repository: &forge_domain::ProjectRepository,

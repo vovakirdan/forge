@@ -47,6 +47,8 @@ mod resolution_guards;
 mod scopes;
 #[path = "command_conformance/snapshot.rs"]
 mod snapshot;
+#[path = "command_conformance/source_policy.rs"]
+mod source_policy;
 
 macro_rules! conformance_case {
     ($name:ident, $scenario:path) => {
@@ -66,6 +68,14 @@ macro_rules! conformance_case {
 }
 
 conformance_case!(all_m0_commands, crate::commands::all_m0_commands);
+conformance_case!(
+    git_source_policy,
+    crate::source_policy::future_policy_atomicity
+);
+conformance_case!(
+    git_source_authority,
+    crate::source_policy::source_authority_and_staleness
+);
 conformance_case!(
     manual_handoff,
     crate::command_handoffs::handoff_is_atomic_and_replayable

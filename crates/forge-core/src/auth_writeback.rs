@@ -20,7 +20,7 @@ impl CoreService {
         transaction: &mut StorageTransaction<'_>,
         run: &RunProjection,
     ) -> Result<(), CoreError> {
-        if !matches!(run.run_spec_version, 2..=4)
+        if !matches!(run.run_spec_version, 2..=4 | 6)
             || transaction.auth_writeback_recorded(run.id).await?
         {
             return Ok(());

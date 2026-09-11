@@ -92,21 +92,44 @@ async fn finished(writer: &mut (impl AsyncWriteExt + Unpin), thread: Uuid, turn:
     send(writer,json!({"method":"turn/completed","params":{"threadId":thread,"turn":{"id":turn,"status":"completed","error":null}}})).await;
 }
 
+fn assert_addressed_turn(request: &Value, input: &DeliverRuntimeInput, source: &Value) {
+    assert_eq!(request["method"], "turn/start");
+    assert_eq!(request["id"], input.command_id);
+    assert_eq!(request["params"]["clientUserMessageId"], input.command_id);
+    let text = request["params"]["input"][0]["text"].as_str().unwrap();
+    assert!(text.starts_with(&format!(
+        "Forge addressed instruction {}.",
+        source["id"].as_str().unwrap()
+    )));
+    assert!(!text.contains(&input.command_id));
+    assert!(text.ends_with(&source.to_string()));
+}
+
 #[tokio::test]
-async fn two_turns_queue_until_idle_and_close_is_not_a_prompt() {
+async fn bootstrap_ready_redelivery_then_go_preserves_message_and_transport_identities() {
     let (_root, mut mailbox, inputs, receipts) = setup();
     let run = Uuid::parse_str(&mailbox.scope().run_id).unwrap();
-    let input = command(
+    let ready_id = Uuid::now_v7();
+    let go_id = Uuid::now_v7();
+    let ready_source = json!({"id":ready_id,"body":"Reply READY, then wait for GO."});
+    let go_source = json!({"id":go_id,"body":"GO: begin the assigned work."});
+    let ready = command(
         &mailbox,
         1,
         Action::Message(RuntimeMessageInput {
-            source_message_json: "{\"body\":\"synthetic follow-up\"}".into(),
+            source_message_json: ready_source.to_string(),
         }),
     );
-    put(&inputs, &input);
-    let close = command(
+    let go = command(
         &mailbox,
         2,
+        Action::Message(RuntimeMessageInput {
+            source_message_json: go_source.to_string(),
+        }),
+    );
+    let close = command(
+        &mailbox,
+        3,
         Action::CloseAfterTurn(CloseRuntimeInput {
             reason_code: "assignment_completed".into(),
         }),
@@ -125,7 +148,7 @@ async fn two_turns_queue_until_idle_and_close_is_not_a_prompt() {
             &mut mailbox,
             "fixture-model",
             "/workspace/task",
-            SecretBytes::new(b"initial".to_vec()),
+            SecretBytes::new(b"Read Forge Inbox and reply READY before starting work.".to_vec()),
             rx,
             |bytes| {
                 output.push(bytes);
@@ -140,12 +163,17 @@ async fn two_turns_queue_until_idle_and_close_is_not_a_prompt() {
     handshake(&mut reader, &mut writer, thread).await;
     let first = read(&mut reader).await;
     assert_eq!(first["id"], run.to_string());
+    assert_eq!(first["params"]["clientUserMessageId"], run.to_string());
     let turn1 = Uuid::now_v7();
     send(
         &mut writer,
         json!({"id":run,"result":{"turn":{"id":turn1,"status":"inProgress","error":null}}}),
     )
     .await;
+    // Simulate a completed bootstrap Inbox reply at the provider protocol boundary;
+    // this fixture does not execute the Gateway or prove a canonical acknowledgement.
+    send(&mut writer,json!({"method":"item/completed","params":{"threadId":thread,"turnId":turn1,"item":{"id":"bootstrap-ready-reply","type":"mcpToolCall","server":"forge","tool":"forge_reply_instruction","arguments":{"message_id":Uuid::now_v7(),"target_message_id":ready_id,"body":"READY"},"status":"completed"}}})).await;
+    put(&inputs, &ready);
     assert!(
         tokio::time::timeout(Duration::from_millis(180), read(&mut reader))
             .await
@@ -154,13 +182,25 @@ async fn two_turns_queue_until_idle_and_close_is_not_a_prompt() {
     assert_eq!(std::fs::read_dir(&receipts).unwrap().count(), 0);
     finished(&mut writer, thread, turn1, 10).await;
     let second = read(&mut reader).await;
-    assert_eq!(second["id"], input.command_id);
+    assert_addressed_turn(&second, &ready, &ready_source);
     assert_eq!(second["params"]["threadId"], thread.to_string());
     let turn2 = Uuid::now_v7();
-    send(&mut writer,json!({"id":input.command_id,"result":{"turn":{"id":turn2,"status":"inProgress","error":null}}})).await;
+    send(&mut writer,json!({"id":ready.command_id,"result":{"turn":{"id":turn2,"status":"inProgress","error":null}}})).await;
+    put(&inputs, &go);
+    assert!(
+        tokio::time::timeout(Duration::from_millis(180), read(&mut reader))
+            .await
+            .is_err()
+    );
+    finished(&mut writer, thread, turn2, 25).await;
+    let third = read(&mut reader).await;
+    assert_addressed_turn(&third, &go, &go_source);
+    assert_eq!(third["params"]["threadId"], thread.to_string());
+    let turn3 = Uuid::now_v7();
+    send(&mut writer,json!({"id":go.command_id,"result":{"turn":{"id":turn3,"status":"inProgress","error":null}}})).await;
     put(&inputs, &close);
     assert!(!task.is_finished());
-    finished(&mut writer, thread, turn2, 25).await;
+    finished(&mut writer, thread, turn3, 40).await;
     let output = tokio::time::timeout(Duration::from_secs(2), task)
         .await
         .unwrap()
@@ -169,22 +209,47 @@ async fn two_turns_queue_until_idle_and_close_is_not_a_prompt() {
         .iter()
         .filter_map(|bytes| NativeDriverEvent::decode(bytes.expose()).ok())
         .collect();
-    assert_eq!(metadata.len(), 4);
-    assert!(
-        matches!(metadata.last().unwrap(),NativeDriverEvent::TurnFinished{usage:Some(usage),..} if usage.input_tokens==25)
-    );
-    let statuses: Vec<_> = std::fs::read_dir(receipts)
-        .unwrap()
-        .map(|entry| {
-            serde_json::from_slice::<RuntimeInputReceipt>(
-                &std::fs::read(entry.unwrap().path()).unwrap(),
-            )
-            .unwrap()
-            .status
+    assert_eq!(metadata.len(), 6);
+    let accepted: Vec<_> = metadata
+        .iter()
+        .filter_map(|event| match event {
+            NativeDriverEvent::InputAccepted { input_id, .. } => Some(*input_id),
+            _ => None,
         })
         .collect();
-    assert!(statuses.contains(&(RuntimeInputStatus::RuntimeAccepted as i32)));
-    assert!(statuses.contains(&(RuntimeInputStatus::InputClosed as i32)));
+    assert_eq!(
+        accepted,
+        [
+            run,
+            Uuid::parse_str(&ready.command_id).unwrap(),
+            Uuid::parse_str(&go.command_id).unwrap()
+        ]
+    );
+    assert!(
+        matches!(metadata.last().unwrap(),NativeDriverEvent::TurnFinished{usage:Some(usage),..} if usage.input_tokens==40)
+    );
+    assert_eq!(std::fs::read_dir(&receipts).unwrap().count(), 3);
+    for (input, status) in [
+        (&ready, RuntimeInputStatus::RuntimeAccepted),
+        (&go, RuntimeInputStatus::RuntimeAccepted),
+        (&close, RuntimeInputStatus::InputClosed),
+    ] {
+        let receipt: RuntimeInputReceipt = serde_json::from_slice(
+            &std::fs::read(receipts.join(format!("{}.json", input.command_id))).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(receipt.input_command_id, input.command_id);
+        assert_eq!(receipt.run_id, run.to_string());
+        assert_eq!(receipt.lease_fencing_token, 7);
+        assert_eq!(receipt.environment_epoch, 3);
+        assert_eq!(receipt.status, status as i32);
+    }
+    let mut extra = String::new();
+    assert_eq!(
+        reader.read_line(&mut extra).await.unwrap(),
+        0,
+        "close must not become a fourth prompt"
+    );
 }
 
 #[test]
