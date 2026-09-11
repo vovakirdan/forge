@@ -5,6 +5,8 @@ use uuid::Uuid;
 
 mod execution;
 mod hook;
+mod system_job;
+pub use system_job::{SYSTEM_JOB_RUN_SPEC_VERSION, SystemJobRunSpec};
 mod task_v6;
 pub use execution::{
     COMMUNICATION_RUN_SPEC_VERSION, CommunicationRunSpec, RESOLUTION_RUN_SPEC_VERSION,

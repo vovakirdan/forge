@@ -9,9 +9,11 @@ pub(crate) use inbox::task_scope;
 mod catalog;
 mod communication_run;
 mod mcp;
+mod memory;
 mod resolution;
 mod signals;
 mod socket;
+mod system_job;
 
 use crate::{CoreError, CoreService};
 use forge_domain::{ContextSnapshot, ExecutionAssignment, ProjectId, runtime::RunScope};
@@ -84,6 +86,10 @@ impl CoreService {
             ExecutionAssignment::Resolution(_) => {
                 resolution::context(&run)?.data().capability_grants.clone()
             }
+            ExecutionAssignment::SystemJob(_) => {
+                system_job::spec(&run)?;
+                vec!["system_job.read".into(), "system_job.submit_result".into()]
+            }
             _ => return Err(invalid("unsupported Gateway assignment")),
         };
         let gateway = RunGateway {
@@ -138,7 +144,12 @@ impl RunGateway {
         // immutable receipt grants no new action and needs no live Lease.
         if matches!(
             request.tool.as_str(),
-            "human.request" | "escalation.raise" | "resolution.submit" | "resolution.decline"
+            "human.request"
+                | "escalation.raise"
+                | "resolution.submit"
+                | "resolution.decline"
+                | "system_job.submit_result"
+                | "memory.refresh"
         ) && request.message_id.get_version_num() == 7
             && self.grants.contains(&request.tool)
         {
@@ -223,11 +234,33 @@ fn safe_error(error: &CoreError) -> Value {
             "temporarily_unavailable",
             "Forge storage is unavailable; retry this same message_id.",
         ),
-        CoreError::NotFound { .. } => ("not_found", "No readable task exists in this Project."),
+        CoreError::NotFound { .. } => ("not_found", "No readable resource matches this Run scope."),
         _ => (
             "request_rejected",
             "Check the granted tool schema and active Run scope; Forge made no unsupported transition.",
         ),
     };
     json!({"status":"error","code":code,"message":message})
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CoreError, json, safe_error};
+
+    #[test]
+    fn not_found_diagnostic_is_resource_neutral_and_does_not_disclose_aggregate() {
+        let expected = json!({
+            "status": "error",
+            "code": "not_found",
+            "message": "No readable resource matches this Run scope.",
+        });
+        for aggregate in [
+            "task",
+            "knowledge_page",
+            "memory_entry",
+            "private_employee_memory",
+        ] {
+            assert_eq!(safe_error(&CoreError::NotFound { aggregate }), expected);
+        }
+    }
 }

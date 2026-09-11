@@ -64,6 +64,47 @@ impl CoreConfig {
 }
 
 impl crate::CoreService {
+    /// Explicit dedicated loopback AgentMemory service; no implicit personal daemon.
+    pub fn with_agentmemory(
+        mut self,
+        endpoint: &str,
+        credential: forge_provider_common::SecretBytes,
+        timeout: std::time::Duration,
+    ) -> Result<Self, crate::CoreError> {
+        let client = crate::memory_projection::agentmemory::AgentMemoryClient::new(
+            endpoint, credential, timeout,
+        )
+        .map_err(|_| crate::CoreError::InvalidTransport {
+            field: "agentmemory",
+            reason: "invalid dedicated AgentMemory configuration".into(),
+        })?;
+        self.agentmemory = Some(std::sync::Arc::new(client));
+        Ok(self)
+    }
+
+    /// Owner-only key file, bounded before parsing and never included in diagnostics.
+    pub fn with_agentmemory_secret_file(
+        self,
+        endpoint: &str,
+        file: &std::path::Path,
+        timeout: std::time::Duration,
+    ) -> Result<Self, crate::CoreError> {
+        let credential = forge_provider_common::PrivateMaterialization::open(file)
+            .and_then(|file| file.read(4096))
+            .map_err(|_| crate::CoreError::InvalidTransport {
+                field: "agentmemory",
+                reason: "cannot read owner-only AgentMemory credential".into(),
+            })?;
+        let bytes = credential.expose();
+        let bytes = bytes.strip_suffix(b"\n").unwrap_or(bytes);
+        let bytes = bytes.strip_suffix(b"\r").unwrap_or(bytes);
+        self.with_agentmemory(
+            endpoint,
+            forge_provider_common::SecretBytes::new(bytes.to_vec()),
+            timeout,
+        )
+    }
+
     /// Explicit local-operator startup configuration. Changes while any Run has
     /// logical or uncertain physical ownership fail closed; same values are safe.
     pub async fn with_admission_limits(

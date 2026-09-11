@@ -339,10 +339,17 @@ message ProvisionRun {
     CommunicationExecutionAssignment communication = 14;
     ResolutionExecutionAssignment resolution = 15;
     HookExecutionAssignment hook = 16;
+    SystemJobExecutionAssignment system_job = 17;
   }
 }
 
 message TaskStageExecutionAssignment { string task_id = 1; string queue_entry_id = 2; string stage_id = 3; }
+message SystemJobExecutionAssignment {
+  string job_id = 1;
+  string attempt_id = 2;
+  uint64 generation = 3;
+  string kind = 4;
+}
 message CommunicationExecutionAssignment { string assignment_id = 1; string thread_id = 2; string source_message_id = 3; }
 message ResolutionExecutionAssignment {
   string escalation_id = 1;

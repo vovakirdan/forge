@@ -81,12 +81,37 @@ pub struct RuntimeLaunchSpec {
     pub instruction: String,
     pub communication: Option<CommunicationAssignmentRef>,
     pub resolution: Option<ResolutionAssignmentRef>,
+    pub system_job: Option<(
+        crate::system_job::SystemJobAssignmentRef,
+        crate::system_job::SystemJobInput,
+        u32,
+    )>,
     pub source_request: Option<crate::git::GitSourceRequest>,
     pub file_inputs: Vec<crate::file_snapshot::TaskFileInput>,
 }
 
 impl RuntimeLaunchSpec {
     pub fn validate(&self) -> Result<(), RuntimeSpecError> {
+        if let Some((owner, input, max_result_bytes)) = &self.system_job {
+            if self.communication.is_some()
+                || self.resolution.is_some()
+                || self.source_request.is_some()
+                || !self.file_inputs.is_empty()
+            {
+                return Err(RuntimeSpecError::InvalidProfile);
+            }
+            return super::SystemJobRunSpec {
+                schema_version: self.schema_version,
+                project_id: self.project_id,
+                run_id: self.surface_id,
+                assignment: owner.clone(),
+                input: input.clone(),
+                max_result_bytes: *max_result_bytes,
+                binding: self.binding.clone(),
+                instruction: self.instruction.clone(),
+            }
+            .validate();
+        }
         if self.schema_version != 6
             && (self.source_request.is_some() || !self.file_inputs.is_empty())
         {
@@ -144,6 +169,7 @@ impl From<SandboxRunSpec> for RuntimeLaunchSpec {
             instruction: spec.instruction,
             communication: None,
             resolution: None,
+            system_job: None,
             source_request: None,
             file_inputs: vec![],
         }
@@ -160,6 +186,7 @@ impl From<TaskRunSpecV6> for RuntimeLaunchSpec {
             instruction: spec.instruction,
             communication: None,
             resolution: None,
+            system_job: None,
             source_request: spec.source_request,
             file_inputs: spec.file_inputs,
         }
@@ -183,6 +210,7 @@ impl<'de> Deserialize<'de> for RuntimeLaunchSpec {
                 instruction: spec.instruction,
                 communication: Some(spec.assignment),
                 resolution: None,
+                system_job: None,
                 source_request: None,
                 file_inputs: vec![],
             }),
@@ -194,6 +222,19 @@ impl<'de> Deserialize<'de> for RuntimeLaunchSpec {
                 instruction: spec.instruction,
                 communication: None,
                 resolution: Some(spec.assignment),
+                system_job: None,
+                source_request: None,
+                file_inputs: vec![],
+            }),
+            Some(7) => serde_json::from_value::<super::SystemJobRunSpec>(value).map(|spec| Self {
+                schema_version: spec.schema_version,
+                project_id: spec.project_id,
+                surface_id: spec.run_id,
+                binding: spec.binding,
+                instruction: spec.instruction,
+                communication: None,
+                resolution: None,
+                system_job: Some((spec.assignment, spec.input, spec.max_result_bytes)),
                 source_request: None,
                 file_inputs: vec![],
             }),

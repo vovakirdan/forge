@@ -142,7 +142,7 @@ impl StorageTransaction<'_> {
         run_id: Uuid,
         surface_id: Option<Uuid>,
     ) -> Result<(), StorageError> {
-        sqlx::query("INSERT INTO run_environment_reservations(run_id,project_id,purpose,communication_assignment_id,resolution_assignment_id,hook_invocation_id,task_id,employee_id,surface_id,fencing_token,environment_epoch) SELECT id,project_id,purpose,communication_assignment_id,resolution_assignment_id,hook_invocation_id,task_id,employee_id,$2,lease_fencing_token,environment_epoch FROM runs WHERE id=$1")
+        sqlx::query("INSERT INTO run_environment_reservations(run_id,project_id,purpose,communication_assignment_id,resolution_assignment_id,hook_invocation_id,system_job_attempt_id,task_id,employee_id,surface_id,fencing_token,environment_epoch) SELECT id,project_id,purpose,communication_assignment_id,resolution_assignment_id,hook_invocation_id,system_job_attempt_id,task_id,employee_id,$2,lease_fencing_token,environment_epoch FROM runs WHERE id=$1")
             .bind(run_id).bind(surface_id).execute(&mut *self.transaction).await?;
         Ok(())
     }

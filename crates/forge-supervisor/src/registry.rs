@@ -48,7 +48,7 @@ impl RunRegistry {
             provision.lease_fencing_token,
             provision.environment_epoch,
         );
-        control.detachable = matches!(provision.run_spec_version, 2..=6);
+        control.detachable = matches!(provision.run_spec_version, 2..=7);
         let control = Arc::new(control);
         self.active
             .lock()

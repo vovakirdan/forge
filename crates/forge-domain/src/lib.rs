@@ -23,12 +23,14 @@ pub mod git_delivery;
 pub mod git_integration;
 mod handoff;
 mod ids;
+pub mod knowledge;
 mod management;
 mod project;
 pub mod project_hook;
 mod repository;
 pub mod resolution;
 pub mod runtime;
+pub mod system_job;
 mod task;
 
 #[cfg(test)]

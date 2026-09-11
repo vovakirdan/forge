@@ -81,17 +81,33 @@ impl CoreService {
                 "escalation.raise",
                 "board.list",
                 "task.read",
+                "memory.search",
+                "memory.read",
+                "memory.refresh",
             ]
             .into_iter()
             .map(str::to_owned)
             .collect(),
             source_message: claim.source.clone(),
+            knowledge_context: crate::context_compilation::compile_knowledge_context(
+                &mut tx,
+                project_id,
+                claim.employee_id,
+            )
+            .await?,
             created_at: now,
         })?;
-        let spec = CommunicationRunSpec {schema_version:3,project_id,run_id,assignment:claim.owner.clone(),binding,
-            instruction: serde_json::to_string(&json!({"assignment":"communication","source_message":claim.source,
-                "resolution_answers":resolution_answers,"context_task_id":thread.data().task_id,"policy":"This is a conversation, not Task execution. Read the assigned input, acknowledge and reply through Forge Inbox tools. Then call communication.complete. Context does not grant Task stage, artifact, or writer authority. Exit status alone is not a reply or completion."}))
-                .map_err(|_| crate::credentials::credential_error())?,
+        let spec = CommunicationRunSpec {
+            schema_version: 3,
+            project_id,
+            run_id,
+            assignment: claim.owner.clone(),
+            binding,
+            instruction: crate::context_compilation::add_knowledge_instruction(
+                json!({"assignment":"communication","source_message":claim.source,
+                "resolution_answers":resolution_answers,"context_task_id":thread.data().task_id,"policy":"This is a conversation, not Task execution. Read the assigned input, acknowledge and reply through Forge Inbox tools. Then call communication.complete. Context does not grant Task stage, artifact, or writer authority. Exit status alone is not a reply or completion."}),
+                context.data().knowledge_context.as_ref(),
+            )?,
         };
         let run = tx
             .create_communication_run(

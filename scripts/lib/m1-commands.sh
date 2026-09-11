@@ -115,6 +115,10 @@ m1_seed() {
         '.items[] | select(.pipeline_id == $id) | .id' <<<"$response" 2>/dev/null) || return 1
     response=$(m1_command create_employee '{"name":"M1 Codex executor","role":"executor","stage_eligibility":{"mode":"any"}}') || return 1
     M1_EMPLOYEE_ID=$(m1_resource_id employee <<<"$response") || { m1_command_error; return 1; }
+    # This historical acceptance deliberately excludes M3 inference/onboarding.
+    payload=$(jq -cn --arg employee "$M1_EMPLOYEE_ID" \
+        '{employee_id:$employee,reason:"Explicit operator setup for the M1 runtime-only acceptance scenario"}') || return 1
+    m1_command skip_employee_onboarding "$payload" >/dev/null || return 1
     m1_record_session || return 1
     secret_id=$(m1_uuid7) && binding_id=$(m1_uuid7) && profile_id=$(m1_uuid7) || return 1
     payload=$(jq -cn --arg secret "$secret_id" --arg binding "$binding_id" --arg source "$M1_AUTH" \

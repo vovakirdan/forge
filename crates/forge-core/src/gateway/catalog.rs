@@ -3,7 +3,32 @@
 use rmcp::model::{Tool, ToolAnnotations};
 use serde_json::{Value, json};
 
-pub(super) const TOOLS: [(&str, &str, &str); 15] = [
+pub(super) const TOOLS: [(&str, &str, &str); 20] = [
+    (
+        "memory.search",
+        "forge_search_memory",
+        "Search canonical project knowledge and your own personal memory. Search is not authority; only currently published policies and decisions are authoritative.",
+    ),
+    (
+        "memory.read",
+        "forge_read_memory",
+        "Read a current published knowledge page or a visible canonical memory entry by UUID. Another Employee's private memory is not accessible.",
+    ),
+    (
+        "memory.refresh",
+        "forge_refresh_memory",
+        "Build and record a new immutable current knowledge context for this Run. The original prompt snapshot remains unchanged.",
+    ),
+    (
+        "system_job.read",
+        "forge_read_system_job",
+        "Read only the immutable input of your exact semantic job. No Task execution authority.",
+    ),
+    (
+        "system_job.submit_result",
+        "forge_submit_system_job_result",
+        "Submit source-linked summaries or an onboarding note for your exact job. Core owns metadata; this never changes a Task or publishes authority.",
+    ),
     (
         "escalation.raise",
         "forge_raise_escalation",
@@ -102,7 +127,13 @@ pub(super) fn tools() -> Vec<Tool> {
                 None,
                 Some(matches!(
                     *logical,
-                    "board.list" | "task.read" | "inbox.list" | "resolution.read"
+                    "board.list"
+                        | "task.read"
+                        | "inbox.list"
+                        | "resolution.read"
+                        | "system_job.read"
+                        | "memory.search"
+                        | "memory.read"
                 )),
                 Some(false),
                 Some(true),
@@ -118,6 +149,20 @@ fn schema(logical: &str) -> Value {
     let text = json!({"type":"string"});
     let ids = json!({"type":"array","maxItems":64,"items":uuid});
     let (mut properties, mut required) = match logical {
+        "memory.search" => (
+            json!({"query":{"type":"string","minLength":1,"maxLength":8192},"limit":{"type":"integer","minimum":1,"maximum":100,"default":10}}),
+            vec!["query"],
+        ),
+        "memory.read" => (
+            json!({"kind":{"type":"string","enum":["knowledge_page","derived_memory"]},"id":uuid}),
+            vec!["kind", "id"],
+        ),
+        "memory.refresh" => (json!({}), vec![]),
+        "system_job.read" => (json!({}), vec![]),
+        "system_job.submit_result" => (
+            json!({"source_digest":{"type":"string","pattern":"^[0-9a-f]{64}$"},"entries":{"type":"array","minItems":1,"maxItems":18,"items":{"type":"object","properties":{"subject":{"type":"object"},"markdown":{"type":"string","minLength":1,"maxLength":65536},"source_refs":{"type":"array","minItems":1,"maxItems":128,"items":{"type":"object"}}},"required":["subject","markdown","source_refs"],"additionalProperties":false}}}),
+            vec!["source_digest", "entries"],
+        ),
         "escalation.raise" => (
             json!({"question":{"type":"string","minLength":1,"maxLength":20000},"category":{"type":"string","enum":["action_approval","clarification","scope_or_policy_conflict","stale_or_invalid_task","technical_decision","blocked"]},"route_key":{"type":"string"}}),
             vec!["question", "category"],
@@ -174,7 +219,13 @@ fn schema(logical: &str) -> Value {
     properties["message_id"] = uuid;
     if !matches!(
         logical,
-        "board.list" | "task.read" | "inbox.list" | "resolution.read"
+        "board.list"
+            | "task.read"
+            | "inbox.list"
+            | "resolution.read"
+            | "system_job.read"
+            | "memory.search"
+            | "memory.read"
     ) {
         required.push("message_id");
     }
@@ -187,7 +238,7 @@ mod tests {
     #[test]
     fn catalog_is_fixed_bounded_and_not_an_administrative_proxy() {
         let tools = tools();
-        assert_eq!(tools.len(), 15);
+        assert_eq!(tools.len(), 20);
         for tool in tools {
             assert_eq!(
                 tool.input_schema.get("additionalProperties"),

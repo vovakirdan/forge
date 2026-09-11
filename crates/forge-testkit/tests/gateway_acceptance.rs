@@ -474,12 +474,21 @@ async fn gateway_mcp_negotiates_catalog_calls_and_bounded_untrusted_requests() -
         .await?
         .json()
         .await?;
-    assert_eq!(
-        listed["result"]["tools"]
-            .as_array()
-            .context("MCP tool list")?
-            .len(),
-        11
+    let tools = listed["result"]["tools"]
+        .as_array()
+        .context("MCP tool list")?;
+    assert_eq!(tools.len(), 14);
+    for name in [
+        "forge_search_memory",
+        "forge_read_memory",
+        "forge_refresh_memory",
+    ] {
+        assert!(tools.iter().any(|tool| tool["name"] == name));
+    }
+    assert!(
+        !tools
+            .iter()
+            .any(|tool| tool["name"] == "forge_submit_system_job_result")
     );
     let read:Value=request(json!({"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"forge_read_task","arguments":{"task_id":task},"_meta":{"run_id":Uuid::now_v7()}}})).send().await?.json().await?;
     assert_eq!(read["result"]["structuredContent"]["task_id"], json!(task));

@@ -219,7 +219,7 @@ impl CoreService {
 }
 
 fn apply_purpose_profile(spec: &mut RuntimeLaunchSpec) -> Result<(), CoreError> {
-    if spec.resolution.is_some() {
+    if spec.resolution.is_some() || spec.system_job.is_some() {
         let mut profile: forge_domain::ExecutionProfileInput =
             spec.binding.execution_profile.clone().into();
         profile

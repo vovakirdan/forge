@@ -163,6 +163,15 @@ impl Engine<'_> {
                 .await
             }
             CommandPayload::ConfigureBootRecoveryPolicy { .. }
+            | CommandPayload::ConfigureSystemJobs(_)
+            | CommandPayload::RequestTaskSummary(_)
+            | CommandPayload::RequestEmployeeOnboarding(_)
+            | CommandPayload::RetrySystemJob(_)
+            | CommandPayload::SkipEmployeeOnboarding(_)
+            | CommandPayload::AuthorKnowledgePage(_)
+            | CommandPayload::PublishKnowledgePage(_)
+            | CommandPayload::SupersedeKnowledgePage(_)
+            | CommandPayload::WithdrawKnowledgePage(_)
             | CommandPayload::AcceptRunRecoveryAssessment { .. }
             | CommandPayload::RetryCommunication { .. }
             | CommandPayload::RetryGitIntegration { .. }

@@ -57,11 +57,13 @@ pub enum ExecutionAssignment {
     Communication(CommunicationAssignmentRef),
     Resolution(ResolutionAssignmentRef),
     Hook(HookAssignmentRef),
+    SystemJob(crate::system_job::SystemJobAssignmentRef),
 }
 
 impl ExecutionAssignment {
     pub fn validate(&self) -> Result<(), DomainError> {
         match self {
+            Self::SystemJob(owner) => owner.validate(),
             Self::TaskStage(owner) => {
                 owner.task_id.validate_v7("assignment.task_id")?;
                 validate_uuid(owner.queue_entry_id, "assignment.queue_entry_id")?;
@@ -125,6 +127,7 @@ impl ExecutionAssignment {
             Self::Communication(_) => "communication",
             Self::Resolution(_) => "resolution",
             Self::Hook(_) => "hook",
+            Self::SystemJob(_) => "system_job",
         }
     }
 
@@ -137,6 +140,12 @@ impl ExecutionAssignment {
     pub fn hook(&self) -> Option<&HookAssignmentRef> {
         match self {
             Self::Hook(owner) => Some(owner),
+            _ => None,
+        }
+    }
+    pub fn system_job(&self) -> Option<&crate::system_job::SystemJobAssignmentRef> {
+        match self {
+            Self::SystemJob(owner) => Some(owner),
             _ => None,
         }
     }

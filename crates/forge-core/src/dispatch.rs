@@ -24,6 +24,10 @@ use crate::{
 
 const M0_LEASE_DURATION: Duration = Duration::minutes(5);
 
+#[cfg(test)]
+#[path = "dispatch_tests.rs"]
+mod scheduler_future_tests;
+
 impl CoreService {
     /// Makes all currently dispatchable work available to the connected local
     /// Supervisor. Each Run is committed before its desired provision request
@@ -34,7 +38,10 @@ impl CoreService {
         let result = crate::observability::trace_operation(
             Some(&parent),
             crate::observability::Operation::Scheduler,
-            self.dispatch_available_inner(project_id),
+            // Every command/capture/recovery caller awaits this boundary. Keep
+            // multi-purpose scheduler state on the heap so its growth does not
+            // multiply through their enclosing futures and debug poll frames.
+            Box::pin(self.dispatch_available_inner(project_id)),
         )
         .await;
         self.record_operation(
@@ -61,7 +68,10 @@ impl CoreService {
                     Some(provision) => Some(provision),
                     None => match self.claim_resolution_provision(project_id).await? {
                         Some(provision) => Some(provision),
-                        None => self.claim_communication_provision(project_id).await?,
+                        None => match self.claim_communication_provision(project_id).await? {
+                            Some(provision) => Some(provision),
+                            None => self.claim_system_job_provision(project_id).await?,
+                        },
                     },
                 },
             };
@@ -223,6 +233,12 @@ impl CoreService {
                 repository.validate_snapshot()?;
             }
             let mut pinned_credential = None;
+            let knowledge_context = crate::context_compilation::compile_knowledge_context(
+                &mut transaction,
+                project_id,
+                employee.id(),
+            )
+            .await?;
             let (run_spec_version, run_spec) = if self.fake_runtime_enabled {
                 (1_u16, fake_run_spec(stage, &scoped.task)?)
             } else {
@@ -321,17 +337,20 @@ impl CoreService {
                     binding.execution_profile.adapter_id(),
                 )?;
                 pinned_credential = Some(record);
-                let instruction = serde_json::to_string(&json!({
-                "task": scoped.task.spec(), "stage": stage,
-                "previous_handoff": transaction.latest_handoff(scoped.task.id()).await?,
-                "git_source_input": source_request.as_ref().map(|_| "Read /run/forge-source/descriptor.json for this Run's immutable source selection. A committed selection includes /run/forge-source/source.bundle; fetch its selected_revision into your own Git refs and explicitly merge/rebase when needed. Forge preserves retained files and never resets your branch or performs a semantic merge. An unborn selection has no bundle or existing commit. Do not access another Task's host directory."),
-                "submission_policy": if matches!(scoped.task.work_surface(), forge_domain::TaskWorkSurface::Git(_))
-                    && binding.access == forge_domain::runtime::SurfaceAccess::ReadWrite {
-                    "Use Forge Gateway to attach artifacts and explicitly submit a permitted stage outcome with candidate_commit set to the full committed HEAD SHA. Commit the intended changes yourself and leave tracked/untracked work clean before submitting; Forge never automatically adds, commits, or discards your files. Submission is a proposal: final acceptance follows physical stop and exact clean-HEAD inspection. Exit status alone does not complete the Task."
-                } else {
-                    "Use Forge Gateway to attach artifacts and explicitly submit one of the permitted stage outcomes. Exit status alone does not complete the task."
-                },
-            })).map_err(|_| CoreError::InvalidTransport { field: "context", reason: "cannot serialize task contract".into() })?;
+                let instruction = crate::context_compilation::add_knowledge_instruction(
+                    json!({
+                        "task": scoped.task.spec(), "stage": stage,
+                        "previous_handoff": transaction.latest_handoff(scoped.task.id()).await?,
+                        "git_source_input": source_request.as_ref().map(|_| "Read /run/forge-source/descriptor.json for this Run's immutable source selection. A committed selection includes /run/forge-source/source.bundle; fetch its selected_revision into your own Git refs and explicitly merge/rebase when needed. Forge preserves retained files and never resets your branch or performs a semantic merge. An unborn selection has no bundle or existing commit. Do not access another Task's host directory."),
+                        "submission_policy": if matches!(scoped.task.work_surface(), forge_domain::TaskWorkSurface::Git(_))
+                            && binding.access == forge_domain::runtime::SurfaceAccess::ReadWrite {
+                            "Use Forge Gateway to attach artifacts and explicitly submit a permitted stage outcome with candidate_commit set to the full committed HEAD SHA. Commit the intended changes yourself and leave tracked/untracked work clean before submitting; Forge never automatically adds, commits, or discards your files. Submission is a proposal: final acceptance follows physical stop and exact clean-HEAD inspection. Exit status alone does not complete the Task."
+                        } else {
+                            "Use Forge Gateway to attach artifacts and explicitly submit one of the permitted stage outcomes. Exit status alone does not complete the task."
+                        },
+                    }),
+                    knowledge_context.as_ref(),
+                )?;
                 let spec = forge_domain::runtime::TaskRunSpecV6 {
                     schema_version: forge_domain::runtime::TASK_RUN_SPEC_VERSION,
                     project_id,
@@ -367,17 +386,8 @@ impl CoreService {
                     field: "handoff",
                     reason: "stored handoff violates its domain contract".into(),
                 })?;
-            let profile_revision = run_spec
-                .get("binding")
-                .and_then(|value| value.get("execution_profile"))
-                .map(|value| {
-                    format!(
-                        "{}:{}",
-                        value["id"].as_str().unwrap_or("unknown"),
-                        value["revision"]
-                    )
-                })
-                .unwrap_or_else(|| "fake_m0:1".into());
+            let (system_policy_revision, employee_prompt_revision) =
+                crate::context_compilation::prompt_revisions(&run_spec);
             let context = forge_domain::ContextSnapshot::new(forge_domain::ContextSnapshotInput {
                 context_snapshot_id,
                 project_id,
@@ -389,8 +399,8 @@ impl CoreService {
                 stage_visit: scoped.task.current_stage_visit().map(|visit| visit.get()),
                 task_revision_before_dispatch: expected_task_revision,
                 task_spec: scoped.task.spec().clone(),
-                system_policy_revision: profile_revision.clone(),
-                employee_prompt_revision: profile_revision,
+                system_policy_revision,
+                employee_prompt_revision,
                 capability_grants: [
                     "board.list",
                     "task.read",
@@ -403,15 +413,19 @@ impl CoreService {
                     "inbox.list",
                     "inbox.acknowledge",
                     "inbox.reply",
+                    "memory.search",
+                    "memory.read",
+                    "memory.refresh",
                 ]
                 .into_iter()
                 .map(str::to_owned)
                 .collect(),
-                tool_catalog_revision: "forge_task_tools_v2".into(),
+                tool_catalog_revision: "forge_task_tools_v3".into(),
                 run_spec_id: run_id,
                 prior_handoff: previous_handoff,
                 artifacts: vec![],
                 control_instruction: None,
+                knowledge_context,
                 created_at: now,
             })?;
             let lease_request = LeaseRunRequest {

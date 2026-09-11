@@ -130,6 +130,9 @@ impl StorageTransaction<'_> {
         let enabled:Option<bool>=sqlx::query_scalar("SELECT execution_enabled AND NOT EXISTS(SELECT 1 FROM project_recovery_settings s WHERE s.project_id=projects.id AND s.hold) FROM projects WHERE id=$1 FOR UPDATE").bind(escalation.project_id.as_uuid()).fetch_optional(&mut *self.transaction).await?;
         if enabled != Some(true)
             || !self
+                .onboarding_allowed(escalation.project_id, employee_id)
+                .await?
+            || !self
                 .lock_employee_capacity(escalation.project_id, employee_id)
                 .await?
             || self.resolution_has_live_execution(escalation.id).await?

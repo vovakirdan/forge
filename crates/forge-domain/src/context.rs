@@ -38,6 +38,9 @@ pub struct ContextSnapshotInput {
     pub prior_handoff: Option<TaskHandoff>,
     pub artifacts: Vec<HandoffArtifactReference>,
     pub control_instruction: Option<String>,
+    /// M3 canonical knowledge actually supplied in the initial provider instruction.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub knowledge_context: Option<crate::knowledge::KnowledgeContextBundle>,
     pub created_at: Timestamp,
 }
 
@@ -101,6 +104,17 @@ impl ContextSnapshot {
         }
         for artifact in &input.artifacts {
             artifact.validate()?;
+        }
+        if let Some(knowledge) = &input.knowledge_context {
+            knowledge.validate()?;
+            if knowledge.project_id != input.project_id
+                || knowledge.employee_id != input.employee_id
+            {
+                return Err(invalid(
+                    "context.knowledge",
+                    "must match the Run Project and Employee",
+                ));
+            }
         }
         if input
             .control_instruction

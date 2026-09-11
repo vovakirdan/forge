@@ -79,6 +79,17 @@ pub async fn finish_command(
 
 pub fn command_name(envelope: &CommandEnvelope) -> String {
     match envelope.name {
+        forge_protocol::wire::CommandName::ConfigureSystemJobs => "configure_system_jobs",
+        forge_protocol::wire::CommandName::RequestTaskSummary => "request_task_summary",
+        forge_protocol::wire::CommandName::RequestEmployeeOnboarding => {
+            "request_employee_onboarding"
+        }
+        forge_protocol::wire::CommandName::RetrySystemJob => "retry_system_job",
+        forge_protocol::wire::CommandName::SkipEmployeeOnboarding => "skip_employee_onboarding",
+        forge_protocol::wire::CommandName::AuthorKnowledgePage => "author_knowledge_page",
+        forge_protocol::wire::CommandName::PublishKnowledgePage => "publish_knowledge_page",
+        forge_protocol::wire::CommandName::SupersedeKnowledgePage => "supersede_knowledge_page",
+        forge_protocol::wire::CommandName::WithdrawKnowledgePage => "withdraw_knowledge_page",
         forge_protocol::wire::CommandName::RegisterProjectRepository => {
             "register_project_repository"
         }

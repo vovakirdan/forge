@@ -64,6 +64,9 @@ impl CoreService {
                 let route = value.route.as_ref().ok_or_else(invalid)?;
                 let employee = route.employee_ids[value.next_candidate as usize];
                 value.next_candidate += 1;
+                if !tx.onboarding_allowed(project_id, employee).await? {
+                    continue;
+                }
                 if !tx.lock_employee_capacity(project_id, employee).await? {
                     continue;
                 }
@@ -142,15 +145,31 @@ impl CoreService {
                     "resolution.decline",
                     "board.list",
                     "task.read",
+                    "memory.search",
+                    "memory.read",
+                    "memory.refresh",
                 ]
                 .into_iter()
                 .map(str::to_owned)
                 .collect(),
                 created_at: now,
+                knowledge_context: crate::context_compilation::compile_knowledge_context(
+                    &mut tx, project_id, employee,
+                )
+                .await?,
             })?;
-            let spec=ResolutionRunSpec{schema_version:4,project_id,run_id,assignment:owner.clone(),binding,
-                instruction:serde_json::to_string(&json!({"assignment":"resolution","question":value,"resolution_assignment":assignment,
-                    "policy":"Answer this question through resolution.submit, or decline. You are not executing the contextual Task. A recommended outcome must be in allowed_outcomes but never changes the Pipeline. ContinueStage only answers the question; action approval requires a Human. Do not modify Task files or claim stage completion. This is one turn; use Forge tools before exiting."})).map_err(|_|invalid())?};
+            let spec = ResolutionRunSpec {
+                schema_version: 4,
+                project_id,
+                run_id,
+                assignment: owner.clone(),
+                binding,
+                instruction: crate::context_compilation::add_knowledge_instruction(
+                    json!({"assignment":"resolution","question":value,"resolution_assignment":assignment,
+                    "policy":"Answer this question through resolution.submit, or decline. You are not executing the contextual Task. A recommended outcome must be in allowed_outcomes but never changes the Pipeline. ContinueStage only answers the question; action approval requires a Human. Do not modify Task files or claim stage completion. This is one turn; use Forge tools before exiting."}),
+                    context.data().knowledge_context.as_ref(),
+                )?,
+            };
             let run = tx
                 .create_resolution_run(&value, &assignment, &spec, &context, Uuid::now_v7())
                 .await?;

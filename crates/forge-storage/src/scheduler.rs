@@ -195,6 +195,13 @@ impl StorageTransaction<'_> {
                 reason: "project execution is stopped".to_owned(),
             });
         }
+        if request.run_spec_version >= 2
+            && !self
+                .onboarding_allowed(request.queue_entry.input.project_id, request.employee_id)
+                .await?
+        {
+            return Err(StorageError::InvalidInput {reason:"Employee onboarding is pending; complete or explicitly skip it before execution".into()});
+        }
         let task_current: Option<Uuid> = sqlx::query_scalar(
             "SELECT id FROM tasks WHERE id = $1 AND project_id = $2 AND lifecycle IN ('ready', 'in_progress') AND revision = $3 AND current_stage_id = $4 FOR UPDATE",
         )

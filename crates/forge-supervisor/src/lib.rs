@@ -304,7 +304,7 @@ async fn serve_session(
                             let worker_registry = registry.clone();
                             let worker_backend = backend.clone();
                             workers.spawn(async move {
-                                if matches!(provision.run_spec_version,2..=6) {
+                                if matches!(provision.run_spec_version,2..=7) {
                                     return worker_backend.run(provision, worker_registry, control, false).await;
                                 }
                                 let result = fake::execute_provision(provision.clone(), worker_registry.sink(), control).await;

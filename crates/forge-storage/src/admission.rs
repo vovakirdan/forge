@@ -79,7 +79,7 @@ impl StorageTransaction<'_> {
     ) -> Result<(), StorageError> {
         let profile = match version {
             1 | 5 => None,
-            2..=4 | 6 => Some(
+            2..=4 | 6..=7 => Some(
                 serde_json::from_value::<ExecutionProfile>(
                     spec["binding"]["execution_profile"].clone(),
                 )

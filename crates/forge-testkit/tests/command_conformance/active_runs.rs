@@ -158,6 +158,7 @@ pub async fn running_task_with_visit(
                             prior_handoff: None,
                             artifacts: vec![],
                             control_instruction: None,
+                            knowledge_context: None,
                             created_at: fixture.clock.now(),
                         },
                     )?)?,

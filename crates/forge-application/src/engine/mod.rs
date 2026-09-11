@@ -203,6 +203,15 @@ fn require_m0(envelope: &CommandEnvelope) -> Result<(), CommandError> {
     if matches!(
         envelope.name,
         CommandName::ConfigureBootRecoveryPolicy
+            | CommandName::ConfigureSystemJobs
+            | CommandName::RequestTaskSummary
+            | CommandName::RequestEmployeeOnboarding
+            | CommandName::RetrySystemJob
+            | CommandName::SkipEmployeeOnboarding
+            | CommandName::AuthorKnowledgePage
+            | CommandName::PublishKnowledgePage
+            | CommandName::SupersedeKnowledgePage
+            | CommandName::WithdrawKnowledgePage
             | CommandName::AcceptRunRecoveryAssessment
             | CommandName::EnrollCredential
             | CommandName::ConfigureEmployeeRuntime

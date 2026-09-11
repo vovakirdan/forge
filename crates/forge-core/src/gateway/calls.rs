@@ -78,6 +78,18 @@ impl RunGateway {
         digest: [u8; 32],
     ) -> Result<Value, CoreError> {
         let message_id = request.message_id;
+        if matches!(
+            request.tool.as_str(),
+            "memory.search" | "memory.read" | "memory.refresh"
+        ) {
+            return self.execute_memory(request, digest).await;
+        }
+        if matches!(
+            request.tool.as_str(),
+            "system_job.read" | "system_job.submit_result"
+        ) {
+            return self.execute_system_job(request, digest).await;
+        }
         if request.tool == "escalation.raise" {
             return self.raise_escalation(request, digest).await;
         }

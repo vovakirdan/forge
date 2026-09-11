@@ -376,3 +376,5 @@ async fn retained_taskless_owner_and_schema_mismatches_fail_before_inspection() 
         assert_eq!(journal.pending().count(), 0);
     }
 }
+#[path = "system_job_contract.rs"]
+mod system_job_contract;

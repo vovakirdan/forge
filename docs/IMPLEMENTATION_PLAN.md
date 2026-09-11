@@ -1,7 +1,7 @@
 # Forge: Implementation Plan
 
-**Статус:** M0, M1 и M2 закрыты; M2 — по пересогласованной приёмке 11 сентября, provider live-gates отложены; M3–M4 остаются roadmap
-**Дата обновления:** 7 сентября 2026
+**Статус:** M0–M3 закрыты; M2 — по пересогласованной приёмке 11 сентября, provider live-gates отложены; M3 — keyless/index и ограниченная Codex-приёмка; M4 — roadmap
+**Дата обновления:** 11 сентября 2026
 **Граница:** local Linux-first MVP. План покрывает control plane, execution
 runtime, provider boundary, local install и knowledge loop. Existing `frontend/`
 не является его workstream: UI подключается позднее к стабильным HTTP/SSE
@@ -658,6 +658,23 @@ independent review и Integration, а настроенный hook следует
 
 ### Milestone 3 — Knowledge loop
 
+Уточнённый approved scope: [M3 specs](2026-09-11-m3-specs.md),
+исполнение и фактические проверки: [M3 ledger](2026-09-11-m3-tasks.md).
+Исходный TASK-27 развёрнут в семь эпиков; его краткое описание ниже — история
+roadmap, а не ограничение согласованного M3 scope.
+
+1. [M3.1 Каноническая память и знания](epics/m3-e1-derived-memory-retrieval.md).
+2. [M3.2 AgentMemory projection](epics/m3-e2-agentmemory-projection.md).
+3. [M3.3 Controlled SystemJobs](epics/m3-e3-system-jobs.md).
+4. [M3.4 Summarizer](epics/m3-e4-summarizer.md).
+5. [M3.5 Retrieval и фактический контекст](epics/m3-e5-context-retrieval.md).
+6. [M3.6 Onboarding](epics/m3-e6-onboarding.md).
+7. [M3.7 Acceptance](epics/m3-e7-acceptance.md).
+
+**Приёмка 11 сентября:** 29 M3 keyless-тестов, реальный изолированный AgentMemory
+и три разрешённых Runs `gpt-5.6-luna` прошли. Evidence, границы live-проверки
+и опубликованная закреплённая зависимость — в [M3 acceptance](M3_ACCEPTANCE.md).
+
 **Exit gate:** следующий Run получает canonical handoff сразу и только
 разрешённое derived knowledge позднее; summarization не блокирует stage
 transition и не получает domain-write authority.
@@ -779,7 +796,7 @@ Core task; it is not papered over in Supervisor or adapter code.
 | M0: Deterministic Core Simulator | M0.1 workspace/test topology; M0.2 domain/commands; M0.3 durable scheduler | TASK-10 acceptance passes without real runtime |
 | M1: Первый Employee | M1.1 Supervisor/sandbox/recovery; M1.2 credentials and first lanes | isolated Codex Run and API lane have evidence-backed control |
 | M2: Engineering Pipeline | M2.1 provider catalog; M2.2 Git/review/Integration; M2.3 management/resolvers | real delivery Task completes one engineering loop and every provider is contract-tested or explicitly unavailable |
-| M3: Knowledge loop | M3.1 derived memory/retrieval | handoff is immediate, retrieval is derived and bounded |
+| M3: Knowledge loop | M3.1 canonical knowledge; M3.2 index; M3.3 SystemJobs; M3.4 summarizer; M3.5 context; M3.6 onboarding; M3.7 acceptance | handoff is immediate, controlled jobs produce source-linked memory, required authority reaches Employee context |
 | M4: Local product proof | M4.1 installer/operator acceptance | one-command local installation and full failure matrix pass |
 
 ### Current execution focus
@@ -801,8 +818,10 @@ Workspace tests, strict Clippy, общий integration target и CLI smoke та�
 M2 реализована по [уточнённой спецификации](2026-09-06-m2-specs.md) и
 [execution ledger](2026-09-06-m2-tasks.md). Они фиксируют текущий объём,
 выполненные проверки и отложенные live-gates; актуальная приёмка — в
-[M2 closeout](2026-09-11-m2-closeout.md). TASK-21/22/23 и M3–M4 остаются
-roadmap; наличие их описаний не означает реализацию.
+[M2 closeout](2026-09-11-m2-closeout.md). TASK-21/22/23 и M4 остаются
+roadmap; наличие их описаний не означает реализацию. M3 реализована и прошла
+ограниченную приёмку по [отдельному execution ledger](2026-09-11-m3-tasks.md):
+настоящий индекс, ownerless onboarding, обычная Task и summarizer проверены.
 
 ## 8. Task readiness notes
 
@@ -810,8 +829,9 @@ roadmap; наличие их описаний не означает реализ
 
 M0–M1 прошли acceptance, включая завершённую TASK-05 и operator-approved live
 проверку после refactoring. M2 закрыта по [приёмке 11 сентября](2026-09-11-m2-closeout.md).
-Следующая продуктовая веха — M3: память Employee и knowledge loop; выбор стека
-не переоткрывается. Четыре M2 provider lanes требуют отдельных разрешённых live-проверок
+M3 закрыта по [ограниченной приёмке](M3_ACCEPTANCE.md); следующая продуктовая веха —
+M4, её реализация ещё не начата. Выбор стека не переоткрывается.
+Четыре M2 provider lanes требуют отдельных разрешённых live-проверок
 для подтверждения authenticated behavior; они отложены, не засчитаны как passed.
 
 ### Explicit configuration work, not architecture blockers

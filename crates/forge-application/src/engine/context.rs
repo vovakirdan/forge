@@ -43,6 +43,15 @@ impl CommandContext {
             core_actor,
             capabilities: if actor.kind() == ActorKind::Human {
                 vec![
+                    ConfigureSystemJobs,
+                    RequestTaskSummary,
+                    RequestEmployeeOnboarding,
+                    RetrySystemJob,
+                    SkipEmployeeOnboarding,
+                    AuthorKnowledgePage,
+                    PublishKnowledgePage,
+                    SupersedeKnowledgePage,
+                    WithdrawKnowledgePage,
                     ReportFinding,
                     TriageFinding,
                     PromoteFinding,

@@ -217,18 +217,24 @@ impl M0Harness {
             .context("created Pipeline version is missing")
     }
 
-    /// Creates an Employee eligible for every stage of its Project.
+    /// Creates an eligible M0–M2 fixture Employee with an explicit audited
+    /// onboarding skip. M3 gate tests must use CreateEmployee directly.
     pub async fn create_employee(&self, project_id: ProjectId, name: &str) -> Result<()> {
-        self.execute(
-            project_id,
-            CommandName::CreateEmployee,
-            json!({
-                "name": name,
-                "role": "m0_worker",
-                "stage_eligibility": {"mode": "any"}
-            }),
-        )
-        .await?;
+        let created = self
+            .execute(
+                project_id,
+                CommandName::CreateEmployee,
+                json!({
+                    "name": name,
+                    "role": "m0_worker",
+                    "stage_eligibility": {"mode": "any"}
+                }),
+            )
+            .await?;
+        let employee_id: forge_domain::EmployeeId = resource_id(&created, "employee")?;
+        self.execute(project_id,CommandName::SkipEmployeeOnboarding,json!({
+            "employee_id":employee_id,"reason":"Explicit onboarding skip for the historical M0-M2 test fixture"
+        })).await?;
         Ok(())
     }
 

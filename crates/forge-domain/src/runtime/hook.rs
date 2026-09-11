@@ -90,7 +90,7 @@ impl<'de> Deserialize<'de> for SandboxLaunchSpec {
             .get("schema_version")
             .and_then(serde_json::Value::as_u64)
         {
-            Some(2..=4 | 6) => serde_json::from_value::<RuntimeLaunchSpec>(value)
+            Some(2..=4 | 6..=7) => serde_json::from_value::<RuntimeLaunchSpec>(value)
                 .map(|spec| Self::Provider(Box::new(spec))),
             Some(5) => {
                 serde_json::from_value::<HookRunSpec>(value).map(|spec| Self::Hook(Box::new(spec)))

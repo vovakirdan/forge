@@ -152,6 +152,14 @@ async fn exercise(f: &mut Fixture) -> Result<()> {
         .harness
         .execute(
             f.setup.project,
+            CommandName::SkipEmployeeOnboarding,
+            json!({"employee_id":qa,"reason":"Explicit onboarding skip for the historical M2 QA writer fixture"}),
+        )
+        .await?;
+    f.setup
+        .harness
+        .execute(
+            f.setup.project,
             CommandName::ConfigureEmployeeRuntime,
             json!({"employee_id":qa,"binding":f.setup.binding}),
         )

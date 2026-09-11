@@ -58,11 +58,23 @@ pub(crate) async fn run_m0(client: &LocalClient) -> Result<DemoReport> {
         }),
     )
     .await?;
+    // This explicit deterministic demo exercises M0, not semantic onboarding.
+    let oriented = command(
+        client,
+        "skip_employee_onboarding",
+        &project_id,
+        employee.project_revision,
+        json!({
+            "employee_id": resource_id(&employee, "employee")?,
+            "reason": "Explicit operator setup for the M0 deterministic demo"
+        }),
+    )
+    .await?;
     let task = command(
         client,
         "create_task",
         &project_id,
-        employee.project_revision,
+        oriented.project_revision,
         json!({
             "title": "Complete one deterministic M0 task",
             "description": "A public API smoke scenario.",

@@ -81,7 +81,7 @@ impl CoreService {
             {
                 continue;
             }
-            if matches!(run.run_spec_version, 2..=6) && entry.provision_boot_id != identity.boot_id
+            if matches!(run.run_spec_version, 2..=7) && entry.provision_boot_id != identity.boot_id
             {
                 continue;
             }

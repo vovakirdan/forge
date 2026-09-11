@@ -64,6 +64,7 @@ fn communication_context_is_versioned_and_cannot_inherit_task_tools() {
         context_task_id: Some(TaskId::new()),
         capability_grants: vec!["inbox.reply".into(), "communication.complete".into()],
         source_message: source.clone(),
+        knowledge_context: None,
         created_at: data.created_at,
     };
     assert!(CommunicationContext::new(input.clone()).is_ok());

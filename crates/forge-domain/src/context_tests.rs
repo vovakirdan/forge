@@ -36,6 +36,7 @@ fn snapshot_input() -> ContextSnapshotInput {
         prior_handoff: None,
         artifacts: Vec::new(),
         control_instruction: None,
+        knowledge_context: None,
         created_at: Timestamp::now_utc(),
     }
 }
@@ -126,4 +127,38 @@ fn first_stage_context_needs_no_synthetic_handoff() {
             .prior_handoff
             .is_none()
     );
+}
+
+#[test]
+fn historical_snapshot_without_m3_context_remains_readable() {
+    let original = ContextSnapshot::new(snapshot_input()).expect("historical snapshot");
+    let encoded = serde_json::to_value(&original).expect("serialize");
+    assert!(encoded.get("knowledge_context").is_none());
+    assert_eq!(
+        serde_json::from_value::<ContextSnapshot>(encoded).expect("old schema"),
+        original
+    );
+}
+
+#[test]
+fn knowledge_context_cannot_cross_employee_or_project_scope() {
+    let mut input = snapshot_input();
+    input.knowledge_context = Some(crate::knowledge::KnowledgeContextBundle {
+        schema_version: 1,
+        project_id: input.project_id,
+        employee_id: EmployeeId::new(),
+        required_pages: vec![],
+        optional_pages: vec![],
+        derived_memory: vec![],
+        omitted_optional_candidates: 0,
+    });
+    assert!(ContextSnapshot::new(input.clone()).is_err());
+    input
+        .knowledge_context
+        .as_mut()
+        .expect("bundle")
+        .employee_id = input.employee_id;
+    assert!(ContextSnapshot::new(input.clone()).is_ok());
+    input.knowledge_context.as_mut().expect("bundle").project_id = ProjectId::new();
+    assert!(ContextSnapshot::new(input).is_err());
 }

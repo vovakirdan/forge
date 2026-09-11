@@ -8,8 +8,11 @@ mod finding;
 mod git_integration;
 mod git_source_policy;
 mod handlers;
+mod knowledge;
+mod memory;
 mod project_hooks;
 mod reads;
+mod system_jobs;
 mod views;
 
 pub use handlers::router;

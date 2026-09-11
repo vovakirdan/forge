@@ -10,6 +10,9 @@ m2_seed_employee() {
         '{name:("M2 " + $role),role:$role,stage_eligibility:{mode:"only",stages:[{pipeline_version_id:$version,stage_id:$role}]}}')
     response=$(m2_command create_employee "$payload") || return 1
     employee=$(m2_resource employee <<<"$response") || return 1
+    # Keep M2's provider/candidate exercise independent of the M3 knowledge loop.
+    m2_command skip_employee_onboarding "$(jq -cn --arg employee "$employee" \
+        '{employee_id:$employee,reason:"Explicit operator setup for the M2 engineering acceptance scenario"}')" >/dev/null || return 1
     if [[ $role == work ]]; then
         m2_command amend_employee "$(jq -cn --arg id "$employee" --argjson capacity "$capacity" \
             '{employee_id:$id,expected_employee_revision:1,patch:{max_concurrent_runs:$capacity}}')" >/dev/null || return 1

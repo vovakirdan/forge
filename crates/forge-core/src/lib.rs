@@ -10,6 +10,7 @@ mod auth_writeback;
 mod canonical_clock;
 mod command;
 mod config;
+mod context_compilation;
 mod credentials;
 mod dependency_waits;
 mod dispatch;
@@ -26,6 +27,8 @@ mod handoff;
 mod hook_execution;
 mod http;
 mod inference;
+pub(crate) mod knowledge;
+pub(crate) mod memory_projection;
 pub mod observability;
 mod outbox;
 mod preparation_failure;
@@ -41,6 +44,7 @@ mod scheduler;
 mod secret_cleanup;
 mod secret_guard;
 mod supervisor;
+mod system_jobs;
 mod task_resume;
 mod task_support;
 mod watchdog;
@@ -50,6 +54,10 @@ pub use error::CoreError;
 pub use event_projection::event_envelope_from_stored_event;
 pub use gateway::GatewayHandle;
 pub use http::router;
+pub use memory_projection::{
+    MemorySearchDegradation, MemorySearchDocument, MemorySearchHit, MemorySearchMode,
+    MemorySearchResult, ProjectionDrainReport,
+};
 pub use outbox::{OutboxDrainReport, OutboxError, OutboxPublisher, OutboxPublisherConfig};
 pub use supervisor::{SupervisorHub, SupervisorService};
 pub use watchdog::{WatchdogDeadlines, WatchdogReport};
@@ -96,6 +104,8 @@ pub struct CoreService {
     pub(crate) execution: Option<Arc<runtime_preparation::ExecutionRuntime>>,
     pub(crate) inference: Option<Arc<proxy_credentials::InferenceProxy>>,
     pub(crate) evidence: Option<Arc<evidence_collection::EvidenceRuntime>>,
+    pub(crate) agentmemory: Option<Arc<memory_projection::agentmemory::AgentMemoryClient>>,
+    pub(crate) memory_projection_cursor: Arc<tokio::sync::Mutex<Option<uuid::Uuid>>>,
     pub(crate) observability: Arc<observability::Observability>,
     pub(crate) command_clock: Arc<dyn forge_application::Clock>,
 }
@@ -118,6 +128,8 @@ impl CoreService {
             execution: None,
             inference: None,
             evidence: None,
+            agentmemory: None,
+            memory_projection_cursor: Arc::default(),
             observability: Arc::new(observability::Observability::default()),
             command_clock: Arc::new(forge_application::SystemClock),
         }

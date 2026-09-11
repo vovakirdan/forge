@@ -216,6 +216,19 @@ fn validate_metadata_entries<'a>(
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CommandName {
+    ConfigureSystemJobs,
+    RequestTaskSummary,
+    RequestEmployeeOnboarding,
+    RetrySystemJob,
+    SkipEmployeeOnboarding,
+    /// Create or edit an unpublished canonical knowledge page.
+    AuthorKnowledgePage,
+    /// Explicitly publish a canonical knowledge revision.
+    PublishKnowledgePage,
+    /// Replace a published revision while preserving its immutable history.
+    SupersedeKnowledgePage,
+    /// Withdraw a canonical page from future contexts and retrieval.
+    WithdrawKnowledgePage,
     ReportFinding,
     TriageFinding,
     PromoteFinding,

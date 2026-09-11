@@ -15,6 +15,8 @@ pub struct ResolutionContextInput {
     pub assignment: ResolutionAssignment,
     pub escalation: Escalation,
     pub capability_grants: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub knowledge_context: Option<crate::knowledge::KnowledgeContextBundle>,
     pub created_at: Timestamp,
 }
 
@@ -28,6 +30,14 @@ impl ResolutionContext {
         validate_uuid(input.run_id, "resolution.run_id")?;
         input.project_id.validate_v7("resolution.project_id")?;
         input.employee_id.validate_v7("resolution.employee_id")?;
+        if let Some(knowledge) = &input.knowledge_context {
+            knowledge.validate()?;
+            if knowledge.project_id != input.project_id
+                || knowledge.employee_id != input.employee_id
+            {
+                return Err(invalid("knowledge context scope mismatch"));
+            }
+        }
         input.escalation.validate_snapshot()?;
         input.assignment.validate_owner(&input.escalation)?;
         if input.schema_version != 4
@@ -46,6 +56,9 @@ impl ResolutionContext {
                         | "resolution.decline"
                         | "board.list"
                         | "task.read"
+                        | "memory.search"
+                        | "memory.read"
+                        | "memory.refresh"
                 )
             })
         {

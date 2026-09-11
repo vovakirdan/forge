@@ -176,7 +176,7 @@ impl CoreService {
         let observed_wall = Timestamp::now_utc();
         let now = crate::canonical_clock::project_mutation_time_at(&project, observed_wall);
         // Provider failure is not proof that the shell/container has stopped.
-        let must_stop = matches!(run.run_spec_version, 2..=6)
+        let must_stop = matches!(run.run_spec_version, 2..=7)
             && matches!(
                 observation.kind,
                 forge_protocol::supervisor::v1::RunEventKind::ProviderFailed

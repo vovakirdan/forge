@@ -165,6 +165,14 @@ impl AggregateRef {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DomainEventKind {
+    /// Semantic jobs are independent of Task execution and authority.
+    SystemJobChanged,
+    /// A human or authorized Manager revised canonical project knowledge.
+    KnowledgePageChanged,
+    /// A scoped system job produced or withdrew non-authoritative derived memory.
+    DerivedMemoryChanged,
+    /// A fenced Employee requested a new immutable tool-supplied context snapshot.
+    KnowledgeContextRefreshed,
     FindingReported,
     FindingTriaged,
     FindingPromoted,

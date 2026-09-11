@@ -38,6 +38,15 @@ impl IdempotencyKey {
 /// Typed intent selected by one named HTTP command path.
 #[derive(Clone, Debug, PartialEq)]
 pub enum CommandPayload {
+    ConfigureSystemJobs(forge_domain::system_job::SystemJobManagement),
+    RequestTaskSummary(forge_domain::system_job::SystemJobManagement),
+    RequestEmployeeOnboarding(forge_domain::system_job::SystemJobManagement),
+    RetrySystemJob(forge_domain::system_job::SystemJobManagement),
+    SkipEmployeeOnboarding(forge_domain::system_job::SystemJobManagement),
+    AuthorKnowledgePage(forge_domain::knowledge::KnowledgePageMutation),
+    PublishKnowledgePage(forge_domain::knowledge::KnowledgePageMutation),
+    SupersedeKnowledgePage(forge_domain::knowledge::KnowledgePageMutation),
+    WithdrawKnowledgePage(forge_domain::knowledge::KnowledgePageMutation),
     ImportTaskFileSnapshot(file_snapshot_input::ImportFileSnapshotInput),
     CaptureTaskFileSnapshot(file_snapshot_input::CaptureFileSnapshotInput),
     AttachTaskFileInput(file_snapshot_input::AttachFileInput),
@@ -331,6 +340,14 @@ impl CommandEnvelope {
         let idempotency_key = IdempotencyKey::new(idempotency_key)?;
         let canonical_payload = Value::Object(request.payload);
         let payload = CommandPayload::parse(name, canonical_payload.clone())?;
+        if let CommandPayload::ConfigureSystemJobs(input) = &payload {
+            input.validate_project(project_id).map_err(|error| {
+                ApplicationError::InvalidPayload {
+                    command: name,
+                    reason: error.to_string(),
+                }
+            })?;
+        }
         Ok(Self {
             name,
             project_id,
@@ -361,6 +378,15 @@ impl CommandEnvelope {
 impl CommandPayload {
     fn parse(name: CommandName, value: Value) -> Result<Self, ApplicationError> {
         match name {
+            CommandName::ConfigureSystemJobs
+            | CommandName::RequestTaskSummary
+            | CommandName::RequestEmployeeOnboarding
+            | CommandName::RetrySystemJob
+            | CommandName::SkipEmployeeOnboarding => system_job_input::parse(name, value),
+            CommandName::AuthorKnowledgePage
+            | CommandName::PublishKnowledgePage
+            | CommandName::SupersedeKnowledgePage
+            | CommandName::WithdrawKnowledgePage => knowledge_input::parse(name, value),
             CommandName::ImportTaskFileSnapshot
             | CommandName::CaptureTaskFileSnapshot
             | CommandName::AttachTaskFileInput => file_snapshot_input::parse(name, value),
@@ -806,8 +832,10 @@ mod tests;
 #[path = "command/employee_input.rs"]
 mod employee_input;
 mod file_snapshot_input;
+mod knowledge_input;
 mod manager_input;
 mod pipeline_management_input;
 mod repository_input;
 pub(crate) mod resolver_input;
 mod resume_input;
+mod system_job_input;

@@ -29,6 +29,12 @@ mod git_integration;
 mod git_source_policy;
 mod health;
 mod hook_invocations;
+mod knowledge;
+mod system_jobs;
+pub use knowledge::{
+    KnowledgeContextRefreshRecord, KnowledgeProjectionKind, KnowledgeProjectionOperation,
+};
+pub use system_jobs::{SystemJobAttempt, SystemJobRecord, SystemJobSettings};
 mod manager;
 mod model;
 mod outbox;
@@ -230,6 +236,24 @@ struct ColumnContractItem {
 }
 
 const REQUIRED_TABLES: &[NamedContractItem] = &[
+    NamedContractItem {
+        name: "run_knowledge_context_refreshes",
+    },
+    NamedContractItem {
+        name: "knowledge_pages",
+    },
+    NamedContractItem {
+        name: "knowledge_page_revisions",
+    },
+    NamedContractItem {
+        name: "derived_memory_entries",
+    },
+    NamedContractItem {
+        name: "derived_memory_revisions",
+    },
+    NamedContractItem {
+        name: "knowledge_projection_operations",
+    },
     NamedContractItem {
         name: "task_git_source_policies",
     },

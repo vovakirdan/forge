@@ -62,6 +62,14 @@ run-m1 *args:
 run-m2 *args:
     @bash ./scripts/run-m2.sh "$@"
 
+# M3 isolated memory acceptance; run mode requires explicit provider approval.
+run-m3 *args:
+    @bash ./scripts/run-m3.sh "$@"
+
+# M3 keyless canonical memory, ownership, lifecycle, context and Gateway contracts.
+test-m3:
+    @bash ./scripts/run-m3.sh keyless
+
 # Create a private toy bare Git repository; no credentials, providers or Core mutation.
 prepare-m2-repository:
     @bash ./scripts/prepare-m2-repository.sh

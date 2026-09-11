@@ -83,6 +83,36 @@ impl CoreService {
         now: Timestamp,
     ) -> Result<CommandReceipt, CoreError> {
         match &envelope.payload {
+            CommandPayload::ConfigureSystemJobs(_)
+            | CommandPayload::RequestTaskSummary(_)
+            | CommandPayload::RequestEmployeeOnboarding(_)
+            | CommandPayload::RetrySystemJob(_)
+            | CommandPayload::SkipEmployeeOnboarding(_) => {
+                self.manage_system_jobs(
+                    transaction,
+                    project,
+                    envelope,
+                    request_hash,
+                    command_id,
+                    now,
+                )
+                .await
+            }
+            CommandPayload::AuthorKnowledgePage(input)
+            | CommandPayload::PublishKnowledgePage(input)
+            | CommandPayload::SupersedeKnowledgePage(input)
+            | CommandPayload::WithdrawKnowledgePage(input) => {
+                self.manage_knowledge_page(
+                    transaction,
+                    project,
+                    envelope,
+                    request_hash,
+                    command_id,
+                    now,
+                    input,
+                )
+                .await
+            }
             CommandPayload::ImportTaskFileSnapshot(_)
             | CommandPayload::CaptureTaskFileSnapshot(_)
             | CommandPayload::AttachTaskFileInput(_) => {
@@ -259,6 +289,15 @@ fn is_runtime_command(payload: &CommandPayload) -> bool {
     matches!(
         payload,
         CommandPayload::ConfigureBootRecoveryPolicy { .. }
+            | CommandPayload::ConfigureSystemJobs(_)
+            | CommandPayload::RequestTaskSummary(_)
+            | CommandPayload::RequestEmployeeOnboarding(_)
+            | CommandPayload::RetrySystemJob(_)
+            | CommandPayload::SkipEmployeeOnboarding(_)
+            | CommandPayload::AuthorKnowledgePage(_)
+            | CommandPayload::PublishKnowledgePage(_)
+            | CommandPayload::SupersedeKnowledgePage(_)
+            | CommandPayload::WithdrawKnowledgePage(_)
             | CommandPayload::AcceptRunRecoveryAssessment { .. }
             | CommandPayload::RetryCommunication { .. }
             | CommandPayload::RetryGitIntegration { .. }

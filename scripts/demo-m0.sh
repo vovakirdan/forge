@@ -10,6 +10,15 @@ source "$SCRIPT_DIR/lib/dev.sh"
 source "$SCRIPT_DIR/lib/m0-demo.sh"
 export CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-2}"
 
+M0_DEMO_EXISTING_SERVICES=false
+case "${1:-}" in
+    --existing-services) M0_DEMO_EXISTING_SERVICES=true; shift ;;
+    --help|-h) printf 'Usage: bash scripts/demo-m0.sh [--existing-services]\n'; exit 0 ;;
+    '') ;;
+    *) fail 'unknown M0 demo argument' ;;
+esac
+(($# == 0)) || fail 'unexpected extra M0 demo argument'
+
 readonly API_WAIT_ATTEMPTS=100
 readonly API_WAIT_SECONDS=0.1
 
@@ -62,8 +71,10 @@ wait_for_api() {
     fail "Core local API did not become ready within $((API_WAIT_ATTEMPTS / 10)) seconds"
 }
 
-"$SCRIPT_DIR/dev-up.sh"
+if [[ $M0_DEMO_EXISTING_SERVICES != true ]]; then "$SCRIPT_DIR/dev-up.sh"; fi
 require_dev_environment
+wait_for_postgres
+wait_for_nats
 for executable in timeout od tr; do require_command "$executable"; done
 cd "$REPO_ROOT"
 

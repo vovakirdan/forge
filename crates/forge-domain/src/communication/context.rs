@@ -21,6 +21,8 @@ pub struct CommunicationContextInput {
     pub context_task_id: Option<TaskId>,
     pub capability_grants: Vec<String>,
     pub source_message: super::EmployeeMessage,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub knowledge_context: Option<crate::knowledge::KnowledgeContextBundle>,
     pub created_at: Timestamp,
 }
 
@@ -34,6 +36,14 @@ impl CommunicationContext {
         validate_uuid(input.run_id, "communication.run_id")?;
         input.project_id.validate_v7("communication.project_id")?;
         input.employee_id.validate_v7("communication.employee_id")?;
+        if let Some(knowledge) = &input.knowledge_context {
+            knowledge.validate()?;
+            if knowledge.project_id != input.project_id
+                || knowledge.employee_id != input.employee_id
+            {
+                return Err(invalid("communication.knowledge", "scope mismatch"));
+            }
+        }
         ExecutionAssignment::Communication(input.assignment.clone()).validate()?;
         if let Some(task) = input.context_task_id {
             task.validate_v7("communication.context_task_id")?;
@@ -58,6 +68,9 @@ impl CommunicationContext {
                         | "escalation.raise"
                         | "board.list"
                         | "task.read"
+                        | "memory.search"
+                        | "memory.read"
+                        | "memory.refresh"
                 )
             })
         {

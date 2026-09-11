@@ -67,7 +67,11 @@ impl StorageTransaction<'_> {
         let Some(run) = self.load_run(scope.run_id).await? else {
             return Ok(None);
         };
-        if run.assignment.hook().is_some() || run.employee_id.is_none() {
+        if run.assignment.hook().is_some()
+            || (run.employee_id.is_none() && run.assignment.system_job().is_none())
+            || (run.assignment.system_job().is_some()
+                && !self.system_job_run_authorized(&run).await?)
+        {
             return Ok(None);
         }
         let lease: Option<Uuid> = sqlx::query_scalar("SELECT l.id FROM leases l JOIN runs r ON forge_lease_owns_run(l,r) WHERE r.id=$1 AND l.lease_state='active' FOR UPDATE OF l")

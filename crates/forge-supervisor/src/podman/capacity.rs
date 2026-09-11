@@ -20,7 +20,7 @@ pub(super) async fn check(
         config.evidence_max_bytes,
     )?;
     for record in registry.journal.lock().await.records() {
-        if !matches!(record.provision.run_spec_version, 2..=6)
+        if !matches!(record.provision.run_spec_version, 2..=7)
             || record.presence == EnvironmentPresence::Quiescent
         {
             continue;

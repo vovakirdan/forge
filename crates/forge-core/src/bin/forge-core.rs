@@ -31,6 +31,9 @@ use tracing::info;
 use tracing_subscriber::EnvFilter;
 use uuid::Uuid;
 
+#[path = "support/knowledge_workers.rs"]
+mod knowledge_workers;
+
 // M0 has one unauthenticated local operator and no identity persistence yet.
 // These process-independent UUIDv7 values preserve command idempotency across
 // Core restarts until local authentication becomes a real product capability.
@@ -56,6 +59,15 @@ struct Arguments {
     /// Owner-only file holding the LiteLLM administrative key.
     #[arg(long, requires = "litellm_url")]
     litellm_master_key: Option<PathBuf>,
+    /// Dedicated AgentMemory loopback URL, or FORGE_AGENTMEMORY_URL. Disabled if absent.
+    #[arg(long)]
+    agentmemory_url: Option<String>,
+    /// Owner-only token file, or FORGE_AGENTMEMORY_SECRET_FILE. Never a personal daemon token.
+    #[arg(long)]
+    agentmemory_secret_file: Option<PathBuf>,
+    /// AgentMemory request deadline, or FORGE_AGENTMEMORY_TIMEOUT_SECONDS (default 30).
+    #[arg(long)]
+    agentmemory_timeout_seconds: Option<u64>,
     /// Shared owner-only Supervisor state root for isolated runtime grants.
     #[arg(long)]
     execution_root: Option<PathBuf>,
@@ -126,6 +138,9 @@ async fn run(arguments: Arguments) -> Result<()> {
         evidence_config,
         litellm_url,
         litellm_master_key,
+        agentmemory_url,
+        agentmemory_secret_file,
+        agentmemory_timeout_seconds,
         execution_root,
         secret_store,
         fake_runtime,
@@ -189,6 +204,28 @@ async fn run(arguments: Arguments) -> Result<()> {
         (Some(url), Some(key)) => core.with_inference_proxy(&url, &key)?,
         _ => core,
     };
+    let agentmemory_url = agentmemory_url.or_else(|| std::env::var("FORGE_AGENTMEMORY_URL").ok());
+    let agentmemory_secret_file = agentmemory_secret_file
+        .or_else(|| std::env::var_os("FORGE_AGENTMEMORY_SECRET_FILE").map(PathBuf::from));
+    let agentmemory_timeout = match agentmemory_timeout_seconds {
+        Some(value) => value,
+        None => match std::env::var("FORGE_AGENTMEMORY_TIMEOUT_SECONDS") {
+            Ok(value) => value
+                .parse()
+                .context("FORGE_AGENTMEMORY_TIMEOUT_SECONDS must be an integer")?,
+            Err(std::env::VarError::NotPresent) => 30,
+            Err(_) => bail!("FORGE_AGENTMEMORY_TIMEOUT_SECONDS must contain valid Unicode"),
+        },
+    };
+    let core = match (agentmemory_url, agentmemory_secret_file) {
+        (Some(url), Some(file)) => core.with_agentmemory_secret_file(
+            &url,
+            &file,
+            Duration::from_secs(agentmemory_timeout),
+        )?,
+        (None, None) => core,
+        _ => bail!("AgentMemory requires both a dedicated URL and owner-only secret file"),
+    };
     let api_listener = bind_owner_socket(&api_socket, api_socket_is_default)?;
     let supervisor_listener = bind_owner_socket(&supervisor_socket, supervisor_socket_is_default)?;
     // PostgreSQL is the canonical command plane. NATS delivery is deliberately
@@ -235,6 +272,8 @@ async fn run(arguments: Arguments) -> Result<()> {
             }
         }
     });
+    let projection_worker = knowledge_workers::spawn_projection(core.clone(), shutdown_rx.clone());
+    let semantic_worker = knowledge_workers::spawn_semantic(core.clone(), shutdown_rx.clone());
     let signal_task = tokio::spawn(wait_for_interrupt(shutdown_tx));
     let api = axum::serve(api_listener, router(core.clone()).into_make_service())
         .with_graceful_shutdown(wait_for_shutdown(shutdown_rx.clone()));
@@ -271,8 +310,12 @@ async fn run(arguments: Arguments) -> Result<()> {
     let _ = signal_task.await;
     maintenance.abort();
     evidence_worker.abort();
+    projection_worker.abort();
+    semantic_worker.abort();
     let _ = maintenance.await;
     let _ = evidence_worker.await;
+    let _ = projection_worker.await;
+    let _ = semantic_worker.await;
     if let Some(task) = outbox_task {
         task.abort();
         let _ = task.await;

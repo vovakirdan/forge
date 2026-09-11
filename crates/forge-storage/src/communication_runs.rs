@@ -63,7 +63,7 @@ impl StorageTransaction<'_> {
         if enabled != Some(true) || !self.lock_run_admission(project_id, None).await? {
             return Ok(None);
         }
-        let row = sqlx::query("SELECT c.id,c.employee_id,c.thread_id,c.source_message_id,c.attempt_number FROM communication_assignments c JOIN employees e ON e.id=c.employee_id AND e.project_id=c.project_id WHERE c.project_id=$1 AND c.state='queued' AND e.employee_state='active' AND (c.retry_authorized OR NOT EXISTS(SELECT 1 FROM project_recovery_settings p WHERE p.project_id=c.project_id AND p.hold)) AND EXISTS(SELECT 1 FROM employee_runtime_bindings b WHERE b.employee_id=e.id AND b.project_id=c.project_id AND forge_admission_available(c.project_id,b.binding->'execution_profile')) AND NOT EXISTS(SELECT 1 FROM communication_assignments prior WHERE prior.thread_id=c.thread_id AND prior.state='leased') AND NOT EXISTS(SELECT 1 FROM run_environment_reservations r JOIN communication_assignments held ON held.id=r.communication_assignment_id WHERE held.thread_id=c.thread_id AND r.released_at IS NULL) AND (SELECT count(*) FROM (SELECT l.id FROM leases l WHERE l.employee_id=e.id AND l.lease_state='active' UNION SELECT r.lease_id FROM runs r JOIN run_environment_reservations physical ON physical.run_id=r.id WHERE physical.employee_id=e.id AND physical.released_at IS NULL) occupied)<e.max_concurrent_runs ORDER BY c.created_at,c.id FOR UPDATE OF c,e SKIP LOCKED LIMIT 1")
+        let row = sqlx::query("SELECT c.id,c.employee_id,c.thread_id,c.source_message_id,c.attempt_number FROM communication_assignments c JOIN employees e ON e.id=c.employee_id AND e.project_id=c.project_id WHERE c.project_id=$1 AND EXISTS(SELECT 1 FROM employee_onboarding o WHERE o.project_id=c.project_id AND o.employee_id=c.employee_id AND o.state IN ('completed','skipped','legacy_bypass')) AND c.state='queued' AND e.employee_state='active' AND (c.retry_authorized OR NOT EXISTS(SELECT 1 FROM project_recovery_settings p WHERE p.project_id=c.project_id AND p.hold)) AND EXISTS(SELECT 1 FROM employee_runtime_bindings b WHERE b.employee_id=e.id AND b.project_id=c.project_id AND forge_admission_available(c.project_id,b.binding->'execution_profile')) AND NOT EXISTS(SELECT 1 FROM communication_assignments prior WHERE prior.thread_id=c.thread_id AND prior.state='leased') AND NOT EXISTS(SELECT 1 FROM run_environment_reservations r JOIN communication_assignments held ON held.id=r.communication_assignment_id WHERE held.thread_id=c.thread_id AND r.released_at IS NULL) AND (SELECT count(*) FROM (SELECT l.id FROM leases l WHERE l.employee_id=e.id AND l.lease_state='active' UNION SELECT r.lease_id FROM runs r JOIN run_environment_reservations physical ON physical.run_id=r.id WHERE physical.employee_id=e.id AND physical.released_at IS NULL) occupied)<e.max_concurrent_runs ORDER BY c.created_at,c.id FOR UPDATE OF c,e SKIP LOCKED LIMIT 1")
             .bind(project_id.as_uuid()).fetch_optional(&mut *self.transaction).await?;
         let Some(row) = row else {
             return Ok(None);
@@ -129,6 +129,9 @@ impl StorageTransaction<'_> {
                 .fetch_optional(&mut *self.transaction)
                 .await?;
         if gate != Some(true)
+            || !self
+                .onboarding_allowed(claim.project_id, claim.employee_id)
+                .await?
             || !self
                 .lock_employee_capacity(claim.project_id, claim.employee_id)
                 .await?

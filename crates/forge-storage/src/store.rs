@@ -411,12 +411,36 @@ pub(crate) fn run_projection_from_row(
         .try_get::<Option<Uuid>, _>("employee_id")?
         .map(EmployeeId::from);
     let purpose = row.try_get::<&str, _>("purpose")?;
-    if (purpose == "hook") != employee_id.is_none() {
+    if matches!(purpose, "hook" | "system_job") != employee_id.is_none() {
         return Err(StorageError::InvalidInput {
             reason: "execution Employee owner differs from purpose".into(),
         });
     }
     let assignment = match purpose {
+        "system_job" => {
+            let spec: forge_domain::runtime::SystemJobRunSpec = serde_json::from_value(
+                json_from_row(&row, "run_spec", "run.spec")?,
+            )
+            .map_err(|source| StorageError::Snapshot {
+                aggregate: "system_job.spec",
+                source,
+            })?;
+            spec.validate().map_err(|_| StorageError::InvalidInput {
+                reason: "invalid SystemJob RunSpec".into(),
+            })?;
+            if spec.run_id != row.try_get::<Uuid, _>("id")?
+                || spec.project_id.as_uuid() != row.try_get::<Uuid, _>("project_id")?
+                || row.try_get::<i16, _>("run_spec_version")? != 7
+                || row.try_get::<Option<Uuid>, _>("task_id")?.is_some()
+                || row.try_get::<Option<Uuid>, _>("queue_entry_id")?.is_some()
+                || row.try_get::<Option<String>, _>("stage_id")?.is_some()
+            {
+                return Err(StorageError::InvalidInput {
+                    reason: "invalid ownerless SystemJob scope".into(),
+                });
+            }
+            forge_domain::ExecutionAssignment::SystemJob(spec.assignment)
+        }
         "task_stage" => {
             forge_domain::ExecutionAssignment::TaskStage(forge_domain::TaskStageAssignment {
                 task_id: row.try_get::<Uuid, _>("task_id")?.into(),

@@ -12,8 +12,8 @@ pub(crate) fn validate(provision: &ProvisionRun) -> Result<(), SupervisorError> 
     if provision.attempt == 0 {
         return Err(SupervisorError::InvalidRunSpec);
     }
-    if (provision.run_spec_version == 5 && !provision.employee_id.is_empty())
-        || (provision.run_spec_version != 5
+    if (matches!(provision.run_spec_version, 5 | 7) && !provision.employee_id.is_empty())
+        || (!matches!(provision.run_spec_version, 5 | 7)
             && uuid::Uuid::parse_str(&provision.employee_id).is_err())
     {
         return Err(SupervisorError::InvalidRunSpec);
@@ -62,6 +62,28 @@ pub(crate) fn validate(provision: &ProvisionRun) -> Result<(), SupervisorError> 
                                 && owner.lease_generation == assignment.lease_generation
                                 && owner.lease_generation > 0
                         })
+                })
+        }
+        (7, Some(Assignment::SystemJob(owner))) => {
+            let spec = serde_json::from_str::<forge_domain::runtime::SystemJobRunSpec>(
+                &provision.run_spec_json,
+            )
+            .ok();
+            provision.task_id.is_empty()
+                && provision.stage_id.is_empty()
+                && spec.is_some_and(|spec| {
+                    spec.validate().is_ok()
+                        && uuid(&provision.run_id) == Some(spec.run_id)
+                        && uuid(&owner.job_id) == Some(spec.assignment.job_id)
+                        && uuid(&owner.attempt_id) == Some(spec.assignment.attempt_id)
+                        && owner.generation == spec.assignment.generation
+                        && owner.kind
+                            == match spec.assignment.kind {
+                                forge_domain::system_job::SystemJobKind::Summarization => {
+                                    "summarization"
+                                }
+                                forge_domain::system_job::SystemJobKind::Onboarding => "onboarding",
+                            }
                 })
         }
         (5, Some(Assignment::Hook(owner))) => {

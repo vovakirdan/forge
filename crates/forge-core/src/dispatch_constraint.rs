@@ -103,6 +103,12 @@ pub(crate) async fn select_employee(
         .await?;
     let mut selected = None;
     for stored in employees {
+        if !transaction
+            .onboarding_allowed(queue.input.project_id, stored.employee.id())
+            .await?
+        {
+            continue;
+        }
         if constraint
             .as_ref()
             .is_none_or(|constraint| constraint.employee_id == stored.employee.id())

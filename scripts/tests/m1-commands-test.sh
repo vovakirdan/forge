@@ -93,11 +93,13 @@ done >"$TEST_ROOT/ids"
 test_reset
 m1_seed >"$TEST_ROOT/output" 2>"$TEST_ROOT/error" || test_fail 'seed failed'
 [[ $M1_PROJECT_ID && $M1_TASK_ID == "$TEST_TASK" && $M1_EMPLOYEE_ID == "$TEST_EMPLOYEE" ]] || test_fail 'seed globals lost'
-jq -se 'map(.name) == ["create_project","create_pipeline","create_employee","enroll_credential",
+jq -se 'map(.name) == ["create_project","create_pipeline","create_employee","skip_employee_onboarding","enroll_credential",
     "configure_employee_runtime","create_task","approve_task"]' "$TEST_ROOT/calls" >/dev/null || test_fail 'seed must never start project'
+jq -se --arg employee "$TEST_EMPLOYEE" '.[3].payload | .employee_id == $employee and
+    (.reason | type == "string" and length > 0)' "$TEST_ROOT/calls" >/dev/null || test_fail 'historical seed must explicitly skip onboarding'
 jq -se '.[1].payload.transitions[0].artifact_requirements[0] ==
     {kind:"stage_evidence",minimum_count:1,scope:"current_stage"}' "$TEST_ROOT/calls" >/dev/null || test_fail 'missing evidence requirement'
-jq -se '.[4].payload.binding | .surface == {mode:"filesystem_sandbox"} and .access == "read_write" and
+jq -se '.[5].payload.binding | .surface == {mode:"filesystem_sandbox"} and .access == "read_write" and
     .limits == {cpu_millis:2000,memory_bytes:4294967296,pids:256,wall_seconds:600,stop_grace_seconds:5} and
     .execution_profile.adapter_version == "0.153.2" and .execution_profile.model == "synthetic-model" and
     .execution_profile.credential_binding.account_id == "synthetic-account" and

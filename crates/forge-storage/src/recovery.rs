@@ -69,7 +69,7 @@ impl PostgresStore {
     /// existence remains unresolved. No Employee or provider is required.
     pub async fn list_recovery_runs(&self) -> Result<Vec<RunRecoveryState>, StorageError> {
         let query = format!(
-            "SELECT {RECOVERY_COLUMNS} FROM runs r JOIN leases l ON l.id=r.lease_id JOIN run_environment_reservations e ON e.run_id=r.id WHERE r.run_spec_version IN (2,3,4,5,6) AND e.released_at IS NULL ORDER BY r.created_at,r.id"
+            "SELECT {RECOVERY_COLUMNS} FROM runs r JOIN leases l ON l.id=r.lease_id JOIN run_environment_reservations e ON e.run_id=r.id WHERE r.run_spec_version IN (2,3,4,5,6,7) AND e.released_at IS NULL ORDER BY r.created_at,r.id"
         );
         sqlx::query(&query)
             .fetch_all(&self.pool)
