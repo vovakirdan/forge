@@ -1,5 +1,11 @@
 # Forge
 
+The imported `frontend/` is a Control Room prototype, not yet connected to Core.
+The [UI roadmap](docs/UI_IMPLEMENTATION_PLAN.md) and
+[frontend/backend alignment](docs/UI_BACKEND_ALIGNMENT.md) define its adaptation.
+Milestones UI0–UI4 precede the M4 installer; see the [epic index](docs/epics/README.md).
+Mock screens and archived build scripts are not evidence of live integration.
+
 Forge is a local-first control plane for durable AI engineering work. M0 provides
 the deterministic Core simulator. M1 adds isolated rootless Podman execution,
 scoped tools, encrypted credentials, recovery, and Codex/OpenCode provider lanes.

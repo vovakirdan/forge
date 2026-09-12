@@ -5,12 +5,18 @@
 **Граница:** технологии реализации. Доменные правила остаются в PRD и
 `*-domain-model.md`.
 
+**Delivery update, 11 сентября 2026:** этот документ фиксирует backend baseline.
+Локальный Control Room теперь планируется до installer M4 в
+[UI0–UI4](UI_IMPLEMENTATION_PLAN.md). Импортированный frontend не утверждает
+новый runtime stack сам по себе: hosting/toolchain решения фиксируются в UI0.
+
 ## 1. Контекст
 
 Forge — Linux-first local control plane для AI-команды разработки. MVP запускает
 длительные изолированные Runs, хранит durable историю Task и допускает несколько
-параллельных Employee. Основной операторский интерфейс — CLI; web UI и remote
-control не входят в этот выбор.
+параллельных Employee. CLI остаётся операторским интерфейсом backend baseline;
+локальный web UI добавляется отдельным workstream UI0–UI4. Его hosting/toolchain
+ещё не выбраны; remote control остаётся отложенным.
 
 Ключевые ограничения:
 
@@ -53,7 +59,7 @@ RunEnvironment в иллюзию. Контейнеры используются 
 | PostgreSQL access | SQLx | явный SQL для locks, outbox, idempotency и audit-critical транзакций без ORM, скрывающей запросы |
 | Serialization | Serde + Protobuf | JSON на внешней границе, Protobuf на внутреннем control channel |
 
-Cargo — единственный package manager и build tool. Базовые проверки: `cargo fmt`,
+Для Rust workspace Cargo — единственный package manager и build tool. Базовые проверки: `cargo fmt`,
 `cargo clippy` и `cargo test`; integration tests запускают реальные сервисы в
 изолированном test environment.
 
@@ -96,9 +102,10 @@ daemon, сохраняя возможность запустить dependencies 
 | Adapter ↔ Core | provider-neutral typed command messages | provider-specific protocol не становится частью доменной модели |
 | RunEnvironment ↔ external world | Tool Gateway | MCP, память, integrations, secrets и разрешённая сеть проверяются capability policy и аудитируются |
 
-External API по умолчанию локален. Remote control, web session management и
-public ingress не входят в local MVP; capability checks остаются в Core, а не в
-транспорте или CLI.
+External API по умолчанию локален. Текущий operator API доступен через owner-only
+UDS; local browser boundary и session contract проектируются в UI0.2. Remote
+control и public ingress остаются вне local MVP; capability checks остаются
+в Core, а не в транспорте, UI или CLI.
 
 ## 6. Data and event layer
 
@@ -190,7 +197,8 @@ MinIO contract и может заменить local object store без смен
 
 ## 11. Deferred product surfaces
 
-Web UI, Tauri desktop shell, полноценный remote control, distributed runners и
-high-assurance microVM profile не являются частью local MVP. Выбор не мешает
+Local web UI развивается отдельным [workstream](UI_IMPLEMENTATION_PLAN.md).
+Tauri desktop shell, полноценный remote control, distributed runners и
+high-assurance microVM profile остаются отложенными. Выбор не мешает
 им: Rust shared domain/API client подходит Tauri и TUI, S3 API допускает
 внешнее object storage, а `ExecutionBackend` допускает будущие runner profiles.

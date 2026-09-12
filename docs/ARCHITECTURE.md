@@ -7,9 +7,12 @@
 
 ## 1. Контекст
 
-Forge — Linux-first local control plane для автономной AI-команды. MVP не
-строит продуктовый UI: оператор использует CLI и local HTTP API, а Core запускает
-изолированные Employee Runs, хранит их durable историю и управляет очередью.
+Forge — Linux-first local control plane для автономной AI-команды. Backend
+M0–M3 использует CLI и local HTTP API; Core запускает изолированные Employee
+Runs, хранит их durable историю и управляет очередью. По решению 11 сентября
+2026 [Control Room UI0–UI4](UI_IMPLEMENTATION_PLAN.md) подключается до installer
+M4. Browser hosting/security boundary проектируется в UI0; диаграммы ниже
+описывают существующий backend, не уже реализованный web ingress.
 
 Источники истины:
 

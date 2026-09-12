@@ -1,5 +1,10 @@
 # Forge: Implementation Plan
 
+**Delivery update, 11 сентября 2026:** после M3 сначала выполняется отдельный
+[Control Room workstream UI0–UI4](UI_IMPLEMENTATION_PLAN.md), затем installer M4.
+Нумерация и evidence backend M0–M3 сохранены. UI epics и design-gated продуктовые
+расширения перечислены в [общем индексе](epics/README.md); Task breakdown — отдельно.
+
 **Статус:** M0–M3 закрыты; M2 — по пересогласованной приёмке 11 сентября, provider live-gates отложены; M3 — keyless/index и ограниченная Codex-приёмка; M4 — roadmap
 **Дата обновления:** 11 сентября 2026
 **Граница:** local Linux-first MVP. План покрывает control plane, execution
@@ -23,7 +28,8 @@ runtime, provider boundary, local install и knowledge loop. Existing `frontend/
 - В root есть Rust workspace, canonical migrations, Core/CLI/Supervisor и test harness.
 - M0 simulator имеет автоматический acceptance gate; реальный runtime включается явно.
 - Реализация TASK-11–19 и границы её проверки описаны в [M1_RUNTIME.md](M1_RUNTIME.md).
-- UI не входит в текущий checkout/workstream и не блокирует backend MVP.
+- В checkout добавлен неизменённый UI-прототип; его интеграция идёт отдельным
+  workstream UI0–UI4 и не переоткрывает закрытые backend milestones.
 - Нет права заменять утверждённые доменные контракты кодом. Неясность сначала
   становится коротким research spike или proposal, а не скрытым допущением.
 
@@ -707,8 +713,16 @@ transition и не получает domain-write authority.
 
 **Exit gate:** чистый Linux host устанавливает Forge одной командой/wizard,
 после reboot корректно применяет BootRecoveryPolicy, а operator может завершить
-MVP acceptance через CLI. Web Control Room использует эти stable contracts в
-отдельном workstream.
+согласованный local acceptance через CLI. Установленный Control Room проходит
+health/session smoke по контракту UI4.2; его feature acceptance уже выполнена
+в UI4.1. Remote control и EXT1–EXT3 не являются prerequisites M4.
+
+**Порядок и актуальность:** M4 выполняется после UI4.2. TASK-28/29 ниже —
+исторический outline, не готовая к исполнению Task-нарезка. Перед реализацией
+их scope, зависимости и acceptance уточняются по актуальному
+[M4 epic](epics/m4-e1-installer-operator-acceptance.md) и UI4.2. Упоминание
+TASK-21–23 или полного PRD scenario в старом outline не возвращает отложенные
+provider gates и продуктовые расширения в обязательный путь установки.
 
 #### [Epic M4.1 — Installer, operator workflow and MVP acceptance](epics/m4-e1-installer-operator-acceptance.md)
 
@@ -740,7 +754,7 @@ MVP acceptance через CLI. Web Control Room использует эти stab
 ##### TASK-29 — Local MVP acceptance, failure matrix and operator runbook
 
 - **Type / priority:** testing / P0.
-- **Goal:** prove the full local product contract before UI or remote work.
+- **Goal:** prove the agreed local product contract after UI4 and before remote work.
 - **Scope:** automated happy path plus failure matrix: provider unavailable,
   exhausted budget, graceful/forced stop, stale event, dependency gate,
   review return, merge conflict, summarizer lag and host reboot; operator CLI
@@ -829,8 +843,11 @@ roadmap; наличие их описаний не означает реализ
 
 M0–M1 прошли acceptance, включая завершённую TASK-05 и operator-approved live
 проверку после refactoring. M2 закрыта по [приёмке 11 сентября](2026-09-11-m2-closeout.md).
-M3 закрыта по [ограниченной приёмке](M3_ACCEPTANCE.md); следующая продуктовая веха —
-M4, её реализация ещё не начата. Выбор стека не переоткрывается.
+M3 закрыта по [ограниченной приёмке](M3_ACCEPTANCE.md). Следующий workstream —
+[UI0–UI4](UI_IMPLEMENTATION_PLAN.md): domain alignment, browser/API boundary,
+подключение Control Room и отдельная UI-приёмка. M4 отложена до UI4 handoff,
+её реализация ещё не начата. Backend stack не переоткрывается; frontend hosting
+и toolchain фиксируются в UI0 до feature implementation.
 Четыре M2 provider lanes требуют отдельных разрешённых live-проверок
 для подтверждения authenticated behavior; они отложены, не засчитаны как passed.
 
@@ -843,9 +860,10 @@ M4, её реализация ещё не начата. Выбор стека н
 
 ### Deferred decisions
 
-The exact summarizer model, provider session-retention policy, cross-project
-Employee scope and UI rendering stay configurable or deferred as recorded in
-the PRD. They do not block the deterministic Core or execution boundary.
+The exact summarizer model, provider session-retention policy and cross-project
+Employee scope stay configurable or deferred as recorded in the PRD. UI hosting
+and browser security are explicit UI0 decisions in the separate Control Room
+plan; they do not reopen the completed deterministic Core or execution boundary.
 
 ## 9. Risks and control points
 

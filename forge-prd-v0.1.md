@@ -6,6 +6,12 @@
 **Рабочее название:** Forge; название не является финальным
 **Область документа:** продукт, core/runtime, пользовательские сценарии и границы MVP
 
+**Уточнение порядка поставки, 11 сентября 2026:** после backend M3 выполняется
+[Control Room workstream UI0–UI4](docs/UI_IMPLEMENTATION_PLAN.md), затем installer
+M4 и clean-host proof. UI адаптируется к этой модели, а не наоборот; новые
+домены EXT имеют отдельный design gate. Это изменение delivery order, не
+утверждение готовности UI или расширения authority Employee.
+
 **Нормативные уточнения:** этот PRD задаёт продуктовую рамку. Детальные
 контракты Task, Pipeline, Employee, System Manager, Summarizer, Core и execution
 runtime находятся в `docs/2026-09-03-*-domain-model.md` и
@@ -276,7 +282,7 @@ projection, а не как источник истины или единстве
 
 Внешняя работа не выполняется внутри Core transaction. Внешний API local-only
 по умолчанию: HTTP commands с idempotency key и SSE для event streams. Remote
-control и web UI отложены за пределы локального MVP. Базовые решения по
+control отложен; локальный web UI выделен в workstream UI0–UI4 перед M4. Базовые решения по
 изоляции, хранилищу и наблюдаемости закреплены в STACK и ARCHITECTURE; этот PRD
 не дублирует их реализацию.
 

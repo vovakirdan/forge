@@ -1,0 +1,235 @@
+# Forge: Control Room implementation plan
+
+**Дата:** 11 сентября 2026
+**Статус:** согласованное направление; milestones и epics запланированы, не реализованы
+**Иерархия:** Milestone → Epic → будущие Task
+**Baseline:** backend `1439211`; frontend — неизменённый импорт пользовательского UI
+
+## 1. Рамка и источники
+
+Этот workstream адаптирует Control Room к продукту Forge. Доменный смысл задают
+[PRD](../forge-prd-v0.1.md) и уточняющие domain-model документы, а не mock-модели
+frontend. Backend расширяется там, где отсутствует необходимый API или отдельно
+согласованная продуктовая возможность. Второй scheduler/state machine в UI не создаётся.
+
+Входные документы:
+
+- [матрица UI ↔ backend ↔ PRD](UI_BACKEND_ALIGNMENT.md);
+- [backend-план](IMPLEMENTATION_PLAN.md), [стек](STACK.md),
+  [архитектура](ARCHITECTURE.md), [правила](PROJECT_RULES.md);
+- [M2 closeout](2026-09-11-m2-closeout.md), [M3 acceptance](M3_ACCEPTANCE.md);
+- [индекс эпиков](epics/README.md).
+
+По решению пользователя UI идёт до installer M4. Закрытые backend M0–M3
+не перенумеровываются и не открываются повторно из-за отсутствующих UI-экранов.
+`UI0–UI4` — отдельные delivery milestones. `EXT1–EXT3` — design-gated расширения,
+а не автоматически принятый объём UI или обязательная зависимость установщика.
+
+Сейчас создаются только milestones и отдельные epic-документы. TASK IDs,
+TASK-файлы, точные оценки и implementation commits появятся при разборе выбранного
+эпика. Описание будущего gate не означает, что он уже пройден.
+
+## 2. Границы первой UI-поставки
+
+### Входит в UI0–UI4
+
+- Сохранение визуального каркаса: shell, navigation, dense tables, карточки,
+  drawers, формы, timeline и общие компоненты.
+- Адаптация типов, экранов и действий к lifecycle, PipelineVersion, Employee,
+  Run, TaskWorkSurface, Inbox, Findings, knowledge и SystemJob.
+- Недостающие scoped read projections и описания API для существующих доменов.
+- Защищённый локальный browser transport, typed client, live updates,
+  обработка ошибок, revisions и подтверждений команд.
+- Реальные workflows управления, наблюдения и памяти; UI-тесты и отдельная
+  ограниченная live-приёмка после подключения возможностей.
+
+### Не входит автоматически
+
+Goal/Epic/planning waves, named ResourcePool, reusable SkillPack и CodeIndex
+registry требуют новых backend-контрактов. Они сохранены в EXT milestones.
+Remote access, cloud/RBAC, distributed runners, marketplace, собственный RAG,
+биллинг и автоматическое управление проектом LLM сюда не добавляются.
+
+Backend M4 сохраняет Linux installer, wizard, systemd, reboot и clean-host proof.
+UI-план готовит совместимый build/config contract, но не реализует установщик.
+
+## 3. Общие правила реализации
+
+1. UI показывает три оси: Task lifecycle, stage pinned PipelineVersion и activity
+   Run/queue. Priority и properties берутся из Project; Goal/Epic необязательны.
+2. Мутации идут через named Core commands. Повтор после потери ответа сохраняет
+   idempotency key/payload; revision conflict требует обновления данных и решения
+   пользователя, а не скрытого повторного применения команды.
+3. Project ID входит в запросы, cache keys и subscriptions. Переключение Project
+   закрывает прежние подписки; запоздалый ответ не попадает на новый экран.
+4. Live-режим не подмешивает mock-данные. Не реализованные разделы скрыты или
+   явно недоступны с причиной. Fixtures разрешены только в отдельном demo/test mode.
+5. Stop receipt, physical quiescence, Task waiting и Task cancellation — разные
+   факты. UI не обещает окончательную остановку до подтверждения backend.
+6. Employee identity не равна provider или Run; taskless и System Runs не
+   получают вымышленных Employee/Task. Ни один экран не показывает hidden CoT.
+7. Policies/Decisions, submitted/accepted Artifacts, derived memory и retrieval
+   status отображаются отдельно. Summary не заменяет event/artifact history.
+8. Отсутствующие usage/cost/CPU/IO/familiarity данные отображаются как unknown
+   или unavailable, не как ноль, успешная проверка либо выдуманный процент.
+9. Все проверки Forge — тесты нашего продукта. Они не добавляют обязательные
+   hooks, QA, MR или «run all tests» в проекты пользователя.
+10. Credentials остаются за локальной trusted boundary. Browser не получает
+    master key, provider tokens, container socket или произвольное чтение host paths.
+
+## 4. Milestones и epics
+
+### UI0 — Модель интерфейса и локальная API-граница
+
+**Результат:** проверяемая основа клиента, согласованные domain projections и
+локальная browser boundary; mock-прототип не выдаётся за работающий Forge.
+
+| Epic | Результат |
+|---|---|
+| [UI0.1 — Domain alignment](epics/ui0-e1-domain-contracts.md) | Матрица полей/действий и frontend-модель без доменных противоречий |
+| [UI0.2 — Browser transport и API client](epics/ui0-e2-browser-api.md) | Защищённый локальный доступ, полный API contract, typed command/read client |
+| [UI0.3 — Frontend toolchain и test harness](epics/ui0-e3-frontend-tooling.md) | Воспроизводимая сборка, typecheck, fixtures и browser test harness |
+
+**Exit gate:** type/contract tests различают lifecycle/stage/activity; локальный
+browser проходит health/read transport smoke; forbidden origin и command replay
+проверены. Сборка воспроизводится без зависимости от Lovable editor.
+
+### UI1 — Проекты, команда, Pipeline и Task
+
+**Результат:** оператор видит реальные объекты и выполняет поддерживаемые
+операции через Core, сохраняя версионность и project scope.
+
+| Epic | Результат |
+|---|---|
+| [UI1.1 — Projects, Team и profiles](epics/ui1-e1-projects-team-profiles.md) | Project selector, Employee catalog/hire, безопасная конфигурация исполнения |
+| [UI1.2 — Pipeline versions и hooks](epics/ui1-e2-pipeline-versions-hooks.md) | Version-aware designer и явно настроенные необязательные hooks |
+| [UI1.3 — Task и Board](epics/ui1-e3-task-board-management.md) | Создание, draft/approval, properties/priority, зависимости и корректная доска |
+| [UI1.4 — Surfaces и artifacts](epics/ui1-e4-surfaces-artifacts.md) | Git/non-Git, snapshots/source policy, evidence и candidate-bound результаты |
+
+**Exit gate:** в двух изолированных Projects создаются Pipeline, Employee и Task;
+смена Project не смешивает данные. Новая версия Pipeline не меняет прежнюю Task;
+Git-поля не обязательны для non-Git работы. Непройденный onboarding виден как gate,
+не обходится наймом или approval. Для этого gate inference не требуется.
+
+### UI2 — Наблюдение, коммуникация и вмешательство человека
+
+**Результат:** из UI понятно, что выполняется, почему работа ждёт и какое
+управляющее действие допустимо сейчас.
+
+| Epic | Результат |
+|---|---|
+| [UI2.1 — Runs, Activity и evidence](epics/ui2-e1-run-activity-evidence.md) | Live/replay история разных Run purposes, context и безопасные logs |
+| [UI2.2 — Inbox и Communication](epics/ui2-e2-inbox-communication.md) | Настоящие threads/messages, адресность и отдельные delivery/answer receipts |
+| [UI2.3 — Management, resolution и recovery](epics/ui2-e3-management-resolution-recovery.md) | Stop/pause/resume, alarms, escalation queue, human resolution и recovery |
+
+**Exit gate:** остановка не маскируется под completion; сообщение без Task не
+создаёт карточку; stale human resolution/revision отклоняется с понятным UI.
+SSE reconnect не теряет и не дублирует каноническую историю.
+
+### UI3 — Knowledge loop и операционная конфигурация
+
+**Результат:** человек управляет authoritative knowledge и видит личную/проектную
+память, onboarding, Summarizer и фактические ограничения исполнения.
+
+| Epic | Результат |
+|---|---|
+| [UI3.1 — Knowledge и memory](epics/ui3-e1-knowledge-memory.md) | Canonical pages, revisions, source-linked personal/project memory и поиск |
+| [UI3.2 — SystemJobs и onboarding](epics/ui3-e2-system-jobs-onboarding.md) | Настройка, статус, запрос/retry и audited skip без фиктивного Employee |
+| [UI3.3 — Resources и Settings](epics/ui3-e3-resources-settings.md) | Существующие caps/usage/readiness, причины ожидания и честные настройки |
+
+**Exit gate:** страницы authority отличимы от derived memory; stale/withdrawn
+источник не отображается как актуальное правило. Ошибка индекса или задержка
+summary видна, но не объявляет исходную Task неуспешной. Startup-only настройки
+не притворяются применяемыми онлайн, неизвестная стоимость остаётся unknown.
+
+### UI4 — Сквозная UI-приёмка и передача установщику
+
+**Результат:** локальный Control Room пригоден для дальнейшей ручной проверки
+пользователем; installer получает стабильный контракт запуска и сборки.
+
+| Epic | Результат |
+|---|---|
+| [UI4.1 — Integrated acceptance](epics/ui4-e1-acceptance.md) | Keyless regression/failure matrix и отдельно согласованный live scenario |
+| [UI4.2 — Installer handoff](epics/ui4-e2-installer-handoff.md) | Build/config/runbook contract и понятная граница с backend M4 |
+
+**Exit gate:** приняты UI1–UI3; реальные commands/read models и сохранённая
+история проходят browser acceptance. Live evidence отделено от fixtures;
+ограничения зафиксированы. M4 ещё должен отдельно доказать установку и reboot.
+
+### EXT1–EXT3 — Продуктовые расширения, требующие отдельного дизайна
+
+| Milestone | Epic | Новая возможность |
+|---|---|---|
+| EXT1 — Planning | [EXT1.1](epics/ext1-e1-goals-epics.md), [EXT1.2](epics/ext1-e2-bounded-planning.md) | Optional Goal/Epic и bounded planning proposals/waves |
+| EXT2 — Resource pools | [EXT2.1](epics/ext2-e1-resource-pools.md) | Именованные pools, membership и admission/drain semantics |
+| EXT3 — Reusable context integrations | [EXT3.1](epics/ext3-e1-skill-packs.md), [EXT3.2](epics/ext3-e2-code-intelligence.md) | SkillPack catalog и подключаемый code intelligence |
+
+**Статус всех EXT:** design-gated. Сначала согласуются доменные контракты и
+минимальный объём, затем нарезаются Task. Наличие файлов не даёт разрешения
+добавлять эти домены попутно. EXT не блокируют UI4 или M4; пользователь может
+явно изменить порядок после обсуждения соответствующего эпика.
+
+## 5. Зависимости и параллельность
+
+Таблица — полный набор hard dependencies между новыми эпиками. Backend M0–M3
+являются общей входной предпосылкой; approvals EXT — дополнительные внешние gates.
+
+| Epic | Depends on |
+|---|---|
+| UI0.1 | — |
+| UI0.2 | UI0.1, UI0.3 |
+| UI0.3 | — |
+| UI1.1 | UI0.1, UI0.2, UI0.3 |
+| UI1.2 | UI0.1, UI0.2, UI0.3 |
+| UI1.3 | UI1.1, UI1.2 |
+| UI1.4 | UI1.3 |
+| UI2.1 | UI1.3, UI1.4 |
+| UI2.2 | UI1.1, UI1.3 |
+| UI2.3 | UI2.1, UI2.2 |
+| UI3.1 | UI1.1, UI1.3, UI1.4 |
+| UI3.2 | UI3.1, UI2.1, UI2.3 |
+| UI3.3 | UI1.1, UI2.1, UI2.3 |
+| UI4.1 | UI1.1, UI1.2, UI1.3, UI1.4, UI2.1, UI2.2, UI2.3, UI3.1, UI3.2, UI3.3 |
+| UI4.2 | UI4.1 |
+| EXT1.1 | UI1.3 |
+| EXT1.2 | EXT1.1, UI2.2 |
+| EXT2.1 | UI3.3 |
+| EXT3.1 | UI1.1, UI3.2 |
+| EXT3.2 | UI3.1 |
+
+Основной порядок: `UI0 → UI1 → UI2/UI3 → UI4 → backend M4`.
+После UI0 можно параллельно разбирать Team и Pipelines. После Task/surface
+contracts — Runs, Inbox и Knowledge. Одновременные правки общей OpenAPI schema,
+command client и project cache координируются одним владельцем контракта.
+
+На ближайший разбор: UI0.1 и UI0.3, затем UI0.2; после их gates — UI1.1 и UI1.2.
+Это очередь эпиков для будущей нарезки, не пять заранее выданных coding tasks.
+
+## 6. Проверки и evidence
+
+- Каждый эпик получает component/contract tests вместе с поведением, а не в UI4.
+- UI0.3 фиксирует реальные frozen install/build/typecheck/lint/test команды.
+  До его выполнения команды, перечисленные в эпиках, являются требованиями
+  к harness, а не утверждением о существующих scripts.
+- Backend additions проверяются по PROJECT_RULES: named command conformance,
+  scope/revision/replay, migrations при необходимости и совместимость CLI.
+- Browser fixtures и keyless Core integration не доказывают работу провайдера.
+  Live Run требует отдельного выбора точной модели, credentials, лимита Runs,
+  времени/allowance и явного согласия оператора. Прошлое разрешение M3 не переносится.
+- Сквозной сценарий использует отдельный mock Git repository и private session;
+  исходный Forge repository и личные provider auth files не изменяются.
+- Performance проверяется на 1000 Task/20 Employee без полного скачивания
+  логов/объектов; ориентир update latency — 2 секунды в здоровом локальном режиме.
+  Недоступность транспорта отображается явно, без обещания этого SLA во время outage.
+
+## 7. Definition of ready для будущей Task
+
+Перед нарезкой выбранного эпика уточняются DTO/commands, error semantics,
+владельцы изменений, тестовый harness и безопасный validation path. Task имеет
+выходной результат, non-goals, зависимости, DoD и проверку. Оценка размера эпика
+не является обещанием количества дней или provider Runs.
+
+UI0.2 сначала закрывает browser session/Origin/CSRF и hosting decision; UI0.3 —
+воспроизводимость импортированного toolchain. Эти вопросы не прячутся в обычной
+задаче «подключить API». EXT сначала проходят собственный design/approval gate.
+Утверждение этого roadmap не означает выполнение или закрытие какого-либо epic.
