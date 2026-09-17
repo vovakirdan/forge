@@ -93,8 +93,8 @@ and real data belong to the [UI roadmap](../docs/UI_IMPLEMENTATION_PLAN.md).
 
 ## Core read contracts
 
-`src/contracts/` is an isolated schema/type layer for the existing Project, Task
-and PipelineVersion read responses. It uses the installed Zod package and
+`src/contracts/` is an isolated schema/type layer for the existing Project, Task,
+PipelineVersion and Run read responses. It uses the installed Zod package and
 Node's built-in test runner with synthetic wire-shaped fixtures. Run
 `just ui-test-contracts` from the repository root, or `bun run test:contracts`
 from this directory. Tests run sequentially and need no services or keys.
@@ -106,5 +106,12 @@ dependency installation is needed after the normal frozen install.
 
 The current screens still use `src/data/types.ts` and mock services; they do not
 consume these contracts yet. Passing contract tests does not prove live API
-integration. See [FRONTEND-002](../tasks/frontend/frontend-002-task-pipeline-contracts.md)
-and the [field/gap map](../docs/UI_BACKEND_ALIGNMENT.md#8-read-contracts-frontend-002).
+integration. See [FRONTEND-002](../tasks/frontend/frontend-002-task-pipeline-contracts.md),
+[FRONTEND-003](../tasks/frontend/frontend-003-run-read-contracts.md) and the
+[field/gap map](../docs/UI_BACKEND_ALIGNMENT.md#8-read-contracts-frontend-002).
+
+Run contracts distinguish all five assignment purposes and requested versus
+observed state. Diagnostics validate the outer envelope; nested reports remain
+opaque JSON, not proof of accepted work or permission to open files/URLs. Missing
+measurements remain unknown. Employee/Surface reads and detailed evidence
+contracts are tracked as [separate gaps](../docs/UI_BACKEND_ALIGNMENT.md#93-named-gaps-и-openapi-drift).

@@ -191,3 +191,80 @@ Fixtures с одним/десятью уровнями полного Project-к
 Тесты используют явно synthetic wire-shaped fixtures, без ответа запущенного Core.
 Legacy `src/data/types.ts`/mock services и экраны не переведены на новые contracts.
 Ни FRONTEND-002, ни её unit tests не закрывают live-integration или весь UI0.1.
+
+## 9. Run read contracts FRONTEND-003
+
+**Сверка:** 17 сентября 2026, Core из baseline `a1c62e6`.
+[FRONTEND-003](../tasks/frontend/frontend-003-run-read-contracts.md) продолжает
+изолированный read layer для двух существующих маршрутов:
+`GET /v1/projects/{project_id}/runs` и `.../runs/{run_id}`.
+Источник wire-формата — [RunView/RunDetailView](../crates/forge-core/src/http/views.rs),
+[assignments](../crates/forge-domain/src/assignment.rs),
+[SystemJob assignment](../crates/forge-domain/src/system_job.rs),
+[Run states](../crates/forge-storage/src/model.rs) и
+[diagnostics projection](../crates/forge-storage/src/run_evidence.rs).
+
+### 9.1. Поля Run и ownership
+
+| Поле / смысл | Источник | Граница представления |
+|---|---|---|
+| Run identity, attempt, RunSpec version | RunView | RunSpec version — положительное число, не название provider; raw RunSpec отсутствует |
+| Project scope | Параметр маршрута | `project_id` не добавляется в DTO; будущий клиент сохраняет scope отдельно |
+| `assignment.purpose/owner` | ExecutionAssignment | Пять purposes; owner каждого задаёт отдельные ссылки, не универсальную Task |
+| Верхние `task_id/stage_id` | RunView, только TaskStage | Для остальных purposes null; Task/stage внутри Hook owner остаются контекстом, не writer authority |
+| `employee_id` | RunView | Nullable, в том числе Hook и SystemJob; несколько Run одного Employee сохраняются отдельно |
+| `desired_state` | Core request/result state | `stop_requested` и `force_stop_requested` не подтверждают физическую остановку |
+| `observed_state` | Supervisor observation | `unknown`, `lost`, `running`, `stopping`, `stopped`, `failed`, `provisioning` не заменяют Task lifecycle |
+| Fence/epoch/last sequence | RunView | Fence/epoch положительные, sequence допускает ноль; все значения должны быть safe integers |
+| Pagination | ListView | `items` обязателен, конечный `next_cursor` отсутствует, не равен null |
+
+`ExecutionAssignment` сохраняет текущие поля owner: TaskStage — Task/queue/stage;
+Communication — assignment/thread/source message; Resolution — assignment/
+escalation/lease generation; Hook — invocation/contextual Task/PipelineVersion/
+stage visit/candidate; SystemJob — job/attempt/generation/kind. Последний имеет
+виды `summarization` и `onboarding`, но не Employee-владельца.
+
+Task lifecycle, Pipeline stage и Run activity читаются независимо. Сочетание
+waiting Task с ещё running/stopping Run не преобразуется в другой lifecycle.
+Процесс остановился — не значит, что результат Task принят или она стала done.
+Схемы проверяют wire shape, не дублируют Core transitions/authority checks.
+Required nullable fields не становятся optional. Additional fields сохраняются,
+включая специальные JSON keys; coercion/defaults/нормализация не применяются.
+
+### 9.2. Диагностика без интерпретации отчётов
+
+Run detail содержит обязательный `diagnostics` object. Его внешняя структура:
+
+- `runtime_report`, `handoff`, `proxy_usage`, `git_source` — JSON object либо null;
+- `incidents`, `evidence` — массивы JSON objects;
+- `streams` — массив объектов `{stream: string, incomplete: boolean}`.
+
+Все семь полей обязательны; SQL projection выводит null/пустые массивы, если
+соответствующих записей ещё нет. Вложенные отчёты остаются JSON: эта задача не
+определяет их detailed schemas, units, quality, доступность body или acceptance.
+Отсутствующее usage не заменяется нулём; неполный stream не становится полным.
+`git_source` сам по себе не создаёт generic WorkSurface view или путь к checkout.
+
+Schemas валидируют структуру, но не выполняют redaction и не выдают разрешений.
+Даже прошедший проверку JSON нельзя считать безопасным HTML, доверенным URL,
+host path или указанием скачать object key. Browser boundary, safe body reads и
+rendering остаются в UI0.2/UI1.4/UI2.1; этот слой никуда не подключается сам.
+
+### 9.3. Named gaps и OpenAPI drift
+
+| Gap | Что отсутствует / расходится | Владелец следующего шага |
+|---|---|---|
+| `employee-catalog-read` | Нет generic Employee list/detail; threads/memory reads их не заменяют | UI0.1 согласует projection, UI1.1 открывает scoped reads |
+| `employee-runtime-profile-read` | Нет полного safe profile/readiness view; нельзя получать его из credentials или одного Run | UI1.1; без новых provider Runs для health |
+| `task-work-surface-read` | Нет generic TaskWorkSurface view; source-policy/snapshot/candidate endpoints дают отдельные факты | UI1.4; без обязательного Git и host paths |
+| `run-runtime-metadata-read` | RunView не отдаёт timestamps, provider/model, heartbeat или environment/surface metadata | UI2.1 согласует safe projection; не вычислять из ID/RunSpec version |
+| `run-diagnostics-detail-contracts` | Вложенные reports/receipts/usage/handoff/GitSource пока opaque JSON | UI2.1/UI1.4 определяют typed bodies, bounds, provenance и безопасное чтение |
+| `openapi-run-system-job` | ExecutionAssignment не содержит `system_job`; описание `employee_id` допускает null только у Hook | UI0.2 синхронизирует OpenAPI с M3, frontend следует serializer |
+| `openapi-run-spec-version` | Описание RunSpec заканчивается v5, хотя есть v6 Task и v7 SystemJob | UI0.2; frontend не ограничивает положительный u16 списком версий |
+| `openapi-run-timestamps` | OpenAPI описывает optional created_at/updated_at, serializer их не выводит | UI0.2; отсутствие полей не маскируется synthetic timestamps |
+| `openapi-run-counter-bounds` | Fence/epoch minimum 0 против canonical SQL constraints `>0` | UI0.2; frontend принимает положительные safe integers |
+| `openapi-run-pagination` | OpenAPI допускает null cursor; ListView пропускает поле на последней странице | UI0.2; frontend различает null и omission |
+
+Изменений API/OpenAPI/backend/PRD здесь нет. Synthetic tests доказывают поведение
+контрактов, не live Core integration, безопасность browser boundary или поддержку
+полного Employee/Surface API. Экраны и demo services остаются прежними.

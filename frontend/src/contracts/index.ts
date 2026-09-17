@@ -5,3 +5,6 @@ export * from "./task.ts";
 export * from "./pipeline.ts";
 export * from "./stage-policy.ts";
 export * from "./resolve-task-stage.ts";
+export * from "./execution-assignment.ts";
+export * from "./run.ts";
+export * from "./run-diagnostics.ts";

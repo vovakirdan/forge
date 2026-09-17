@@ -1,15 +1,17 @@
 # Epic UI0.1 — Domain alignment и frontend contracts
 
 **Milestone:** UI0 — Модель интерфейса и локальная API-граница
-**Статус:** in_progress; первый read-contract срез, epic не закрыт
+**Статус:** in_progress; read-contract срезы, epic не закрыт
 **Тип / приоритет:** foundation / P0
 **Источники:** [UI-план](../UI_IMPLEMENTATION_PLAN.md),
 [матрица соответствия](../UI_BACKEND_ALIGNMENT.md)
 
 **Task:** [FRONTEND-002](../../tasks/frontend/frontend-002-task-pipeline-contracts.md)
 покрывает существующие Project/Task/PipelineVersion reads и synthetic tests.
-Employee/Run/Surface, недостающие каталоги и миграция demo-потребителей остаются
-следующими отдельными шагами; Task не закрывает полный exit gate ниже.
+[FRONTEND-003](../../tasks/frontend/frontend-003-run-read-contracts.md) добавляет
+Run assignments, состояния и внешний diagnostics envelope. Employee/Surface,
+детализация diagnostics, недостающие каталоги и миграция demo-потребителей
+остаются следующими шагами; эти Task не закрывают полный exit gate ниже.
 
 ## Цель
 
