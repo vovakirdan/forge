@@ -28,6 +28,10 @@ ui-lint:
 ui-test-contracts:
     cd frontend && bun run test:contracts
 
+# Test pure presentation of validated Core reads without a browser or services.
+ui-test-presentation:
+    cd frontend && bun run test:presentation
+
 # Install Playwright's pinned Chromium; does not install Linux system packages.
 ui-browser-install:
     cd frontend && bun run test:browser:install

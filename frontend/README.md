@@ -158,3 +158,31 @@ observed state. Diagnostics validate the outer envelope; nested reports remain
 opaque JSON, not proof of accepted work or permission to open files/URLs. Missing
 measurements remain unknown. Employee/Surface reads and detailed evidence
 contracts are tracked as [separate gaps](../docs/UI_BACKEND_ALIGNMENT.md#93-named-gaps-и-openapi-drift).
+
+## Task and Run presentation
+
+`src/presentation/` derives display facts from already validated Core DTOs.
+`presentTaskSummary`, `presentTaskDetail`, `presentRun` and
+`presentRunDiagnostics` each return `{ source, presentation }`. `source` is the
+original DTO, not a clone or a legacy demo model. Treat it as read-only; recompute
+presentation when the source changes. The functions add English labels and
+loaded-data counts without interpreting arbitrary JSON or performing I/O.
+
+Task kind/lifecycle labels stay separate from stage resolution, which uses only
+the pinned PipelineVersion. `no_stage` and the reasons for an `unavailable` stage
+remain distinct. Priority stays a stable ID in `source`; no rank, color, catalog
+or cancellation reason is invented. Summary responses have no detail-only counts.
+
+Run purpose and requested/observed states have independent labels. The typed
+owner stays in `source.assignment`; Employee IDs are not names or profiles.
+Presenting several Runs does not select a current Run or change a Task lifecycle.
+Diagnostics distinguish absent (`null`) from present (including `{}`) reports.
+Counts describe only loaded incidents, evidence and incomplete streams. Presence
+does not prove success, completeness of stored history or accepted work.
+
+Run `just ui-test-presentation` from the repository root, or
+`bun run test:presentation` here. Like contract tests, these synthetic tests use
+Node's built-in runner and relative `.ts` imports without services, keys or a
+browser. Run them sequentially with the same resource limits as the other checks.
+The screens still use demo services, not this presentation layer. See
+[FRONTEND-005](../tasks/frontend/frontend-005-task-run-presentation.md).

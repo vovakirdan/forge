@@ -9,9 +9,14 @@
 **Task:** [FRONTEND-002](../../tasks/frontend/frontend-002-task-pipeline-contracts.md)
 покрывает существующие Project/Task/PipelineVersion reads и synthetic tests.
 [FRONTEND-003](../../tasks/frontend/frontend-003-run-read-contracts.md) добавляет
-Run assignments, состояния и внешний diagnostics envelope. Employee/Surface,
+Run assignments, состояния и внешний diagnostics envelope.
+[FRONTEND-005](../../tasks/frontend/frontend-005-task-run-presentation.md) добавляет
+pure Task/Run presentation поверх этих DTO, сохраняя независимые состояния и
+исходные данные. Экраны пока не подключаются. Employee/Surface,
 детализация diagnostics, недостающие каталоги и миграция demo-потребителей
 остаются следующими шагами; эти Task не закрывают полный exit gate ниже.
+FRONTEND-005 проверена 18 presentation tests, прежними 47 contract tests,
+семью browser tests, typecheck/lint/build и независимыми spec/quality reviews.
 
 ## Цель
 

@@ -268,3 +268,33 @@ rendering остаются в UI0.2/UI1.4/UI2.1; этот слой никуда 
 Изменений API/OpenAPI/backend/PRD здесь нет. Synthetic tests доказывают поведение
 контрактов, не live Core integration, безопасность browser boundary или поддержку
 полного Employee/Surface API. Экраны и demo services остаются прежними.
+
+## 10. Task/Run presentation FRONTEND-005
+
+[FRONTEND-005](../tasks/frontend/frontend-005-task-run-presentation.md) добавляет
+чистый [presentation layer](../frontend/src/presentation/index.ts) поверх уже
+валидированных DTO. Каждая функция возвращает `{ source, presentation }`;
+`source` — исходный объект без клонирования и мутаций. Его надо считать read-only
+и пересчитывать presentation при смене данных. Это не дополнительная wire schema.
+
+| Builder | `presentation` | Данные, оставшиеся в `source` |
+|---|---|---|
+| `presentTaskSummary` | `kindLabel`, `lifecycleLabel`, `stage: TaskStageResolution` | Priority stable ID, pinned version, identity/revision и дополнительные JSON fields |
+| `presentTaskDetail` | Summary presentation + `loadedWaitConditionCount`, `loadedArtifactCount` | Properties, все waits и artifacts без интерпретации |
+| `presentRun` | `purposeLabel`, `desiredStateLabel`, `observedStateLabel`, nullable `systemJobKindLabel` | Typed assignment/owner, nullable Employee ID и прочие Run fields |
+| `presentRunDiagnostics` | Наличие четырёх nullable reports, `loadedIncidentCount`, `loadedEvidenceCount`, `loadedIncompleteStreamCount` | Полные возвращённые reports, incidents/evidence и stream flags |
+
+Stage resolver сохраняет `no_stage` и три причины `unavailable`; latest/default
+и soft-delete не заменяют pinned graph. Подписи закрытых enum проверяются
+компилятором на полноту. Lifecycle Task, стадия Pipeline, desired state Run и
+observed state Run остаются независимыми; запрос остановки не подтверждает её.
+
+Счётчики — длины загруженных массивов, не totals. У summary нет detail counts.
+`null` report недоступен, `{}` присутствует, но наличие не доказывает acceptance,
+правдивость, успешное выполнение или полноту истории. Нет извлечения cancellation
+reason из properties, Employee aggregation, current Run, постоянного assignee,
+priority rank или безопасного HTML/URL из JSON.
+
+`just ui-test-presentation` запускает отдельные synthetic unit tests. Этот слой
+не подключается к экранам и не вызывает API, команды или side effects.
+Именованные gaps разделов 8–9, UI0.1 и UI0.3 остаются открытыми.
