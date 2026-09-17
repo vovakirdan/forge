@@ -1,7 +1,7 @@
 # Forge: Control Room implementation plan
 
 **Дата:** 11 сентября 2026
-**Статус:** UI0.1/UI0.2/UI0.3/UI1.3 in_progress; остальные epics planned; milestones не закрыты
+**Статус:** UI0.1/UI0.2/UI0.3/UI1.3/UI2.1 in_progress; остальные epics planned; milestones не закрыты
 **Иерархия:** Milestone → Epic → будущие Task
 **Baseline:** backend `1439211`; frontend — неизменённый импорт пользовательского UI
 
@@ -40,6 +40,9 @@ connection. [FRONTEND-007](../tasks/frontend/frontend-007-live-owner-gateway.md)
 [FRONTEND-008](../tasks/frontend/frontend-008-live-task-reads.md) добавляет
 реальные Task list/detail и чтение pinned PipelineVersion в этом live entry:
 ранний read-only срез UI1.3, не адаптация mock Board.
+[FRONTEND-009](../tasks/frontend/frontend-009-live-run-reads.md) добавляет
+Project-wide Run list/detail и diagnostic availability в разделе Runs:
+ранний read-only срез UI2.1, без commands, SSE и body viewer.
 Это согласованные ранние срезы UI0.2 до полных gates UI0.1/UI0.3; реализация
 не заменяет результаты security/browser приёмки. Статус и порядок Task —
 в [индексе](../tasks/INDEX.md). Остальные Task
@@ -228,6 +231,15 @@ security proof. Полный API client, commands/replay/conflicts и SSE тре
 Следом согласован FRONTEND-008, ранний scoped Task read срез UI1.3 поверх
 проверенной границы, без management commands и новых Core API. Полные gates
 UI0/UI1 и зависимости остальных частей UI1.3 сохраняются.
+FRONTEND-009 аналогично начинает UI2.1 существующими Run reads: два раздела
+Tasks/Runs, ручное обновление и ограниченная диагностика. Contracts FRONTEND-003
+и presentation FRONTEND-005 переиспользуются без новых Core schemas. Полные
+зависимости UI2.1, включая UI1.4 для body/context viewer, не отменяются.
+
+Run-приёмка разделяет реальные Core reads с M0 fake execution и synthetic
+cases пяти purposes. Ни то ни другое не является новым provider proof. Browser
+limits не закрывают gap серверной Run pagination, пока Core загружает все строки
+Project перед разбиением на страницы. Фактический результат проверок — в Task.
 
 На ближайший разбор: оставшиеся gates UI0.1/UI0.3 и implementation UI0.2;
 после их gates — UI1.1 и UI1.2.

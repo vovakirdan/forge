@@ -1,17 +1,41 @@
 # Epic UI2.1 — Runs, Activity и evidence
 
 **Milestone:** UI2 — Наблюдение, коммуникация и вмешательство человека
-**Статус:** planned; реализация не начата
+**Статус:** in_progress; ранний read-only FRONTEND-009 согласован отдельно
 **Источник:** [UI plan](../UI_IMPLEMENTATION_PLAN.md),
 [backend alignment](../UI_BACKEND_ALIGNMENT.md)
 **База backend:** `1439211`; транспортные ограничения зафиксированы в UI0.
-**Зависимости:** UI0.1–UI0.3, UI1.3, UI1.4.
+**Зависимости полного эпика:** UI0.1–UI0.3, UI1.3, UI1.4.
+**Ранний срез:** FRONTEND-003/005/008; не закрывает dependencies и exit gate эпика.
 
 ## Цель
 
 Показать, что было запрошено у Run, что наблюдал Supervisor и какие результаты
 сохранил Core. Связать Activity, Task, Run, Artifact и техническое evidence без
 подмены канонического результата текстом провайдера.
+
+## Ранний read-only срез FRONTEND-009
+
+[FRONTEND-009](../../tasks/frontend/frontend-009-live-run-reads.md) подключает
+существующие Run list/detail к разделу Runs live entry. Список относится ко всему
+Project, не к отдельной Task: фильтра Task в Core API нет. Страница содержит до
+20 записей, навигация — Previous/Next/Refresh; нет выдуманного total или фонового
+обхода всех страниц. Карточка показывает purpose-specific owner и отдельные
+desired/observed states, но не отсутствующие provider/model/timestamps/names.
+
+Диагностика ограничена availability, loaded counts и stream completeness.
+Inline DTO всё равно приходит браузеру и входит в detail cap 1 MiB; raw bodies,
+URLs/object refs/paths не отображаются и не загружаются дополнительно. List cap —
+64 KiB; ID/query/error guards остаются общими с Task reads. Core schemas не меняются.
+Tasks — раздел по умолчанию. Смена раздела сбрасывает selection/cursor history,
+отменяет reads и после commit удаляет старый cache. Смена Project возвращает Tasks;
+обновление только ручное. Commands, SSE и body/context viewer отложены.
+
+Keyless fixture создаёт отдельные Projects и Runs через named commands с M0 fake
+runtime; перед обслуживанием browser ждёт terminal observations. Все пять purposes,
+nullable owners и diagnostic variants проверяются отдельно как synthetic cases.
+Это не provider/sandbox proof. Результаты проверок фиксируются в Task; наличие
+реализации не означает прохождение полного gate ниже.
 
 ## В границах
 
@@ -26,8 +50,8 @@
 
 ## Что уже есть и каких чтений нет
 
-`GET /v1/projects/{project_id}/runs` и `.../runs/{run_id}` возвращают Run и
-diagnostics. Последние содержат report, handoff, incidents, evidence receipts,
+`GET /v1/projects/{project_id}/runs` возвращает страницу Run projections;
+`.../runs/{run_id}` добавляет diagnostics. Они содержат report, handoff, incidents, evidence receipts,
 stream completeness, proxy usage и Git source, но исключают prompts/auth.
 `.../events` возвращает конечную SSE-пачку: до 1000 событий, затем соединение
 завершается. Есть `Last-Event-ID` и `after`, постоянной подписки пока нет.
@@ -42,6 +66,9 @@ Receipt или object key сами по себе не дают браузеру 
 метаданные/разрешённые ссылки с явным unavailable для содержимого.
 Опорный код: `crates/forge-core/src/http/handlers.rs`,
 `crates/forge-core/src/http/views.rs`, `crates/forge-storage/src/run_evidence.rs`.
+Core пока загружает все Runs Project до HTTP pagination; bounded page в UI не
+устраняет этот gap. Count bounds diagnostics также не гарантируют ≤1 MiB:
+превышение должно дать явную ошибку, не усечённый успешный ответ.
 
 ## Контракты и зависимости
 

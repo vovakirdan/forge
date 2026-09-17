@@ -14,9 +14,11 @@ Runs, хранит их durable историю и управляет очере�
 M4. В UI0 реализуется [static client + Rust gateway](UI_BROWSER_BOUNDARY.md).
 FRONTEND-006 проверяет static demo hosting; FRONTEND-007 добавляет owner login
 и read-only Project экран через отдельный `forge-ui`. FRONTEND-008 добавляет
-список/карточку Task и pinned PipelineVersion. Результаты приёмки — в
+список/карточку Task и pinned PipelineVersion. FRONTEND-009 добавляет отдельный
+read-only раздел Runs выбранного Project. Результаты приёмки — в
 [007](../tasks/frontend/frontend-007-live-owner-gateway.md) и
-[008](../tasks/frontend/frontend-008-live-task-reads.md). Диаграмма ниже
+[008](../tasks/frontend/frontend-008-live-task-reads.md); проверки нового среза
+отслеживаются в [009](../tasks/frontend/frontend-009-live-run-reads.md). Диаграмма ниже
 показывает backend; browser boundary описана отдельно в разделе 6.
 
 Источники истины:
@@ -199,7 +201,7 @@ Run write-effect messages carry current `run_id`, lease fencing token,
 environment epoch and monotonic sequence. W3C trace context is propagated across
 gRPC and allowed HTTP boundaries.
 
-### Local browser boundary (FRONTEND-007/008)
+### Local browser boundary (FRONTEND-007–009)
 
 `Browser → dedicated loopback Rust/Axum gateway → private Core UDS`.
 `forge-ui` bind-ит только `127.0.0.1:0` и фиксирует точный origin. Он загружает
@@ -217,14 +219,29 @@ Logout и restart отзывают sessions; exact Host/Origin, CSP, bounded I/O
 [ADR](UI_BROWSER_BOUNDARY.md).
 
 HTTP surface ограничен exchange/logout и authenticated `GET /api/health`,
-`GET /api/projects/{uuid}`, scoped Task list/detail и PipelineVersion GET.
-Только Task list принимает bounded limit/cursor; остальные query запрещены.
+`GET /api/projects/{uuid}`, scoped Task/Run list/detail и PipelineVersion GET.
+Только списки Task и Run принимают bounded limit/cursor; остальные query запрещены.
 Hyper передаёт только allowlisted GET в Core UDS,
 без browser credentials/actor headers, redirects или TCP fallback. Live entry
-показывает connection state, Project и Task через существующие Zod contracts;
+показывает connection state, Project, Task и Run через существующие Zod contracts;
 не импортирует demo layout/services. Detail разрешает stage только по своему
-Pipeline pin. Cache ограничен текущими reads; при scope change старые reads
-отменяются и удаляются. Commands, SSE и остальные экраны отложены.
+Pipeline pin. Раздел Runs читает историю проекта, не отдельной Task. Desired и
+observed state независимы; диагностика показывает наличие reports, загруженные
+counts и stream completeness, не raw bodies. Inline diagnostics остаются частью
+bounded detail response. Core routes, DTO и схема БД не меняются.
+
+По умолчанию выбран раздел Tasks. Переключение Tasks/Runs или Project сбрасывает
+selection и pagination; данные обновляются только вручную. Cache ограничен
+текущими reads: навигация отменяет запросы сразу, а неактивные query records
+удаляет после commit смены области. Это не пересоздаёт ещё наблюдаемый старый
+запрос. List body ограничен 64 KiB, detail/Pipeline — 1 MiB; превышение даёт
+ошибку, не усечение. Commands, SSE и body/context viewer отложены.
+
+Run fixture использует отдельные Projects, named commands и M0 fake runtime.
+Это реальные сохранённые Core Runs с детерминированным тестовым исполнением,
+не доказательство работы провайдера или sandbox. Остальные purposes проверяются
+отдельными synthetic fixtures. Core пока загружает все Runs Project перед
+пагинацией; browser limits не устраняют этот backend gap.
 
 FRONTEND-006 остаётся отдельным mock-only static proof `frontend/dist/client`
 с build-time SSR prerender и test-only file server. FRONTEND-007 использует

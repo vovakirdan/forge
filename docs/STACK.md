@@ -18,7 +18,8 @@ Forge — Linux-first local control plane для AI-команды разраб�
 локальный web UI добавляется отдельным workstream UI0–UI4. Его hosting/toolchain
 выбраны в UI0: static client и отдельный Rust gateway; remote control остаётся
 отложенным. FRONTEND-006 static demo proof отделён от FRONTEND-007 owner login
-и read-only Project entry. FRONTEND-008 добавляет Task/Pipeline reads;
+и read-only Project entry. FRONTEND-008 добавляет Task/Pipeline reads,
+FRONTEND-009 — Project-wide Run list/detail с ограниченной диагностикой;
 фактическая приёмка записывается в соответствующих Task.
 
 Ключевые ограничения:
@@ -111,14 +112,21 @@ session store — in-memory, без Redis/БД/JWT. Browser передаёт exp
 header, не cookies. Первый live экран читает health и один Project по ID;
 FRONTEND-008 добавляет scoped Task list/detail и pinned PipelineVersion GET,
 используя существующие contracts/presentation и bounded TanStack Query cache.
-Commands и SSE пока не подключены.
+FRONTEND-009 использует тот же стек для разделов Tasks/Runs и чтения Runs всего
+Project. Схемы Core DTO не меняются; diagnostics показываются только как
+availability, loaded counts и stream completeness. Inline объекты всё равно
+приходят в detail response, но не рендерятся и не открывают body/URL viewer.
+Обновление ручное; переключение области отменяет reads и удаляет старый cache
+после commit. Commands и SSE пока не подключены.
 
 Причины выбора, TTL, limits и security gates — в
 [browser boundary ADR](UI_BROWSER_BOUNDARY.md), результаты приёмки — в
 [FRONTEND-007](../tasks/frontend/frontend-007-live-owner-gateway.md) и
-[FRONTEND-008](../tasks/frontend/frontend-008-live-task-reads.md).
-UI0.1/UI0.2/UI0.3/UI1.3 остаются открытыми: пользователь согласовал ранние static
-proof, login/Project и Task read срезы до полных gates.
+[FRONTEND-008](../tasks/frontend/frontend-008-live-task-reads.md). Проверки Run reads
+отслеживаются в [FRONTEND-009](../tasks/frontend/frontend-009-live-run-reads.md),
+без вывода об успехе из прежних результатов. UI0.1/UI0.2/UI0.3/UI1.3/UI2.1 остаются
+открытыми: пользователь согласовал ранние static proof, login/Project, Task и
+Run read срезы до полных gates.
 
 ## 4. Execution isolation
 
@@ -154,7 +162,7 @@ daemon, сохраняя возможность запустить dependencies 
 | Boundary | Protocol | Rule |
 |---|---|---|
 | CLI ↔ Core | HTTP/JSON commands | каждая mutation — именованная команда с idempotency key |
-| Browser ↔ forge-ui | same-origin HTTP/JSON over loopback | owner bearer session; auth, health/Project и scoped Task/Pipeline reads |
+| Browser ↔ forge-ui | same-origin HTTP/JSON over loopback | owner bearer session; auth, health/Project и scoped Task/Pipeline/Run reads |
 | forge-ui ↔ Core | allowlisted HTTP/1 GET over owner UDS | проверка path/permissions/peer UID, без browser headers и TCP fallback |
 | CLI ↔ forge-ui | private owner UDS, length-prefixed JSON | одна bounded issue_login_code command; вывод секрета только owner TTY |
 | Core → CLI | Server-Sent Events | поток доменных/операционных updates; bidirectional UI protocol в MVP не нужен |

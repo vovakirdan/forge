@@ -150,8 +150,8 @@ P0/P1/P2. Docs/scope/hygiene review также принято; уточнени�
 физических строк. Прежние demo Board/Team остаются mock; полный UI0/UI1 не закрыт.
 
 Ручной запуск — в [live runbook](../../frontend/README.md#live-owner-ui-frontend-007).
-FRONTEND-007 сохранена локально как `ba920f7`; FRONTEND-008 не закоммичена,
-push не выполнялся.
+На момент завершения FRONTEND-007 была сохранена локально как `ba920f7`;
+FRONTEND-008 ещё не была закоммичена, push не выполнялся.
 
 После проверки остановлены только поднятые для этой работы PostgreSQL/NATS;
 volumes и private test schemas сохранены для диагностики. `podman ps` пуст;
@@ -164,4 +164,11 @@ volumes и private test schemas сохранены для диагностики
 Mock Board/Team и demo services, mutating commands, drag-and-drop, SSE,
 router/deep links, полный OpenAPI, новые Core DTO/endpoints/migrations,
 provider Runs, remote control. UI0/UI1 целиком не закрываются.
-FRONTEND-008 остаётся без commit и push до отдельного запроса.
+На момент завершения FRONTEND-008 оставалась без commit и push до отдельного запроса.
+
+## Последующая публикация
+
+17 сентября 2026 по явному запросу пользователя FRONTEND-008 зафиксирована
+как `a596ff6` (`feat(ui): add live task list and detail`) и отправлена в
+`origin/main` вместе с предыдущими локальными FRONTEND-006/007. Полный SHA
+HEAD сверён с remote; результаты выше относятся к реализации до публикации.

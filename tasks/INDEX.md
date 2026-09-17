@@ -12,6 +12,7 @@
 | [FRONTEND-006](frontend/frontend-006-static-hosting-boundary.md) | UI0.2 | P0 | done | FRONTEND-001–005; ранний preparatory-срез согласован | Static proof: 2 Node + 13 browser tests; принятый ADR, без gateway/auth/Core connection |
 | [FRONTEND-007](frontend/frontend-007-live-owner-gateway.md) | UI0.2 | P0 | done | FRONTEND-001–006; ранний live-read срез согласован | Owner gateway/session, настоящий Core Project read; 7 live browser tests, sandbox/CSP/secret/cleanup gates, evidence в Task |
 | [FRONTEND-008](frontend/frontend-008-live-task-reads.md) | UI1.3 / UI0.2 | P0 | done | FRONTEND-002/005/007; ранний read-only срез согласован | Реальный список/карточка Task и pinned Pipeline stage; 22 live browser tests, 29 live unit tests, evidence в Task |
+| [FRONTEND-009](frontend/frontend-009-live-run-reads.md) | UI2.1 / UI0.2 | P0 | done | FRONTEND-003/005/008; ранний read-only срез согласован | Project Runs: список/карточка, независимые состояния и diagnostic availability; 35 live browser / 36 live unit tests, evidence в Task |
 
 ## Порядок и параллельность
 
@@ -29,12 +30,14 @@ FRONTEND-007 реализует gateway/session и первое настояще
 сохраняются, demo Board/Team ещё не подключены к Core.
 FRONTEND-008 расширяет отдельный live экран списком/карточкой Task. Это ранний
 read-only срез UI1.3, не подключение mock Board и не закрытие всего UI0/UI1.
+FRONTEND-009 добавляет Project-wide Runs и ограниченную диагностическую сводку.
+Это ранний срез UI2.1 без Activity/SSE, evidence viewer и управляющих команд.
 Это порядок эпиков, не заранее созданные дополнительные Task.
 
 У FRONTEND-001 нет Task dependencies. Проверки install/build/dev выполняются
 последовательно: общий `node_modules`, generated routes и порт 5173 исключают
 параллельную валидацию в той же копии. То же ограничение действует для
-FRONTEND-002/003/004/005/006/007/008: install, browser/static/live/contract/presentation tests,
+FRONTEND-002/003/004/005/006/007/008/009: install, browser/static/live/contract/presentation tests,
 typecheck, lint и build запускаются по очереди. Browser harness владеет
 портом 4173; static harness — портом 4174;
 ручной demo на 5173 не используется тестами.

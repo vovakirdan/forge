@@ -1,15 +1,6 @@
-import type { ReactNode } from "react";
 import type { TaskSummaryView } from "../contracts/task.ts";
 import { presentTaskSummary } from "../presentation/task.ts";
-
-export function Field({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <>
-      <dt className="text-muted-foreground">{label}</dt>
-      <dd className="min-w-0 whitespace-pre-wrap [overflow-wrap:anywhere]">{children}</dd>
-    </>
-  );
-}
+import { Field } from "./Field.tsx";
 
 export function TaskFacts({ task, detail = false }: { task: TaskSummaryView; detail?: boolean }) {
   const { presentation } = presentTaskSummary(task);

@@ -3,6 +3,7 @@ import { UuidV7Schema, TimestampSchema } from "../contracts/common.ts";
 import { ProjectViewSchema } from "../contracts/project.ts";
 import { TaskDetailViewSchema, TaskListResponseSchema } from "../contracts/task.ts";
 import { PipelineVersionViewSchema } from "../contracts/pipeline.ts";
+import { RunDetailViewSchema, RunListResponseSchema } from "../contracts/run.ts";
 
 export const SessionSchema = z.object({
   token: z.string().regex(/^[0-9a-f]{64}$/),
@@ -33,7 +34,7 @@ export class LiveApiError extends Error {
 
 export function describeApiError(
   error: unknown,
-  resource: "Project" | "Task" | "Pipeline" = "Project",
+  resource: "Project" | "Task" | "Pipeline" | "Run" = "Project",
 ): string {
   if (!(error instanceof LiveApiError)) return "The request could not be completed.";
   switch (error.kind) {
@@ -171,6 +172,27 @@ export function createLiveApi(fetcher: typeof fetch = fetch) {
         PipelineVersionViewSchema,
       );
       if (value.id.toLowerCase() !== versionId.toLowerCase())
+        throw new LiveApiError("invalid_response");
+      return value;
+    },
+    async runs(projectId: string, cursor: string | null, token: string, signal: AbortSignal) {
+      identifiers(projectId);
+      const search = new URLSearchParams({ limit: "20" });
+      if (cursor !== null) search.set("cursor", cursor);
+      const value = await json(
+        await request(`/api/projects/${projectId}/runs?${search}`, "GET", signal, token),
+        RunListResponseSchema,
+      );
+      if (value.items.length > 20) throw new LiveApiError("invalid_response");
+      return value;
+    },
+    async run(projectId: string, runId: string, token: string, signal: AbortSignal) {
+      identifiers(projectId, runId);
+      const value = await json(
+        await request(`/api/projects/${projectId}/runs/${runId}`, "GET", signal, token),
+        RunDetailViewSchema,
+      );
+      if (value.id.toLowerCase() !== runId.toLowerCase())
         throw new LiveApiError("invalid_response");
       return value;
     },

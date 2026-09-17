@@ -8,7 +8,7 @@ import type { LiveApi } from "./api.ts";
 import type { LiveSession } from "./session.ts";
 import { prepareProjectChange } from "./read-cache.ts";
 import { useReadLifetime } from "./use-read-lifetime.ts";
-import { TaskBrowser } from "./TaskBrowser.tsx";
+import { ProjectReads } from "./ProjectReads.tsx";
 
 type LiveProps = { api: LiveApi; session: LiveSession };
 
@@ -23,7 +23,7 @@ export function LiveApp({ api, session }: LiveProps) {
             {state.status === "authenticated" ? "Live connection" : "Connect to Forge"}
           </h1>
           <p className="text-sm text-muted-foreground">
-            Local, read-only Project and Task access. No demo data.
+            Local, read-only Project, Task and Run access. No demo data.
           </p>
         </header>
         {state.notice && (
@@ -221,7 +221,7 @@ function Connection({ api, session, generation }: LiveProps & { generation: numb
         </section>
       )}
       {projectId && currentProject && (
-        <TaskBrowser
+        <ProjectReads
           key={projectId}
           api={api}
           session={session}

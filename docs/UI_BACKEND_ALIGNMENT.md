@@ -302,7 +302,8 @@ priority rank или безопасного HTML/URL из JSON.
 
 `just ui-test-presentation` запускает отдельные synthetic unit tests. В срезе
 FRONTEND-005 слой ещё не подключался к экранам; FRONTEND-008 использует его для
-read-only Task UI. Сами builders не вызывают API, команды или side effects.
+read-only Task UI, FRONTEND-009 — для Run facts и diagnostic availability.
+Сами builders не вызывают API, команды или side effects.
 Именованные gaps разделов 8–9, UI0.1 и UI0.3 остаются открытыми.
 
 ## 11. Live Task reads FRONTEND-008
@@ -329,3 +330,39 @@ Gateway проверяет новые IDs/query/bounds; live API валидир�
 поздние ответы отменяются; полные auth/transport limits остаются из FRONTEND-007.
 Настоящие Core и fault-injection проверки перечислены в
 [Task evidence](../tasks/frontend/frontend-008-live-task-reads.md).
+
+## 12. Live Run reads FRONTEND-009
+
+[FRONTEND-009](../tasks/frontend/frontend-009-live-run-reads.md) подключает
+существующие Run contracts/presentation к отдельному разделу Runs в `src/live`.
+Схемы DTO, Core endpoints и БД остаются прежними.
+
+| Данные | Live UI | Ограничение |
+|---|---|---|
+| RunListResponse | Страницы по 20 в серверном порядке, Previous/Next/Refresh | Runs всего Project; нет Task filter, total или auto-pagination |
+| RunView | ID, purpose, nullable Task/Employee/stage, attempt, desired/observed states | Нет выдуманного current Run, профиля, имени или physical-stop подтверждения |
+| RunDetailView | Purpose-specific owner, fence, epoch, sequence, RunSpec version | Нет provider/model/timestamps/cost/duration; не извлекаются из ID или версии RunSpec |
+| RunDiagnostics | Наличие reports, загруженные counts, stream completeness | Наличие не означает acceptance/успех; inline JSON приходит в ответе, но не отображается как body |
+
+Gateway разрешает только project-scoped Run list/detail GET. Строгие UUIDv7,
+limit/cursor и безопасные ошибки повторяют FRONTEND-008; list cap — 64 KiB,
+detail — 1 MiB. Live API проверяет Zod и совпадение detail ID с запросом.
+Raw bodies, URLs/object refs/paths не отображаются и не загружаются отдельно.
+Opaque JSON schema проверяет форму, не заменяет server-side исключение auth и
+raw prompts из public projection.
+
+Tasks — раздел по умолчанию; смена Project возвращает его. Смена раздела
+сбрасывает selection/cursor history, отменяет запросы и после commit удаляет
+старые query records. Cache keys содержат session generation, Project и
+page/Run scope. Обновление только ручное; stale/retry, cursor recovery и logout
+сохраняют правила FRONTEND-008. Commands/SSE и body viewer не добавляются.
+
+Keyless acceptance использует отдельные Projects с 23 + 1 Runs через named
+commands и M0 fake runtime; до выдачи fixture нужны terminal observations.
+Это реальные Core reads, не provider/sandbox proof. Пять purposes и варианты
+diagnostics проверяются отдельно помеченными synthetic fixtures. Результаты
+приёмки фиксируются в Task, а не предполагаются из этого описания.
+
+Named gaps раздела 9 сохраняются, включая OpenAPI drift и подробные evidence
+schemas. Core загружает все Runs Project перед пагинацией; diagnostics count
+bounds не гарантируют размер ≤1 MiB. UI сообщает об oversized response явно.

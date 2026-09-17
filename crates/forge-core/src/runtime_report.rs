@@ -300,6 +300,29 @@ mod tests {
     }
 
     #[test]
+    fn public_runtime_report_does_not_retain_provider_text_or_unknown_fields() {
+        let frames = [
+            json!({"type":"item.completed","item":{"type":"agent_message","text":"private-assistant-canary"}}),
+            json!({"type":"unknown.frame","raw":"private-ignored-canary"}),
+            json!({"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":3},
+                "auth":"private-auth-canary","prompt":"private-prompt-canary"}),
+        ].map(|frame| frame.to_string()).join("\n");
+        let report = normalize("codex_cli", frames.as_bytes(), uuid::Uuid::now_v7());
+        let wire = serde_json::to_string(&report).unwrap();
+        assert_eq!(report.completed_turns, 1);
+        for canary in [
+            "private-assistant-canary",
+            "private-ignored-canary",
+            "private-auth-canary",
+            "private-prompt-canary",
+        ] {
+            assert!(!wire.contains(canary));
+        }
+        let value = serde_json::to_value(report).unwrap();
+        assert_eq!(value.as_object().unwrap().len(), 5);
+    }
+
+    #[test]
     fn claude_usage_survives_aborted_turn_and_cannot_be_counted_twice() {
         let run = uuid::Uuid::now_v7();
         let result = json!({"type":"result","session_id":run,"is_error":false,"subtype":"success","terminal_reason":"aborted_tools","usage":{"input_tokens":4,"output_tokens":2}}).to_string();

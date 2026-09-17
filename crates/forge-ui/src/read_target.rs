@@ -35,12 +35,12 @@ impl ReadTarget {
                 let project = uuid::Uuid::parse_str(project).map_err(|_| ApiError::NotFound)?;
                 target.path = format!("/v1/projects/{project}");
             }
-            [project, "tasks"] => {
+            [project, resource @ ("tasks" | "runs")] => {
                 let project = uuid_v7(project)?;
-                target.path = format!("/v1/projects/{project}/tasks?{}", pagination(query)?);
+                target.path = format!("/v1/projects/{project}/{resource}?{}", pagination(query)?);
                 target.cursor_conflict = true;
             }
-            [project, resource @ ("tasks" | "pipelines"), id] if query.is_none() => {
+            [project, resource @ ("tasks" | "pipelines" | "runs"), id] if query.is_none() => {
                 let project = uuid_v7(project)?;
                 let id = uuid_v7(id)?;
                 target.path = format!("/v1/projects/{project}/{resource}/{id}");

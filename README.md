@@ -1,9 +1,13 @@
 # Forge
 
 The imported `frontend/` Control Room screens remain a mock prototype. A separate
-live entry supports local owner login, a real Core Project and read-only Task
-list/detail with pinned Pipeline stages; see the
+live entry supports local owner login, a real Core Project, read-only Task
+list/detail with pinned Pipeline stages, and Project-wide Run reads with separate
+requested/observed states. Diagnostics show availability and loaded counts, not
+raw logs or bodies. See the
 [live UI runbook](frontend/README.md#live-owner-ui-frontend-007).
+FRONTEND-009 acceptance is tracked in its [Task](tasks/frontend/frontend-009-live-run-reads.md);
+deterministic fake-runtime fixtures are not provider execution proof.
 The [UI roadmap](docs/UI_IMPLEMENTATION_PLAN.md) and
 [frontend/backend alignment](docs/UI_BACKEND_ALIGNMENT.md) define its adaptation.
 Milestones UI0–UI4 precede the M4 installer; see the [epic index](docs/epics/README.md).

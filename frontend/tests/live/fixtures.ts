@@ -37,6 +37,21 @@ const CoreFixtureSchema = z.object({
     task_title: z.string(),
   }),
   empty_project: z.object({ id: z.string().uuid(), name: z.string() }),
+  runs_project: z.object({
+    id: z.string().uuid(),
+    name: z.string(),
+    total: z.number().int().positive(),
+    featured_id: z.string().uuid(),
+    second_id: z.string().uuid(),
+    featured_task_id: z.string().uuid(),
+    employee_id: z.string().uuid(),
+    stage_id: z.string(),
+  }),
+  other_runs_project: z.object({
+    id: z.string().uuid(),
+    name: z.string(),
+    run_id: z.string().uuid(),
+  }),
 });
 type CoreFixture = z.infer<typeof CoreFixtureSchema>;
 export type Live = {

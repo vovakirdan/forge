@@ -317,3 +317,59 @@ async fn task_routes_reject_invalid_queries_ids_methods_and_bodies_before_core()
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 }
+
+#[tokio::test]
+async fn run_routes_reject_unscoped_reads_commands_queries_and_body_before_core() {
+    let state = state();
+    let code = state.sessions.issue_code().unwrap();
+    let session = state.sessions.exchange(&code.code).unwrap();
+    let project = "01988000-0000-7000-8000-000000000001";
+    let run = "01988000-0000-7000-8000-000000000002";
+    for (method, suffix, expected) in [
+        ("GET", "runs?limit=101".into(), StatusCode::BAD_REQUEST),
+        (
+            "GET",
+            "runs?cursor=a&cursor=b".into(),
+            StatusCode::BAD_REQUEST,
+        ),
+        ("GET", "runs?task_id=x".into(), StatusCode::BAD_REQUEST),
+        ("GET", "runs?purpose=hook".into(), StatusCode::BAD_REQUEST),
+        ("GET", "runs?cursor=%FF".into(), StatusCode::BAD_REQUEST),
+        (
+            "GET",
+            "runs/00000000-0000-0000-0000-000000000000".into(),
+            StatusCode::NOT_FOUND,
+        ),
+        ("GET", format!("runs/{run}?limit=20"), StatusCode::NOT_FOUND),
+        ("GET", format!("runs/{run}/evidence"), StatusCode::NOT_FOUND),
+        ("GET", format!("runs/{run}/context"), StatusCode::NOT_FOUND),
+        ("POST", format!("runs/{run}/stop"), StatusCode::NOT_FOUND),
+        ("POST", "runs".into(), StatusCode::NOT_FOUND),
+        ("DELETE", format!("runs/{run}"), StatusCode::NOT_FOUND),
+        ("OPTIONS", "runs".into(), StatusCode::NOT_FOUND),
+    ] {
+        let response = handle(
+            State(state.clone()),
+            request(method, &format!("/api/projects/{project}/{suffix}"))
+                .header("authorization", format!("Bearer {}", session.token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(response.status(), expected, "{method} {suffix}");
+    }
+    for suffix in ["runs?limit=20".into(), format!("runs/{run}")] {
+        for (header, value) in [("content-length", "1"), ("transfer-encoding", "chunked")] {
+            let response = handle(
+                State(state.clone()),
+                request("GET", &format!("/api/projects/{project}/{suffix}"))
+                    .header("authorization", format!("Bearer {}", session.token))
+                    .header(header, value)
+                    .body(Body::from("x"))
+                    .unwrap(),
+            )
+            .await;
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        }
+    }
+}

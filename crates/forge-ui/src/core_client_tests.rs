@@ -103,7 +103,7 @@ async fn unsafe_socket_modes_are_rejected_before_connection() {
 }
 
 #[tokio::test]
-async fn unauthorized_browser_does_not_connect_to_existing_core_socket() {
+async fn unauthorized_or_cross_origin_browser_never_connects_to_existing_core_socket() {
     let hits = Arc::new(AtomicUsize::new(0));
     let dir = tempfile::tempdir().unwrap();
     fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o700)).unwrap();
@@ -121,22 +121,56 @@ async fn unauthorized_browser_does_not_connect_to_existing_core_socket() {
     let mut state = Arc::try_unwrap(super::http_tests::state()).ok().unwrap();
     state.core.socket = path;
     let state = Arc::new(state);
+    let code = state.sessions.issue_code().unwrap();
+    let session = state.sessions.exchange(&code.code).unwrap();
     for path in [
         "/api/health",
         "/api/projects/01988000-0000-7000-8000-000000000001/tasks?limit=20",
         "/api/projects/01988000-0000-7000-8000-000000000001/tasks/01988000-0000-7000-8000-000000000002",
         "/api/projects/01988000-0000-7000-8000-000000000001/pipelines/01988000-0000-7000-8000-000000000002",
+        "/api/projects/01988000-0000-7000-8000-000000000001/runs?limit=20",
+        "/api/projects/01988000-0000-7000-8000-000000000001/runs/01988000-0000-7000-8000-000000000002",
     ] {
-        let response = super::http::handle(
-            axum::extract::State(state.clone()),
-            axum::http::Request::builder()
+        for (host, origin, token, expected) in [
+            (
+                "127.0.0.1:12345",
+                "http://127.0.0.1:12345",
+                None,
+                axum::http::StatusCode::UNAUTHORIZED,
+            ),
+            (
+                "127.0.0.1:12345",
+                "http://127.0.0.1:12345",
+                Some("invalid"),
+                axum::http::StatusCode::UNAUTHORIZED,
+            ),
+            (
+                "evil.invalid",
+                "http://127.0.0.1:12345",
+                Some(session.token.as_str()),
+                axum::http::StatusCode::FORBIDDEN,
+            ),
+            (
+                "127.0.0.1:12345",
+                "https://evil.invalid",
+                Some(session.token.as_str()),
+                axum::http::StatusCode::FORBIDDEN,
+            ),
+        ] {
+            let mut request = axum::http::Request::builder()
                 .uri(path)
-                .header("host", "127.0.0.1:12345")
-                .body(axum::body::Body::empty())
-                .unwrap(),
-        )
-        .await;
-        assert_eq!(response.status(), axum::http::StatusCode::UNAUTHORIZED);
+                .header("host", host)
+                .header("origin", origin);
+            if let Some(token) = token {
+                request = request.header("authorization", format!("Bearer {token}"));
+            }
+            let response = super::http::handle(
+                axum::extract::State(state.clone()),
+                request.body(axum::body::Body::empty()).unwrap(),
+            )
+            .await;
+            assert_eq!(response.status(), expected);
+        }
     }
     tokio::task::yield_now().await;
     assert_eq!(hits.load(Ordering::SeqCst), 0);
@@ -162,19 +196,21 @@ fn response(status: u16, body: &[u8]) -> Vec<u8> {
     ].concat()
 }
 
-fn task_targets() -> [ReadTarget; 3] {
+fn scoped_targets() -> [ReadTarget; 5] {
     let project = "01988000-0000-7000-8000-000000000001";
     let item = "01988000-0000-7000-8000-000000000002";
     [
         ReadTarget::parse(&format!("/api/projects/{project}/tasks"), None).unwrap(),
         ReadTarget::parse(&format!("/api/projects/{project}/tasks/{item}"), None).unwrap(),
         ReadTarget::parse(&format!("/api/projects/{project}/pipelines/{item}"), None).unwrap(),
+        ReadTarget::parse(&format!("/api/projects/{project}/runs"), None).unwrap(),
+        ReadTarget::parse(&format!("/api/projects/{project}/runs/{item}"), None).unwrap(),
     ]
 }
 
 #[tokio::test]
 async fn each_route_accepts_its_exact_body_bound() {
-    for target in [health()].into_iter().chain(task_targets()) {
+    for target in [health()].into_iter().chain(scoped_targets()) {
         let body = format!("{{\"value\":\"{}\"}}", "x".repeat(target.body_limit - 12));
         assert_eq!(body.len(), target.body_limit);
         let (_dir, client, server) =
@@ -186,7 +222,7 @@ async fn each_route_accepts_its_exact_body_bound() {
 
 #[tokio::test]
 async fn declared_and_chunked_oversize_fail_with_explicit_error_even_for_error_statuses() {
-    for target in [health()].into_iter().chain(task_targets()) {
+    for target in [health()].into_iter().chain(scoped_targets()) {
         assert!(matches!(
             target.body_limit,
             CORE_BODY_LIMIT | DETAIL_BODY_LIMIT
@@ -213,8 +249,8 @@ async fn declared_and_chunked_oversize_fail_with_explicit_error_even_for_error_s
 }
 
 #[tokio::test]
-async fn cursor_conflict_mapping_is_exact_and_only_for_task_list() {
-    for target in task_targets() {
+async fn cursor_conflict_mapping_is_exact_and_only_for_paginated_lists() {
+    for target in scoped_targets() {
         for body in [
             br#"{"error":{"code":"cursor_invalid","message":"private Core details"}}"#.as_slice(),
             br#"{"error":{"code":"other_conflict"}}"#.as_slice(),
@@ -256,7 +292,7 @@ async fn browser_read(path: &str, upstream: Vec<u8>) -> (axum::response::Respons
 }
 
 #[tokio::test]
-async fn browser_task_reads_forward_only_scoped_path_and_safe_query() {
+async fn browser_scoped_reads_forward_only_scoped_path_and_safe_query() {
     for project in [
         "01988000-0000-7000-8000-000000000001",
         "01988000-0000-7000-8000-000000000003",
@@ -265,15 +301,17 @@ async fn browser_task_reads_forward_only_scoped_path_and_safe_query() {
             "tasks?cursor=a%26actor%3Downer%2Bb&limit=2",
             "tasks/01988000-0000-7000-8000-000000000002",
             "pipelines/01988000-0000-7000-8000-000000000002",
+            "runs?cursor=a%26actor%3Downer%2Bb&limit=2",
+            "runs/01988000-0000-7000-8000-000000000002",
         ] {
             let path = format!("/api/projects/{project}/{suffix}");
             let (result, request) = browser_read(&path, response(200, b"{}")).await;
             assert_eq!(result.status(), axum::http::StatusCode::OK);
             let request = String::from_utf8(request).unwrap();
-            let expected_suffix = if suffix.contains('?') {
-                "tasks?limit=2&cursor=a%26actor%3Downer%2Bb"
+            let expected_suffix = if let Some((resource, _)) = suffix.split_once('?') {
+                format!("{resource}?limit=2&cursor=a%26actor%3Downer%2Bb")
             } else {
-                suffix
+                suffix.to_owned()
             };
             assert_eq!(
                 request,
@@ -287,47 +325,51 @@ async fn browser_task_reads_forward_only_scoped_path_and_safe_query() {
 
 #[tokio::test]
 async fn browser_preserves_scoped_not_found_and_sanitizes_cursor_and_size_errors() {
-    let path = "/api/projects/01988000-0000-7000-8000-000000000001/tasks?limit=20";
-    for (upstream, status, expected) in [
-        (
-            response(404, br#"{"error":"private missing-task details"}"#),
-            axum::http::StatusCode::NOT_FOUND,
-            serde_json::json!({"error":"not found"}),
-        ),
-        (
-            response(
-                409,
-                br#"{"error":{"code":"cursor_invalid","message":"private cursor"}}"#,
-            ),
-            axum::http::StatusCode::CONFLICT,
-            serde_json::json!({"error":"pagination cursor is no longer valid","code":"cursor_invalid"}),
-        ),
-        (
-            response(
-                409,
-                br#"{"error":{"code":"unknown","message":"private error"}}"#,
-            ),
-            axum::http::StatusCode::BAD_GATEWAY,
-            serde_json::json!({"error":"invalid Core response"}),
-        ),
-        (
-            format!(
-                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n",
-                CORE_BODY_LIMIT + 1
-            )
-            .into_bytes(),
-            axum::http::StatusCode::BAD_GATEWAY,
-            serde_json::json!({"error":"response exceeds interface limit","code":"response_too_large"}),
-        ),
+    for path in [
+        "/api/projects/01988000-0000-7000-8000-000000000001/tasks?limit=20",
+        "/api/projects/01988000-0000-7000-8000-000000000001/runs?limit=20",
     ] {
-        let (result, _) = browser_read(path, upstream).await;
-        assert_eq!(result.status(), status);
-        let bytes = axum::body::to_bytes(result.into_body(), 1024)
-            .await
-            .unwrap();
-        assert_eq!(
-            serde_json::from_slice::<serde_json::Value>(&bytes).unwrap(),
-            expected
-        );
+        for (upstream, status, expected) in [
+            (
+                response(404, br#"{"error":"private missing-task details"}"#),
+                axum::http::StatusCode::NOT_FOUND,
+                serde_json::json!({"error":"not found"}),
+            ),
+            (
+                response(
+                    409,
+                    br#"{"error":{"code":"cursor_invalid","message":"private cursor"}}"#,
+                ),
+                axum::http::StatusCode::CONFLICT,
+                serde_json::json!({"error":"pagination cursor is no longer valid","code":"cursor_invalid"}),
+            ),
+            (
+                response(
+                    409,
+                    br#"{"error":{"code":"unknown","message":"private error"}}"#,
+                ),
+                axum::http::StatusCode::BAD_GATEWAY,
+                serde_json::json!({"error":"invalid Core response"}),
+            ),
+            (
+                format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n",
+                    CORE_BODY_LIMIT + 1
+                )
+                .into_bytes(),
+                axum::http::StatusCode::BAD_GATEWAY,
+                serde_json::json!({"error":"response exceeds interface limit","code":"response_too_large"}),
+            ),
+        ] {
+            let (result, _) = browser_read(path, upstream).await;
+            assert_eq!(result.status(), status);
+            let bytes = axum::body::to_bytes(result.into_body(), 1024)
+                .await
+                .unwrap();
+            assert_eq!(
+                serde_json::from_slice::<serde_json::Value>(&bytes).unwrap(),
+                expected
+            );
+        }
     }
 }

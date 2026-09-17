@@ -404,6 +404,10 @@ pub(super) fn timestamp(value: Timestamp) -> Result<String, CoreError> {
 }
 
 #[cfg(test)]
+#[path = "views/run_tests.rs"]
+mod run_tests;
+
+#[cfg(test)]
 mod tests {
     use forge_domain::{Project, ProjectId, Timestamp};
 

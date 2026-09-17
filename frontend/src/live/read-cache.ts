@@ -7,6 +7,10 @@ export const readKeys = {
     ["live", generation, project, "task", task] as const,
   pipeline: (generation: number, project: string, task: string, version: string) =>
     ["live", generation, project, "pipeline", task, version] as const,
+  runs: (generation: number, project: string, cursor: string | null) =>
+    ["live", generation, project, "runs", cursor] as const,
+  run: (generation: number, project: string, run: string) =>
+    ["live", generation, project, "run", run] as const,
 };
 
 /** Committed scope cleanup owns removal; do not remove a still-observed navigation key. */
@@ -31,4 +35,11 @@ export function prepareProjectChange(client: QueryClient, generation: number) {
     void client.cancelQueries({ queryKey });
     client.removeQueries({ queryKey, predicate: (query) => query.getObserversCount() === 0 });
   }
+}
+
+/** Section navigation keeps the Project card, releasing old reads on unmount. */
+export function prepareSectionChange(client: QueryClient, generation: number, project: string) {
+  const queryKey = ["live", generation, project];
+  void client.cancelQueries({ queryKey });
+  client.removeQueries({ queryKey, predicate: (query) => query.getObserversCount() === 0 });
 }

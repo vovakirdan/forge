@@ -6,10 +6,11 @@ import { presentTaskDetail } from "../presentation/task.ts";
 import { describeApiError } from "./api.ts";
 import { readKeys } from "./read-cache.ts";
 import { useReadLifetime } from "./use-read-lifetime.ts";
-import { Field, TaskFacts } from "./TaskFacts.tsx";
-import type { TaskScope } from "./TaskBrowser.tsx";
+import { Field } from "./Field.tsx";
+import { TaskFacts } from "./TaskFacts.tsx";
+import type { ProjectReadScope } from "./read-scope.ts";
 
-export function TaskDetailPanel(scope: TaskScope & { taskId: string; onClose: () => void }) {
+export function TaskDetailPanel(scope: ProjectReadScope & { taskId: string; onClose: () => void }) {
   const { api, session, generation, projectId, taskId, onClose } = scope;
   const title = useRef<HTMLHeadingElement>(null);
   const key = useMemo(
@@ -125,7 +126,7 @@ function PinnedStage({
   generation,
   projectId,
   task,
-}: TaskScope & { task: TaskDetailView }) {
+}: ProjectReadScope & { task: TaskDetailView }) {
   const key = useMemo(
     () => readKeys.pipeline(generation, projectId, task.id, task.pipeline_version_id),
     [generation, projectId, task.id, task.pipeline_version_id],

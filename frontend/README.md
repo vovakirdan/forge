@@ -1,17 +1,21 @@
-# Forge Control Room — local demo and live Project/Task reads
+# Forge Control Room — local demo and live Project/Task/Run reads
 
 The imported React/TanStack demo uses in-memory mock services and does not connect
 to Forge Core. Its tasks, employees, metrics and management actions are not
 evidence of real execution. The separate FRONTEND-007 live entry adds owner login
 and read-only Project access through the native Rust gateway. FRONTEND-008 adds
-the real Task list and detail card with pinned Pipeline stage. It does not load
-the demo shell or services; Board, Team, commands and SSE remain future work.
+the real Task list and detail card with pinned Pipeline stage. FRONTEND-009 adds
+Project-wide Run list/detail and diagnostic availability in a separate Runs
+section. It does not load the demo shell or services; Board, Team, commands,
+SSE and body/context viewers remain future work.
 
 The demo needs no Lovable account, API keys, database, Podman services or provider
 Runs. The live screen needs a running local Core and an existing Project ID;
 it does not need provider credentials or start Runs. Acceptance results belong
-in [FRONTEND-007](../tasks/frontend/frontend-007-live-owner-gateway.md) and
-[FRONTEND-008](../tasks/frontend/frontend-008-live-task-reads.md).
+in [FRONTEND-007](../tasks/frontend/frontend-007-live-owner-gateway.md),
+[FRONTEND-008](../tasks/frontend/frontend-008-live-task-reads.md) and
+[FRONTEND-009](../tasks/frontend/frontend-009-live-run-reads.md), not in the
+existence of these instructions.
 
 ## Prerequisites
 
@@ -110,11 +114,12 @@ the terminal. Paste the code into the live screen, then enter an existing UUIDv7
 Project ID. The card reads real `id`, `name`, `revision` and `execution_gate`;
 health alone does not prove Project access.
 
-The live Task list then reads 20 Tasks at a time. Use **Previous page**,
-**Next page** and **Refresh tasks**; **Open TASK-…** opens its read-only detail.
+The Project opens the **Tasks** section, which reads 20 Tasks at a time. Use
+**Previous page**, **Next page** and **Refresh tasks**; **Open TASK-…** opens its read-only detail.
 The card shows description, Definition of Done, properties, waits, and each
-artifact's ID, kind, title and creation date. Stage names come from the version pinned by the fresh Task detail,
-including an old version in a soft-deleted Pipeline catalog. List rows show raw
+artifact's ID, kind, title and creation date. Stage names come from the version
+pinned by the fresh Task detail, including an old version in a soft-deleted
+Pipeline catalog. List rows show raw
 stage/priority IDs: there is no invented priority label, assignee or Run state.
 The canonical detail response still contains inline artifact bodies and metadata;
 the card does not render them or follow referenced URLs/object refs.
@@ -123,9 +128,32 @@ the card does not render them or follow referenced URLs/object refs.
 stale; an initial failure does not appear as an empty list. If a cursor becomes
 invalid, use **Restart pagination**. An oversized response reports the interface
 limit (64 KiB for lists, 1 MiB for detail/Pipeline), without truncation or a claim
-that the Task is corrupt. Changing Project clears the selected Task and cursor
-history; a page reload clears Project/Task selection but retains a valid session.
-Navigation discards inactive query data, and logout/401 clears all session data.
+that the Task is corrupt.
+
+Choose **Runs** to read the selected Project's Runs, then **Open Run …** for a
+card. **Previous page**, **Next page**, **Refresh runs**, **Refresh run** and
+**Close run** operate on this read-only section. This is not Task-specific Run
+history; no Task filter or history total is inferred from a loaded page.
+The card keeps desired and observed states separate: a stop request is not
+confirmation that execution stopped. Purpose-specific owner fields and nullable
+Task/Employee IDs stay explicit; provider/model/timestamps/cost/duration/names
+are unavailable in the current DTO and are not invented.
+
+Run diagnostics show report/handoff/usage/Git-source availability, loaded
+incident/evidence counts and stream completeness. `null` means absent; `{}` is
+present but proves neither success nor acceptance. Inline diagnostic objects
+still arrive in the bounded detail response; the card does not display their
+bodies, URLs, object refs or paths, or fetch referenced content. Core's current
+Run pagination loads all Project Runs before selecting a page; browser limits
+do not remove that server-side limitation. Large diagnostics may exceed 1 MiB
+and produce an explicit size error.
+
+Switching **Tasks**/**Runs** cancels old reads and drops their selection/cursor
+history; returning starts from page one. Changing Project also resets the section
+to Tasks. A page reload clears Project selection but retains a valid session.
+Navigation cancels reads immediately and removes inactive query data after the
+scope change commits, without recreating still-observed old queries. Logout/401
+clears session data. Reads refresh only on request; there is no polling or SSE.
 
 Both binaries resolve the runtime directory in this order, skipping unset or
 relative environment values:
@@ -203,7 +231,14 @@ Tasks, artifacts and versioned Pipelines through named commands; it does not
 reuse personal queues or require inference. Task browser checks include page20,
 cross-Project isolation, an empty Project, old pins after default change/soft
 deletion, delayed real reads, keyboard/narrow layout and explicit recovery.
-Synthetic fault tests are labelled separately from real-Core evidence.
+The Run fixture uses separate Projects with 23 + 1 Runs and an empty Project.
+Named commands and M0 fake runtime create the records; the fixture waits for
+observed Stopped before publishing its coordinates. This proves real Core reads
+with deterministic test execution, not a provider or sandbox Run. Synthetic
+cases for all five purposes, nullable owners, independent states, diagnostic
+contents and injected failures are labelled separately from real-Core evidence.
+The current acceptance outcome belongs in FRONTEND-009; this runbook does not
+claim its checks passed.
 The suite does not run the broad backend integration target. Its temporary
 processes stop on exit; PostgreSQL test schemas are retained for diagnosis.
 
@@ -351,8 +386,9 @@ erasable syntax, not Vite aliases, TS enums or JSX. No additional runner or
 dependency installation is needed after the normal frozen install.
 
 The imported demo screens still use `src/data/types.ts` and mock services.
-The separate live entry consumes Project/Task/PipelineVersion contracts for real
-reads; imported demo screens and Run views are not connected yet. Passing contract
+The separate live entry consumes Project/Task/PipelineVersion/Run contracts for
+real reads; imported demo screens remain disconnected. FRONTEND-009 reuses the
+existing Run schemas without changing the Core wire format. Passing contract
 tests alone does not prove live API
 integration. See [FRONTEND-002](../tasks/frontend/frontend-002-task-pipeline-contracts.md),
 [FRONTEND-003](../tasks/frontend/frontend-003-run-read-contracts.md) and the
@@ -389,5 +425,7 @@ Run `just ui-test-presentation` from the repository root, or
 `bun run test:presentation` here. Like contract tests, these synthetic tests use
 Node's built-in runner and relative `.ts` imports without services, keys or a
 browser. Run them sequentially with the same resource limits as the other checks.
-The screens still use demo services, not this presentation layer. See
-[FRONTEND-005](../tasks/frontend/frontend-005-task-run-presentation.md).
+The imported screens still use demo services. The separate live entry uses this
+presentation layer for Task and Run reads. See
+[FRONTEND-005](../tasks/frontend/frontend-005-task-run-presentation.md) and
+[FRONTEND-009](../tasks/frontend/frontend-009-live-run-reads.md).

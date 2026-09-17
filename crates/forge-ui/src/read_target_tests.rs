@@ -39,6 +39,18 @@ fn scoped_reads_have_fixed_paths_limits_and_cursor_policy() {
             DETAIL_BODY_LIMIT,
             false,
         ),
+        (
+            format!("/api/projects/{PROJECT}/runs"),
+            format!("/v1/projects/{PROJECT}/runs?limit=20"),
+            CORE_BODY_LIMIT,
+            true,
+        ),
+        (
+            format!("/api/projects/{PROJECT}/runs/{TASK}"),
+            format!("/v1/projects/{PROJECT}/runs/{TASK}"),
+            DETAIL_BODY_LIMIT,
+            false,
+        ),
     ] {
         let target = ReadTarget::parse(&path, None).unwrap();
         assert_eq!(target.path, expected);
@@ -116,7 +128,7 @@ fn cursor_limit_counts_decoded_utf8_bytes_not_characters_or_encoded_length() {
 }
 
 #[test]
-fn only_task_list_accepts_query_and_no_other_resource_is_added() {
+fn only_task_and_run_lists_accept_queries_and_other_resources_stay_closed() {
     for path in [
         "/api/health".into(),
         format!("/api/projects/{PROJECT}"),
@@ -126,6 +138,10 @@ fn only_task_list_accepts_query_and_no_other_resource_is_added() {
         format!("/api/projects/{PROJECT}/tasks/"),
         format!("/api/projects/{PROJECT}/tasks/{TASK}/artifacts"),
         format!("/api/projects/{PROJECT}/employees"),
+        format!("/api/projects/{PROJECT}/runs/{TASK}"),
+        format!("/api/projects/{PROJECT}/runs/"),
+        format!("/api/projects/{PROJECT}/runs/{TASK}/evidence"),
+        format!("/api/projects/{PROJECT}/tasks/{TASK}/runs"),
     ] {
         assert!(matches!(
             ReadTarget::parse(&path, Some("limit=20")),
@@ -150,6 +166,9 @@ fn new_routes_require_both_identifiers_to_be_uuidv7() {
             format!("/api/projects/{invalid}/tasks/{TASK}"),
             format!("/api/projects/{PROJECT}/tasks/{invalid}"),
             format!("/api/projects/{PROJECT}/pipelines/{invalid}"),
+            format!("/api/projects/{invalid}/runs"),
+            format!("/api/projects/{invalid}/runs/{TASK}"),
+            format!("/api/projects/{PROJECT}/runs/{invalid}"),
         ] {
             assert!(
                 matches!(ReadTarget::parse(&path, None), Err(ApiError::NotFound)),
@@ -157,4 +176,50 @@ fn new_routes_require_both_identifiers_to_be_uuidv7() {
             );
         }
     }
+}
+
+#[test]
+fn run_pagination_uses_the_same_strict_bounded_parser_as_task_pagination() {
+    let path = format!("/api/projects/{PROJECT}/runs");
+    let target = ReadTarget::parse(
+        &path,
+        Some("cursor=%D1%8F%2F%3F%26limit%3D100%2B+%25&limit=001"),
+    )
+    .unwrap();
+    assert_eq!(
+        target.path,
+        format!("/v1/projects/{PROJECT}/runs?limit=1&cursor=%D1%8F%2F%3F%26limit%3D100%2B%20%25")
+    );
+    for query in [
+        "",
+        "cursor",
+        "limit=0",
+        "limit=101",
+        "limit=-1",
+        "limit=1.0",
+        "limit=1&%6cimit=2",
+        "cursor=a&cursor=b",
+        "cursor=",
+        "cursor=%",
+        "cursor=%GG",
+        "cursor=%FF",
+        "task_id=x",
+        "purpose=hook",
+        "token=x",
+        "limit=20&",
+        "cursor=a&actor=owner",
+    ] {
+        assert!(
+            matches!(
+                ReadTarget::parse(&path, Some(query)),
+                Err(ApiError::BadRequest)
+            ),
+            "{query}"
+        );
+    }
+    assert!(ReadTarget::parse(&path, Some(&format!("cursor={}", "%D1%8F".repeat(512)))).is_ok());
+    assert!(matches!(
+        ReadTarget::parse(&path, Some(&format!("cursor={}", "%D1%8F".repeat(513)))),
+        Err(ApiError::BadRequest)
+    ));
 }

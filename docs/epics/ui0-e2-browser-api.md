@@ -1,7 +1,7 @@
 # Epic UI0.2 — Локальная browser boundary и API client
 
 **Milestone:** UI0 — Модель интерфейса и локальная API-граница
-**Статус:** in_progress — static proof и owner gateway/Project read срез; полная приёмка эпика впереди
+**Статус:** in_progress — static proof, owner gateway и Project/Task/Run read срезы; полная приёмка эпика впереди
 **Тип / приоритет:** integration / P0
 **Источники:** [UI-план](../UI_IMPLEMENTATION_PLAN.md),
 [матрица соответствия](../UI_BACKEND_ALIGNMENT.md)
@@ -41,6 +41,15 @@ allowlist scoped Task list/detail и PipelineVersion reads. Новый read-only
 использует существующие DTO; response bounds, cursor recovery, scope isolation
 и поздние ответы проверяются отдельно. Commands/SSE по-прежнему не подключены.
 
+[FRONTEND-009](../../tasks/frontend/frontend-009-live-run-reads.md) добавляет
+Run list/detail GET выбранного Project. Использует те же UUIDv7/query guards,
+list/detail caps 64 KiB/1 MiB, безопасные cursor/oversize errors и scoped cache.
+Core routes и schemas остаются прежними. Отдельный раздел Runs показывает
+независимые states и diagnostic availability/loaded counts; inline diagnostics
+поступают браузеру, но bodies/URLs/object refs не отображаются и не загружаются
+отдельно. Навигация отменяет reads, удаляя query records после commit смены
+области. Новый срез не добавляет команды, SSE или evidence viewer.
+
 Независимо от hosting, boundary имеет browser-facing loopback origin и доступ
 к owner-local Core API; она не получает собственный scheduler или DB-write слой.
 
@@ -70,7 +79,8 @@ Remote control, accounts/RBAC, OAuth service, WebSocket, API gateway platform,
 **Зависимости:** UI0.1 и UI0.3. Пользователь разрешил FRONTEND-006 (ADR/static
 proof), затем FRONTEND-007 (owner login/Project read) до их полного закрытия на
 основе FRONTEND-001–005. Следом согласован FRONTEND-008 — Task read срез UI1.3
-поверх этой границы. Это исключение для ограниченных срезов; остальные
+поверх этой границы, затем FRONTEND-009 — Run read срез UI2.1.
+Это исключение для ограниченных срезов; остальные
 gates сохраняются. Финальное packaging и полный typed transport входят в UI0.2.
 Существующий CLI over UDS остаётся совместимым. Browser actor определяется
 trusted server boundary, а не полем запроса. Валидация прав остаётся в Core.
