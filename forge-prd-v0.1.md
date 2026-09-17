@@ -354,7 +354,9 @@ Goal → Epic → Task
 
 - повторная попытка не меняет `Task.id`;
 - одновременно допустим не более одного active write-Run на TaskWorkSurface;
-- Task закрепляется за конкретной версией Pipeline при approval;
+- Task выбирает и сохраняет конкретную PipelineVersion при создании; approval
+  закрепляет уже выбранную версию в execution-spec revision, а смена default
+  не меняет существующие Task, включая draft;
 - `done` допустим только после terminal success contract закреплённого Pipeline;
 - изменения `main` возможны только из Integration;
 - Finding не становится Task без отдельной promote-команды.
@@ -965,7 +967,9 @@ Bob обнаруживает потенциально несвязанную о�
 ### 16.3. Pipeline и Task
 
 - **FR-020:** пользователь может создавать versioned Pipeline из stages и transitions.
-- **FR-021:** Task закрепляет PipelineVersion при approval.
+- **FR-021:** Task выбирает PipelineVersion при создании (явно либо current
+  default выбранного Pipeline). Approval закрепляет эту версию в execution-spec
+  revision; смена default не переназначает существующие Task, включая draft.
 - **FR-022:** Core отклоняет недопустимый transition.
 - **FR-023:** declared failure outcome возвращает ту же Task по transition выбранного Pipeline.
 - **FR-024:** Pipeline поддерживает max attempts, timeout и failure transition.
@@ -1396,7 +1400,9 @@ wave используют backend contracts. UI acceptance не входит в 
 11. Alice выполняет независимый Review #1 и запрашивает изменения.
 12. `TASK-142` возвращается Bob без создания `FixReviewTask`.
 13. После следующей реализации Verification проходит, Review approves.
-14. Integration делает rebase, final checks и merge в `main`.
+14. Integration проверяет принятый candidate и настроенные required reviews/hooks,
+    сохраняет точный merge intent и применяет compare-and-swap к `main` без скрытого
+    rebase. Устаревшая база возвращает ту же Task в доработку.
 15. `TASK-142` становится Done с final SHA и полной timeline.
 16. `TaskCompleted` создаёт background SystemJob для Task Summary и memory candidates.
 17. Memory Service сохраняет evidence-backed Employee Memory и Project Knowledge отдельно от Policies.

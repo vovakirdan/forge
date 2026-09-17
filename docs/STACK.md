@@ -71,6 +71,10 @@ Vite и Lovable wrapper импортированного прототипа со
 локального demo; production hosting/browser auth остаются в UI0.2, а test harness
 и CI — в оставшейся части UI0.3.
 
+FRONTEND-002 добавляет только read-contract tests: установленный Zod 3 и
+встроенный `node:test` в закреплённом Node, без нового test framework/dependencies.
+Это отдельный `just ui-test-contracts`, не component/browser harness UI0.3.
+
 ## 4. Execution isolation
 
 ### Primary backend: rootless Podman

@@ -42,13 +42,15 @@ bun run dev
 Run one command at a time:
 
 ```sh
+just ui-test-contracts
 just ui-typecheck
 just ui-lint
 just ui-build
 ```
 
-These map to `bun run typecheck`, `bun run lint`, and `bun run build` inside
-`frontend/`. Typecheck and lint do not rewrite source files. Vite can regenerate
+These map to `bun run test:contracts`, `bun run typecheck`, `bun run lint`, and
+`bun run build` inside `frontend/`. Contract tests, typecheck and lint do not
+rewrite source files. Vite can regenerate
 the tracked route manifest when routes change; the current baseline produces
 no source diff. Build output lives in ignored directories; inspect
 `git status --short` after checks. The existing `format` script does rewrite
@@ -72,7 +74,7 @@ systemd-run --user --scope --quiet \
   timeout 300s just ui-build
 ```
 
-Apply it separately to install, typecheck and lint. Keep checks sequential and
+Apply it separately to install, contract tests, typecheck and lint. Keep checks sequential and
 do not run Rust validation alongside them. A memory-limit failure remains a
 failed check; investigate it rather than silently dropping the limits. For a
 bounded demo session use the same wrapper with `timeout 1200s just ui-dev`.
@@ -88,3 +90,21 @@ There is no component/browser test suite wired into this package yet. The manual
 browser smoke is not a substitute for that harness, which remains in
 [UI0.3](../docs/epics/ui0-e3-frontend-tooling.md). API integration, domain alignment
 and real data belong to the [UI roadmap](../docs/UI_IMPLEMENTATION_PLAN.md).
+
+## Core read contracts
+
+`src/contracts/` is an isolated schema/type layer for the existing Project, Task
+and PipelineVersion read responses. It uses the installed Zod package and
+Node's built-in test runner with synthetic wire-shaped fixtures. Run
+`just ui-test-contracts` from the repository root, or `bun run test:contracts`
+from this directory. Tests run sequentially and need no services or keys.
+
+Node executes these TypeScript tests by stripping types; `ui-typecheck` remains
+the separate compiler check. Contract modules use relative `.ts` imports and
+erasable syntax, not Vite aliases, TS enums or JSX. No additional runner or
+dependency installation is needed after the normal frozen install.
+
+The current screens still use `src/data/types.ts` and mock services; they do not
+consume these contracts yet. Passing contract tests does not prove live API
+integration. See [FRONTEND-002](../tasks/frontend/frontend-002-task-pipeline-contracts.md)
+and the [field/gap map](../docs/UI_BACKEND_ALIGNMENT.md#8-read-contracts-frontend-002).

@@ -24,6 +24,10 @@ ui-typecheck:
 ui-lint:
     cd frontend && bun run lint
 
+# Test isolated Core read contracts without a server, browser or provider Run.
+ui-test-contracts:
+    cd frontend && bun run test:contracts
+
 # Create owner-only synthetic configuration for the local development topology.
 dev-init:
     @./scripts/dev-init.sh

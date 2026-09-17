@@ -15,6 +15,7 @@
     "preview": "vite preview",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
+    "test:contracts": "node --test --test-concurrency=1 src/contracts/*.test.ts",
     "format": "prettier --write ."
   },
   "overrides": {

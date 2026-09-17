@@ -25,9 +25,11 @@ M0–M3 сохраняют свои ledgers и приёмку. По решени
 
 ## Control Room milestones
 
-UI0.3 имеет статус in_progress: первая [FRONTEND-001](../../tasks/frontend/frontend-001-local-demo-baseline.md)
-проверяет local demo baseline. Остальные UI epics — planned; полный UI0.3 gate
-не пройден. Выполняемые задачи — в [Task index](../../tasks/INDEX.md).
+UI0.1 и UI0.3 имеют статус in_progress:
+[FRONTEND-001](../../tasks/frontend/frontend-001-local-demo-baseline.md) проверяет
+local demo baseline, [FRONTEND-002](../../tasks/frontend/frontend-002-task-pipeline-contracts.md)
+добавляет Task/Pipeline read contracts без подключения экранов. Остальные UI epics
+— planned; полные gates UI0.1/UI0.3 не пройдены. Задачи — в [Task index](../../tasks/INDEX.md).
 
 | Milestone | Epic | Выход |
 |---|---|---|
