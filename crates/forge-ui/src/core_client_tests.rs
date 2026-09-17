@@ -14,9 +14,14 @@ use tokio::{
 };
 
 use crate::{
-    core_client::{CORE_BODY_LIMIT, CoreClient},
+    core_client::CoreClient,
     http::ApiError,
+    read_target::{CORE_BODY_LIMIT, DETAIL_BODY_LIMIT, ReadTarget},
 };
+
+fn health() -> ReadTarget {
+    ReadTarget::parse("/api/health", None).unwrap()
+}
 
 async fn fake_core(
     response: Vec<u8>,
@@ -59,7 +64,7 @@ async fn upstream_request_is_fixed_and_never_carries_browser_authority() {
     .into_bytes();
     let (_dir, client, server) =
         fake_core([response, body.to_vec()].concat(), Duration::ZERO).await;
-    assert_eq!(client.read("/v1/health").await.unwrap(), body.as_slice());
+    assert_eq!(client.read(&health()).await.unwrap(), body.as_slice());
     let request = String::from_utf8(server.await.unwrap()).unwrap();
     assert!(request.starts_with("GET /v1/health HTTP/1.1\r\n"));
     assert!(!request.to_lowercase().contains("authorization"));
@@ -67,19 +72,18 @@ async fn upstream_request_is_fixed_and_never_carries_browser_authority() {
 }
 
 #[tokio::test]
-async fn upstream_chunked_and_declared_oversize_redirect_and_malformed_json_are_rejected() {
-    let large = vec![b'x'; CORE_BODY_LIMIT + 1];
+async fn upstream_redirect_and_malformed_json_are_rejected() {
     let cases = [
-        [format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n",large.len()).into_bytes(),large.clone()].concat(),
-        [format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\n\r\n{:x}\r\n",large.len()).into_bytes(),large,b"\r\n0\r\n\r\n".to_vec()].concat(),
-        b"HTTP/1.1 302 Found\r\nLocation: http://evil.invalid\r\nContent-Length: 0\r\n\r\n".to_vec(),
-        b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 4\r\n\r\noops".to_vec(),
+        b"HTTP/1.1 302 Found\r\nLocation: http://evil.invalid\r\nContent-Length: 0\r\n\r\n"
+            .to_vec(),
+        b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 4\r\n\r\noops"
+            .to_vec(),
         b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: 2\r\n\r\n{}".to_vec(),
     ];
     for response in cases {
         let (_dir, client, server) = fake_core(response, Duration::ZERO).await;
         assert!(matches!(
-            client.read("/v1/health").await,
+            client.read(&health()).await,
             Err(ApiError::BadGateway)
         ));
         let _ = server.await.unwrap();
@@ -91,7 +95,7 @@ async fn unsafe_socket_modes_are_rejected_before_connection() {
     let (_dir, client, server) = fake_core(Vec::new(), Duration::ZERO).await;
     fs::set_permissions(&client.socket, fs::Permissions::from_mode(0o666)).unwrap();
     assert!(matches!(
-        client.read("/v1/health").await,
+        client.read(&health()).await,
         Err(ApiError::Unavailable)
     ));
     assert!(!server.is_finished());
@@ -117,16 +121,23 @@ async fn unauthorized_browser_does_not_connect_to_existing_core_socket() {
     let mut state = Arc::try_unwrap(super::http_tests::state()).ok().unwrap();
     state.core.socket = path;
     let state = Arc::new(state);
-    let response = super::http::handle(
-        axum::extract::State(state),
-        axum::http::Request::builder()
-            .uri("/api/health")
-            .header("host", "127.0.0.1:12345")
-            .body(axum::body::Body::empty())
-            .unwrap(),
-    )
-    .await;
-    assert_eq!(response.status(), axum::http::StatusCode::UNAUTHORIZED);
+    for path in [
+        "/api/health",
+        "/api/projects/01988000-0000-7000-8000-000000000001/tasks?limit=20",
+        "/api/projects/01988000-0000-7000-8000-000000000001/tasks/01988000-0000-7000-8000-000000000002",
+        "/api/projects/01988000-0000-7000-8000-000000000001/pipelines/01988000-0000-7000-8000-000000000002",
+    ] {
+        let response = super::http::handle(
+            axum::extract::State(state.clone()),
+            axum::http::Request::builder()
+                .uri(path)
+                .header("host", "127.0.0.1:12345")
+                .body(axum::body::Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(response.status(), axum::http::StatusCode::UNAUTHORIZED);
+    }
     tokio::task::yield_now().await;
     assert_eq!(hits.load(Ordering::SeqCst), 0);
     server.abort();
@@ -137,9 +148,186 @@ async fn stalled_upstream_is_cancelled_by_total_deadline() {
     let (_dir, client, server) = fake_core(Vec::new(), Duration::from_secs(60)).await;
     let start = tokio::time::Instant::now();
     assert!(matches!(
-        client.read("/v1/health").await,
+        client.read(&health()).await,
         Err(ApiError::Timeout)
     ));
     assert!(start.elapsed() < Duration::from_secs(7));
     server.abort();
+}
+
+fn response(status: u16, body: &[u8]) -> Vec<u8> {
+    [
+        format!("HTTP/1.1 {status} Test\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n", body.len()).into_bytes(),
+        body.to_vec(),
+    ].concat()
+}
+
+fn task_targets() -> [ReadTarget; 3] {
+    let project = "01988000-0000-7000-8000-000000000001";
+    let item = "01988000-0000-7000-8000-000000000002";
+    [
+        ReadTarget::parse(&format!("/api/projects/{project}/tasks"), None).unwrap(),
+        ReadTarget::parse(&format!("/api/projects/{project}/tasks/{item}"), None).unwrap(),
+        ReadTarget::parse(&format!("/api/projects/{project}/pipelines/{item}"), None).unwrap(),
+    ]
+}
+
+#[tokio::test]
+async fn each_route_accepts_its_exact_body_bound() {
+    for target in [health()].into_iter().chain(task_targets()) {
+        let body = format!("{{\"value\":\"{}\"}}", "x".repeat(target.body_limit - 12));
+        assert_eq!(body.len(), target.body_limit);
+        let (_dir, client, server) =
+            fake_core(response(200, body.as_bytes()), Duration::ZERO).await;
+        assert_eq!(client.read(&target).await.unwrap().len(), target.body_limit);
+        server.await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn declared_and_chunked_oversize_fail_with_explicit_error_even_for_error_statuses() {
+    for target in [health()].into_iter().chain(task_targets()) {
+        assert!(matches!(
+            target.body_limit,
+            CORE_BODY_LIMIT | DETAIL_BODY_LIMIT
+        ));
+        for status in [200, 404, 409, 503] {
+            // Header-only response proves rejection does not require reading the declared body.
+            let declared = format!("HTTP/1.1 {status} Test\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n", target.body_limit + 1).into_bytes();
+            let chunk = vec![b'x'; target.body_limit];
+            let chunked = [
+                format!("HTTP/1.1 {status} Test\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\n\r\n{:x}\r\n", chunk.len()).into_bytes(),
+                chunk,
+                b"\r\n1\r\nx\r\n0\r\n\r\n".to_vec(),
+            ].concat();
+            for response in [declared, chunked] {
+                let (_dir, client, server) = fake_core(response, Duration::ZERO).await;
+                assert!(matches!(
+                    client.read(&target).await,
+                    Err(ApiError::ResponseTooLarge)
+                ));
+                server.await.unwrap();
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn cursor_conflict_mapping_is_exact_and_only_for_task_list() {
+    for target in task_targets() {
+        for body in [
+            br#"{"error":{"code":"cursor_invalid","message":"private Core details"}}"#.as_slice(),
+            br#"{"error":{"code":"other_conflict"}}"#.as_slice(),
+            br#"{"code":"cursor_invalid"}"#.as_slice(),
+            b"not json".as_slice(),
+        ] {
+            let (_dir, client, server) = fake_core(response(409, body), Duration::ZERO).await;
+            let result = client.read(&target).await;
+            if target.cursor_conflict && body.starts_with(br#"{"error":{"code":"cursor_invalid""#) {
+                assert!(matches!(result, Err(ApiError::CursorInvalid)));
+            } else {
+                assert!(matches!(result, Err(ApiError::BadGateway)));
+            }
+            server.await.unwrap();
+        }
+    }
+}
+
+async fn browser_read(path: &str, upstream: Vec<u8>) -> (axum::response::Response, Vec<u8>) {
+    let (_dir, client, server) = fake_core(upstream, Duration::ZERO).await;
+    let mut state = Arc::try_unwrap(super::http_tests::state()).ok().unwrap();
+    state.core = client;
+    let code = state.sessions.issue_code().unwrap();
+    let session = state.sessions.exchange(&code.code).unwrap();
+    let response = super::http::handle(
+        axum::extract::State(Arc::new(state)),
+        axum::http::Request::builder()
+            .uri(path)
+            .header("host", "127.0.0.1:12345")
+            .header("origin", "http://127.0.0.1:12345")
+            .header("authorization", format!("Bearer {}", session.token))
+            .header("x-forge-actor", "untrusted-browser")
+            .header("cookie", "untrusted=browser")
+            .body(axum::body::Body::empty())
+            .unwrap(),
+    )
+    .await;
+    (response, server.await.unwrap())
+}
+
+#[tokio::test]
+async fn browser_task_reads_forward_only_scoped_path_and_safe_query() {
+    for project in [
+        "01988000-0000-7000-8000-000000000001",
+        "01988000-0000-7000-8000-000000000003",
+    ] {
+        for suffix in [
+            "tasks?cursor=a%26actor%3Downer%2Bb&limit=2",
+            "tasks/01988000-0000-7000-8000-000000000002",
+            "pipelines/01988000-0000-7000-8000-000000000002",
+        ] {
+            let path = format!("/api/projects/{project}/{suffix}");
+            let (result, request) = browser_read(&path, response(200, b"{}")).await;
+            assert_eq!(result.status(), axum::http::StatusCode::OK);
+            let request = String::from_utf8(request).unwrap();
+            let expected_suffix = if suffix.contains('?') {
+                "tasks?limit=2&cursor=a%26actor%3Downer%2Bb"
+            } else {
+                suffix
+            };
+            assert_eq!(
+                request,
+                format!(
+                    "GET /v1/projects/{project}/{expected_suffix} HTTP/1.1\r\nhost: localhost\r\naccept: application/json\r\n\r\n"
+                )
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn browser_preserves_scoped_not_found_and_sanitizes_cursor_and_size_errors() {
+    let path = "/api/projects/01988000-0000-7000-8000-000000000001/tasks?limit=20";
+    for (upstream, status, expected) in [
+        (
+            response(404, br#"{"error":"private missing-task details"}"#),
+            axum::http::StatusCode::NOT_FOUND,
+            serde_json::json!({"error":"not found"}),
+        ),
+        (
+            response(
+                409,
+                br#"{"error":{"code":"cursor_invalid","message":"private cursor"}}"#,
+            ),
+            axum::http::StatusCode::CONFLICT,
+            serde_json::json!({"error":"pagination cursor is no longer valid","code":"cursor_invalid"}),
+        ),
+        (
+            response(
+                409,
+                br#"{"error":{"code":"unknown","message":"private error"}}"#,
+            ),
+            axum::http::StatusCode::BAD_GATEWAY,
+            serde_json::json!({"error":"invalid Core response"}),
+        ),
+        (
+            format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n",
+                CORE_BODY_LIMIT + 1
+            )
+            .into_bytes(),
+            axum::http::StatusCode::BAD_GATEWAY,
+            serde_json::json!({"error":"response exceeds interface limit","code":"response_too_large"}),
+        ),
+    ] {
+        let (result, _) = browser_read(path, upstream).await;
+        assert_eq!(result.status(), status);
+        let bytes = axum::body::to_bytes(result.into_body(), 1024)
+            .await
+            .unwrap();
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&bytes).unwrap(),
+            expected
+        );
+    }
 }

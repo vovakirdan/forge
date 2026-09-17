@@ -14,9 +14,32 @@ const CoreFixtureSchema = z.object({
   project_name: z.string(),
   revision: z.number().int().positive(),
   execution_gate: z.literal("open"),
+  tasks: z.object({
+    total: z.number().int().positive(),
+    featured_id: z.string().uuid(),
+    featured_key: z.string(),
+    featured_title: z.string(),
+    second_id: z.string().uuid(),
+    second_key: z.string(),
+    draft_id: z.string().uuid(),
+    draft_key: z.string(),
+    pinned_version_id: z.string().uuid(),
+    default_version_id: z.string().uuid(),
+    pipeline_id: z.string().uuid(),
+    stage_id: z.string(),
+    stage_name: z.string(),
+    artifact_titles: z.array(z.string()),
+  }),
+  second_project: z.object({
+    id: z.string().uuid(),
+    name: z.string(),
+    task_id: z.string().uuid(),
+    task_title: z.string(),
+  }),
+  empty_project: z.object({ id: z.string().uuid(), name: z.string() }),
 });
 type CoreFixture = z.infer<typeof CoreFixtureSchema>;
-type Live = {
+export type Live = {
   origin: string;
   control: string;
   core: CoreFixture;
@@ -53,26 +76,28 @@ export const test = base.extend<{ live: Live }, { core: CoreFixture }>({
   ],
   live: async ({ core, page }, provide, info) => {
     let browserFaults = 0;
+    const faultKinds = new Map<string, number>();
     let browserEvents = 0;
     let expectedConsole: { pattern: RegExp; remaining: number } | null = null;
     const watched = new Map<
       Page,
       { console: (message: ConsoleMessage) => void; error: () => void }
     >();
-    const fault = () => {
+    const fault = (kind: string) => {
       browserFaults = Math.min(browserFaults + 1, 128);
+      faultKinds.set(kind, Math.min((faultKinds.get(kind) ?? 0) + 1, 128));
     };
     const watch = (opened: Page) => {
       if (watched.has(opened)) return;
       if (watched.size >= 16) {
-        fault();
+        fault("too_many_pages");
         return;
       }
       const onConsole = (message: ConsoleMessage) => {
         if (message.type() !== "error") return;
         browserEvents += 1;
         if (browserEvents > 128) {
-          fault();
+          fault("too_many_console_events");
           return;
         }
         if (
@@ -81,12 +106,26 @@ export const test = base.extend<{ live: Live }, { core: CoreFixture }>({
           expectedConsole.pattern.test(message.text())
         ) {
           expectedConsole.remaining -= 1;
-        } else fault();
+        } else {
+          const status =
+            /^Failed to load resource: the server responded with a status of ([45][0-9]{2}) /.exec(
+              message.text(),
+            )?.[1];
+          const network =
+            /^Failed to load resource: net::(ERR_ABORTED|ERR_FAILED|ERR_INTERNET_DISCONNECTED|ERR_CONNECTION_CLOSED)$/.exec(
+              message.text(),
+            )?.[1];
+          // Only finite categories or a three-digit HTTP status cross diagnostics.
+          fault(
+            status ? `console_http_${status}` : network ? `console_${network}` : "console_other",
+          );
+        }
       };
       // Never persist browser exception text: it could contain session material.
-      opened.on("pageerror", fault);
+      const onError = () => fault("page_error");
+      opened.on("pageerror", onError);
       opened.on("console", onConsole);
-      watched.set(opened, { console: onConsole, error: fault });
+      watched.set(opened, { console: onConsole, error: onError });
     };
     page.context().on("page", watch);
     for (const opened of page.context().pages()) watch(opened);
@@ -191,7 +230,8 @@ export const test = base.extend<{ live: Live }, { core: CoreFixture }>({
       // pages before the built-in failure-context capture can snapshot auth input.
       sanitizeErrors(info, secrets);
       try {
-        for (const open of page.context().pages()) await open.close().catch(fault);
+        for (const open of page.context().pages())
+          await open.close().catch(() => fault("page_close"));
         await stop(child);
         leaked = [...secrets].some((secret) => diagnostic.includes(secret));
         diagnostic = "";
@@ -208,7 +248,7 @@ export const test = base.extend<{ live: Live }, { core: CoreFixture }>({
     if (leaked) throw new Error("Gateway diagnostics exposed session material");
     if (browserFaults > 0)
       throw new Error(
-        `Unexpected browser errors or cleanup failures: ${browserFaults}; raw messages withheld`,
+        `Unexpected browser errors or cleanup failures: ${browserFaults}; categories=${JSON.stringify(Object.fromEntries(faultKinds))}; raw messages withheld`,
       );
   },
 });

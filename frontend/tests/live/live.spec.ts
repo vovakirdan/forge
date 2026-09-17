@@ -69,21 +69,45 @@ test("unknown Project has no mock fallback and network failure remains explicit"
     },
   );
   await expect(page.getByRole("region", { name: "Project", exact: true })).toHaveCount(0);
+  const switchedProjectRequests: string[] = [];
+  page.on("request", (request) => {
+    const path = new URL(request.url()).pathname;
+    if (path === `/api/projects/${live.core.project_id}`) switchedProjectRequests.push("selected");
+    if (path === "/api/projects/01900000-0000-7000-8000-000000000001")
+      switchedProjectRequests.push("previous");
+  });
   await page.context().setOffline(true);
   await live.allowConsoleErrors(
     /^Failed to load resource: net::ERR_INTERNET_DISCONNECTED$/,
     async () => {
+      const disconnected = page.waitForEvent("console", {
+        predicate: (message) =>
+          message.type() === "error" &&
+          message.text() === "Failed to load resource: net::ERR_INTERNET_DISCONNECTED",
+      });
       await page.getByLabel("Project ID", { exact: true }).fill(live.core.project_id);
       await page.getByRole("button", { name: "Load project", exact: true }).click();
       await expect(page.getByRole("alert")).toContainText(/unavailable|network|connect/i);
+      // React can render the fetch error before Chromium emits its console event.
+      // Keep the precise expected-error window open until that event arrives.
+      await disconnected;
     },
   );
+  expect(
+    switchedProjectRequests,
+    "Switch must not recreate a read for the previous Project",
+  ).toEqual(["selected"]);
   await expect(page.getByRole("button", { name: "Log out", exact: true })).toBeVisible();
   await page.context().setOffline(false);
   await page.getByRole("button", { name: "Retry project", exact: true }).click();
   await expect(page.getByRole("region", { name: "Project", exact: true })).toContainText(
     live.core.project_id,
   );
+  await expect(
+    page
+      .getByRole("region", { name: "Tasks", exact: true })
+      .getByRole("button", { name: /^Open TASK-/ }),
+  ).toHaveCount(20);
 });
 
 test("logout revokes a session copied into another tab", async ({ live, page }) => {

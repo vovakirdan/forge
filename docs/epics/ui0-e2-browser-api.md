@@ -36,6 +36,11 @@ sessions, CSP, bounded assets/transport и allowlisted Core reads. Отдель�
 Результаты unit/browser/Core/sandbox приёмки фиксируются в Task; наличие кода
 или historical static tests не означает, что эти gates уже пройдены.
 
+[FRONTEND-008](../../tasks/frontend/frontend-008-live-task-reads.md) расширяет
+allowlist scoped Task list/detail и PipelineVersion reads. Новый read-only экран
+использует существующие DTO; response bounds, cursor recovery, scope isolation
+и поздние ответы проверяются отдельно. Commands/SSE по-прежнему не подключены.
+
 Независимо от hosting, boundary имеет browser-facing loopback origin и доступ
 к owner-local Core API; она не получает собственный scheduler или DB-write слой.
 
@@ -64,7 +69,8 @@ Remote control, accounts/RBAC, OAuth service, WebSocket, API gateway platform,
 
 **Зависимости:** UI0.1 и UI0.3. Пользователь разрешил FRONTEND-006 (ADR/static
 proof), затем FRONTEND-007 (owner login/Project read) до их полного закрытия на
-основе FRONTEND-001–005. Это исключение для двух ограниченных срезов; остальные
+основе FRONTEND-001–005. Следом согласован FRONTEND-008 — Task read срез UI1.3
+поверх этой границы. Это исключение для ограниченных срезов; остальные
 gates сохраняются. Финальное packaging и полный typed transport входят в UI0.2.
 Существующий CLI over UDS остаётся совместимым. Browser actor определяется
 trusted server boundary, а не полем запроса. Валидация прав остаётся в Core.

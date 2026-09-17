@@ -25,7 +25,7 @@ M0–M3 сохраняют свои ledgers и приёмку. По решени
 
 ## Control Room milestones
 
-UI0.1 и UI0.3 имеют статус in_progress:
+UI0.1/UI0.2/UI0.3 и ранний срез UI1.3 имеют статус in_progress:
 [FRONTEND-001](../../tasks/frontend/frontend-001-local-demo-baseline.md) проверяет
 local demo baseline, [FRONTEND-002](../../tasks/frontend/frontend-002-task-pipeline-contracts.md)
 добавляет Task/Pipeline read contracts, а
@@ -40,7 +40,9 @@ UI0.2 с согласованного preparatory-среза: ADR/static proof �
 [FRONTEND-007](../../tasks/frontend/frontend-007-live-owner-gateway.md) добавляет
 отдельный owner gateway/live entry, terminal login и Core Project read.
 Приёмка этого среза фиксируется в Task, не выводится из FRONTEND-006 evidence.
-Остальные UI epics — planned; полные gates UI0.1/UI0.2/UI0.3 не пройдены.
+[FRONTEND-008](../../tasks/frontend/frontend-008-live-task-reads.md) начинает
+ранний read-only срез UI1.3: реальные Task list/detail и pinned Pipeline reads.
+Остальные UI epics — planned; полные gates UI0.1/UI0.2/UI0.3/UI1.3 не пройдены.
 Задачи — в [Task index](../../tasks/INDEX.md).
 
 | Milestone | Epic | Выход |

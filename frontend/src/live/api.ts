@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { UuidV7Schema, TimestampSchema } from "../contracts/common.ts";
 import { ProjectViewSchema } from "../contracts/project.ts";
+import { TaskDetailViewSchema, TaskListResponseSchema } from "../contracts/task.ts";
+import { PipelineVersionViewSchema } from "../contracts/pipeline.ts";
 
 export const SessionSchema = z.object({
   token: z.string().regex(/^[0-9a-f]{64}$/),
@@ -12,7 +14,14 @@ const HealthSchema = z
   .passthrough();
 
 export type ApiErrorKind =
-  "unauthorized" | "not_found" | "http" | "network" | "invalid_response" | "invalid_id";
+  | "unauthorized"
+  | "not_found"
+  | "http"
+  | "network"
+  | "invalid_response"
+  | "invalid_id"
+  | "response_too_large"
+  | "cursor_invalid";
 export class LiveApiError extends Error {
   readonly kind: ApiErrorKind;
   constructor(kind: ApiErrorKind) {
@@ -22,13 +31,16 @@ export class LiveApiError extends Error {
   }
 }
 
-export function describeApiError(error: unknown): string {
+export function describeApiError(
+  error: unknown,
+  resource: "Project" | "Task" | "Pipeline" = "Project",
+): string {
   if (!(error instanceof LiveApiError)) return "The request could not be completed.";
   switch (error.kind) {
     case "unauthorized":
       return "The session is no longer authorized. Connect again.";
     case "not_found":
-      return "Project not found.";
+      return `${resource} not found.`;
     case "http":
       return "Forge returned an error. Retry when the service is available.";
     case "network":
@@ -36,7 +48,11 @@ export function describeApiError(error: unknown): string {
     case "invalid_response":
       return "Forge returned an unsupported response.";
     case "invalid_id":
-      return "Enter a valid UUIDv7 Project ID.";
+      return `Enter a valid UUIDv7 ${resource} ID.`;
+    case "response_too_large":
+      return "This response exceeds the read-size limit. Its contents were not loaded.";
+    case "cursor_invalid":
+      return "This page cursor is no longer valid. Restart pagination to read the current list.";
   }
 }
 
@@ -68,6 +84,16 @@ export function createLiveApi(fetcher: typeof fetch = fetch) {
       throw new LiveApiError("network");
     }
     if (!response.ok) {
+      if (response.status === 409 || response.status === 502) {
+        const envelope: unknown = await response.json().catch(() => null);
+        const parsed = z.object({ error: z.string(), code: z.string() }).safeParse(envelope);
+        if (parsed.success) {
+          if (response.status === 409 && parsed.data.code === "cursor_invalid")
+            throw new LiveApiError("cursor_invalid");
+          if (response.status === 502 && parsed.data.code === "response_too_large")
+            throw new LiveApiError("response_too_large");
+        }
+      }
       throw new LiveApiError(
         response.status === 401 ? "unauthorized" : response.status === 404 ? "not_found" : "http",
       );
@@ -89,6 +115,11 @@ export function createLiveApi(fetcher: typeof fetch = fetch) {
     throw new LiveApiError("invalid_response");
   }
 
+  function identifiers(...values: string[]) {
+    if (values.some((value) => !UuidV7Schema.safeParse(value).success))
+      throw new LiveApiError("invalid_id");
+  }
+
   return {
     async exchange(code: string, signal: AbortSignal) {
       return json(
@@ -104,12 +135,43 @@ export function createLiveApi(fetcher: typeof fetch = fetch) {
       return json(await request("/api/health", "GET", signal, token), HealthSchema);
     },
     async project(id: string, token: string, signal: AbortSignal) {
-      if (!UuidV7Schema.safeParse(id).success) throw new LiveApiError("invalid_id");
+      identifiers(id);
       const value = await json(
         await request(`/api/projects/${id}`, "GET", signal, token),
         ProjectViewSchema,
       );
       if (value.id.toLowerCase() !== id.toLowerCase()) throw new LiveApiError("invalid_response");
+      return value;
+    },
+    async tasks(projectId: string, cursor: string | null, token: string, signal: AbortSignal) {
+      identifiers(projectId);
+      const search = new URLSearchParams({ limit: "20" });
+      if (cursor !== null) search.set("cursor", cursor);
+      const value = await json(
+        await request(`/api/projects/${projectId}/tasks?${search}`, "GET", signal, token),
+        TaskListResponseSchema,
+      );
+      if (value.items.length > 20) throw new LiveApiError("invalid_response");
+      return value;
+    },
+    async task(projectId: string, taskId: string, token: string, signal: AbortSignal) {
+      identifiers(projectId, taskId);
+      const value = await json(
+        await request(`/api/projects/${projectId}/tasks/${taskId}`, "GET", signal, token),
+        TaskDetailViewSchema,
+      );
+      if (value.id.toLowerCase() !== taskId.toLowerCase())
+        throw new LiveApiError("invalid_response");
+      return value;
+    },
+    async pipeline(projectId: string, versionId: string, token: string, signal: AbortSignal) {
+      identifiers(projectId, versionId);
+      const value = await json(
+        await request(`/api/projects/${projectId}/pipelines/${versionId}`, "GET", signal, token),
+        PipelineVersionViewSchema,
+      );
+      if (value.id.toLowerCase() !== versionId.toLowerCase())
+        throw new LiveApiError("invalid_response");
       return value;
     },
   };

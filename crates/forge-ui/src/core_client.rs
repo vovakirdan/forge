@@ -4,25 +4,26 @@ use std::{path::PathBuf, time::Duration};
 
 use bytes::{Bytes, BytesMut};
 use http_body_util::{BodyExt, Empty};
-use hyper::{Request, StatusCode, header::CONTENT_TYPE};
+use hyper::{
+    Request, StatusCode,
+    header::{CONTENT_LENGTH, CONTENT_TYPE},
+};
 use hyper_util::rt::TokioIo;
 
-use crate::http::ApiError;
-
-pub(crate) const CORE_BODY_LIMIT: usize = 64 * 1024;
+use crate::{http::ApiError, read_target::ReadTarget};
 
 pub(crate) struct CoreClient {
     pub socket: PathBuf,
 }
 
 impl CoreClient {
-    pub async fn read(&self, path: &str) -> Result<Bytes, ApiError> {
-        tokio::time::timeout(Duration::from_secs(5), self.read_inner(path))
+    pub async fn read(&self, target: &ReadTarget) -> Result<Bytes, ApiError> {
+        tokio::time::timeout(Duration::from_secs(5), self.read_inner(target))
             .await
             .map_err(|_| ApiError::Timeout)?
     }
 
-    async fn read_inner(&self, path: &str) -> Result<Bytes, ApiError> {
+    async fn read_inner(&self, target: &ReadTarget) -> Result<Bytes, ApiError> {
         let stream = forge_protocol::ui_control::connect_owner_socket(&self.socket)
             .await
             .map_err(|_| ApiError::Unavailable)?;
@@ -33,7 +34,7 @@ impl CoreClient {
             .map_err(|_| ApiError::BadGateway)?;
         let request = Request::builder()
             .method("GET")
-            .uri(path)
+            .uri(&target.path)
             .header("host", "localhost")
             .header("accept", "application/json")
             .body(Empty::<Bytes>::new())
@@ -45,6 +46,15 @@ impl CoreClient {
                 .await
                 .map_err(|_| ApiError::BadGateway)?;
             let status = response.status();
+            if response
+                .headers()
+                .get(CONTENT_LENGTH)
+                .and_then(|value| value.to_str().ok())
+                .and_then(|value| value.parse::<u64>().ok())
+                .is_some_and(|length| length > target.body_limit as u64)
+            {
+                return Err(ApiError::ResponseTooLarge);
+            }
             let json_content_type = response
                 .headers()
                 .get(CONTENT_TYPE)
@@ -55,8 +65,8 @@ impl CoreClient {
             while let Some(frame) = body.frame().await {
                 let frame = frame.map_err(|_| ApiError::BadGateway)?;
                 if let Some(data) = frame.data_ref() {
-                    if bytes.len().saturating_add(data.len()) > CORE_BODY_LIMIT {
-                        return Err(ApiError::BadGateway);
+                    if bytes.len().saturating_add(data.len()) > target.body_limit {
+                        return Err(ApiError::ResponseTooLarge);
                     }
                     bytes.extend_from_slice(data);
                 }
@@ -71,6 +81,19 @@ impl CoreClient {
                     Ok(bytes.freeze())
                 }
                 StatusCode::NOT_FOUND => Err(ApiError::NotFound),
+                StatusCode::CONFLICT if target.cursor_conflict && json_content_type => {
+                    let value: serde_json::Value =
+                        serde_json::from_slice(&bytes).map_err(|_| ApiError::BadGateway)?;
+                    if value
+                        .pointer("/error/code")
+                        .and_then(serde_json::Value::as_str)
+                        == Some("cursor_invalid")
+                    {
+                        Err(ApiError::CursorInvalid)
+                    } else {
+                        Err(ApiError::BadGateway)
+                    }
+                }
                 StatusCode::SERVICE_UNAVAILABLE => Err(ApiError::Unavailable),
                 _ => Err(ApiError::BadGateway),
             }

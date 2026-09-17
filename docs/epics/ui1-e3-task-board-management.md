@@ -1,7 +1,8 @@
 # Epic UI1.3 — Task board и управляемые изменения
 
 **Milestone:** UI1 — browser interface before M4 installer
-**Статус:** `planned`; blocked by `UI0.1`, `UI0.2`, `UI0.3`, `UI1.1`, `UI1.2`.
+**Статус:** `in_progress`; ранний read-only FRONTEND-008 согласован отдельно.
+Остальной объём blocked by `UI0.1`, `UI0.2`, `UI0.3`, `UI1.1`, `UI1.2`.
 **Зависимости:** UI0.1 model contracts, UI0.2 browser/API boundary, UI0.3 UI tooling,
 UI1.1 Projects/Employees и UI1.2 PipelineVersion.
 **Контракты:** ../2026-09-03-task-domain-model.md,
@@ -64,6 +65,12 @@ update: отдельный change command или расширение conditions
 - UI2.3 позже добавит execution controls поверх detail view.
 
 ## Направления будущей декомпозиции
+
+[FRONTEND-008](../../tasks/frontend/frontend-008-live-task-reads.md) начинает
+список/карточку Task в отдельном live entry: 20-record pagination, scoped reads,
+точная pinned Pipeline stage, properties/waits и ID/kind/title/date артефактов. Mock Board,
+commands, priority catalogs, dependencies и Run activity остаются вне Task.
+Это не закрытие полного exit gate эпика.
 
 - board/list/detail query model с lifecycle/stage/activity presentation;
 - schema-driven property и PriorityScheme controls;

@@ -1,7 +1,7 @@
 # Forge: Control Room implementation plan
 
 **Дата:** 11 сентября 2026
-**Статус:** UI0.1/UI0.2/UI0.3 in_progress; остальные epics planned; milestones не закрыты
+**Статус:** UI0.1/UI0.2/UI0.3/UI1.3 in_progress; остальные epics planned; milestones не закрыты
 **Иерархия:** Milestone → Epic → будущие Task
 **Baseline:** backend `1439211`; frontend — неизменённый импорт пользовательского UI
 
@@ -37,6 +37,9 @@ pure Task/Run presentation в UI0.1.
 static hosting proof и [browser boundary ADR](UI_BROWSER_BOUNDARY.md), без Core
 connection. [FRONTEND-007](../tasks/frontend/frontend-007-live-owner-gateway.md)
 добавляет Rust owner gateway, отдельный live entry, login и Project read.
+[FRONTEND-008](../tasks/frontend/frontend-008-live-task-reads.md) добавляет
+реальные Task list/detail и чтение pinned PipelineVersion в этом live entry:
+ранний read-only срез UI1.3, не адаптация mock Board.
 Это согласованные ранние срезы UI0.2 до полных gates UI0.1/UI0.3; реализация
 не заменяет результаты security/browser приёмки. Статус и порядок Task —
 в [индексе](../tasks/INDEX.md). Остальные Task
@@ -222,6 +225,9 @@ FRONTEND-006 (ADR/static proof), затем FRONTEND-007 (owner gateway/session 
 Это не обход их exit gates и не разрешение подключать остальные features без
 security proof. Полный API client, commands/replay/conflicts и SSE требуют
 следующих отдельно нарезанных Task; FRONTEND-007 не закрывает весь UI0.2.
+Следом согласован FRONTEND-008, ранний scoped Task read срез UI1.3 поверх
+проверенной границы, без management commands и новых Core API. Полные gates
+UI0/UI1 и зависимости остальных частей UI1.3 сохраняются.
 
 На ближайший разбор: оставшиеся gates UI0.1/UI0.3 и implementation UI0.2;
 после их gates — UI1.1 и UI1.2.

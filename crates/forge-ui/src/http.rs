@@ -15,6 +15,7 @@ use crate::{
     assets::AssetSnapshot,
     auth::{AuthError, SessionStore},
     core_client::CoreClient,
+    read_target::ReadTarget,
 };
 
 pub(crate) const CSP: &str = "default-src 'none'; script-src 'self'; script-src-attr 'none'; style-src 'self'; connect-src 'self'; img-src 'self'; font-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'";
@@ -37,6 +38,8 @@ pub(crate) enum ApiError {
     TooLarge,
     Capacity,
     BadGateway,
+    ResponseTooLarge,
+    CursorInvalid,
     Unavailable,
     Timeout,
 }
@@ -51,10 +54,18 @@ impl IntoResponse for ApiError {
             Self::TooLarge => (StatusCode::PAYLOAD_TOO_LARGE, "request too large"),
             Self::Capacity => (StatusCode::TOO_MANY_REQUESTS, "capacity reached"),
             Self::BadGateway => (StatusCode::BAD_GATEWAY, "invalid Core response"),
+            Self::ResponseTooLarge => (StatusCode::BAD_GATEWAY, "response exceeds interface limit"),
+            Self::CursorInvalid => (StatusCode::CONFLICT, "pagination cursor is no longer valid"),
             Self::Unavailable => (StatusCode::SERVICE_UNAVAILABLE, "service unavailable"),
             Self::Timeout => (StatusCode::GATEWAY_TIMEOUT, "request timed out"),
         };
-        (status, axum::Json(serde_json::json!({"error":message}))).into_response()
+        let mut body = serde_json::json!({"error":message});
+        match self {
+            Self::ResponseTooLarge => body["code"] = "response_too_large".into(),
+            Self::CursorInvalid => body["code"] = "cursor_invalid".into(),
+            _ => {}
+        }
+        (status, axum::Json(body)).into_response()
     }
 }
 
@@ -95,10 +106,7 @@ async fn guarded_dispatch(state: &HttpState, request: Request<Body>) -> Result<R
     if headers.contains_key(header::ORIGIN) && origin != Some(state.origin.as_str()) {
         return Err(ApiError::Forbidden);
     }
-    if request.uri().scheme().is_some()
-        || request.uri().authority().is_some()
-        || request.uri().query().is_some()
-    {
+    if request.uri().scheme().is_some() || request.uri().authority().is_some() {
         return Err(ApiError::NotFound);
     }
     let path = request.uri().path();
@@ -110,6 +118,9 @@ async fn guarded_dispatch(state: &HttpState, request: Request<Body>) -> Result<R
         if request.method() == Method::POST
             && matches!(path, "/api/auth/exchange" | "/api/auth/logout")
         {
+            if request.uri().query().is_some() {
+                return Err(ApiError::NotFound);
+            }
             if origin != Some(state.origin.as_str()) {
                 return Err(ApiError::Forbidden);
             }
@@ -131,7 +142,7 @@ async fn guarded_dispatch(state: &HttpState, request: Request<Body>) -> Result<R
         if request.method() != Method::GET {
             return Err(ApiError::NotFound);
         }
-        let core_path = core_path(path).ok_or(ApiError::NotFound)?;
+        let target = ReadTarget::parse(path, request.uri().query())?;
         let token = bearer(headers)?;
         state.sessions.authorize(token)?;
         if headers.contains_key(header::TRANSFER_ENCODING)
@@ -139,10 +150,12 @@ async fn guarded_dispatch(state: &HttpState, request: Request<Body>) -> Result<R
         {
             return Err(ApiError::BadRequest);
         }
-        let body = state.core.read(&core_path).await?;
+        let body = state.core.read(&target).await?;
         return Ok(([(header::CONTENT_TYPE, "application/json")], body).into_response());
     }
-    if request.method() != Method::GET && request.method() != Method::HEAD {
+    if request.uri().query().is_some()
+        || (request.method() != Method::GET && request.method() != Method::HEAD)
+    {
         return Err(ApiError::NotFound);
     }
     let asset = state.assets.get(path).ok_or(ApiError::NotFound)?;
@@ -183,15 +196,6 @@ async fn exchange(state: &HttpState, request: Request<Body>) -> Result<Response,
     // Malformed codes still consume a guess: the registry hashes all bounded input.
     let session = state.sessions.exchange(&payload.code)?;
     Ok(axum::Json(session).into_response())
-}
-
-fn core_path(path: &str) -> Option<String> {
-    if path == "/api/health" {
-        return Some("/v1/health".into());
-    }
-    let id = path.strip_prefix("/api/projects/")?;
-    let id = uuid::Uuid::parse_str(id).ok()?;
-    Some(format!("/v1/projects/{id}"))
 }
 
 fn bearer(headers: &HeaderMap) -> Result<&str, ApiError> {

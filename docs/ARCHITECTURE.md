@@ -13,8 +13,10 @@ Runs, хранит их durable историю и управляет очере�
 2026 [Control Room UI0–UI4](UI_IMPLEMENTATION_PLAN.md) подключается до installer
 M4. В UI0 реализуется [static client + Rust gateway](UI_BROWSER_BOUNDARY.md).
 FRONTEND-006 проверяет static demo hosting; FRONTEND-007 добавляет owner login
-и read-only Project экран через отдельный `forge-ui`. Результаты его приёмки —
-в [Task](../tasks/frontend/frontend-007-live-owner-gateway.md). Диаграмма ниже
+и read-only Project экран через отдельный `forge-ui`. FRONTEND-008 добавляет
+список/карточку Task и pinned PipelineVersion. Результаты приёмки — в
+[007](../tasks/frontend/frontend-007-live-owner-gateway.md) и
+[008](../tasks/frontend/frontend-008-live-task-reads.md). Диаграмма ниже
 показывает backend; browser boundary описана отдельно в разделе 6.
 
 Источники истины:
@@ -197,7 +199,7 @@ Run write-effect messages carry current `run_id`, lease fencing token,
 environment epoch and monotonic sequence. W3C trace context is propagated across
 gRPC and allowed HTTP boundaries.
 
-### Local browser boundary (FRONTEND-007)
+### Local browser boundary (FRONTEND-007/008)
 
 `Browser → dedicated loopback Rust/Axum gateway → private Core UDS`.
 `forge-ui` bind-ит только `127.0.0.1:0` и фиксирует точный origin. Он загружает
@@ -215,10 +217,14 @@ Logout и restart отзывают sessions; exact Host/Origin, CSP, bounded I/O
 [ADR](UI_BROWSER_BOUNDARY.md).
 
 HTTP surface ограничен exchange/logout и authenticated `GET /api/health`,
-`GET /api/projects/{uuid}`. Hyper передаёт только фиксированный GET в Core UDS,
+`GET /api/projects/{uuid}`, scoped Task list/detail и PipelineVersion GET.
+Только Task list принимает bounded limit/cursor; остальные query запрещены.
+Hyper передаёт только allowlisted GET в Core UDS,
 без browser credentials/actor headers, redirects или TCP fallback. Live entry
-показывает connection state и поля Project через существующий Zod contract;
-не импортирует demo layout/services. Commands, SSE и остальные экраны отложены.
+показывает connection state, Project и Task через существующие Zod contracts;
+не импортирует demo layout/services. Detail разрешает stage только по своему
+Pipeline pin. Cache ограничен текущими reads; при scope change старые reads
+отменяются и удаляются. Commands, SSE и остальные экраны отложены.
 
 FRONTEND-006 остаётся отдельным mock-only static proof `frontend/dist/client`
 с build-time SSR prerender и test-only file server. FRONTEND-007 использует

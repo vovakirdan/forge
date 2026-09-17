@@ -1,15 +1,17 @@
-# Forge Control Room — local demo and live Project read
+# Forge Control Room — local demo and live Project/Task reads
 
 The imported React/TanStack demo uses in-memory mock services and does not connect
 to Forge Core. Its tasks, employees, metrics and management actions are not
 evidence of real execution. The separate FRONTEND-007 live entry adds owner login
-and read-only Project access through the native Rust gateway. It does not load
+and read-only Project access through the native Rust gateway. FRONTEND-008 adds
+the real Task list and detail card with pinned Pipeline stage. It does not load
 the demo shell or services; Board, Team, commands and SSE remain future work.
 
 The demo needs no Lovable account, API keys, database, Podman services or provider
 Runs. The live screen needs a running local Core and an existing Project ID;
 it does not need provider credentials or start Runs. Acceptance results belong
-in [FRONTEND-007](../tasks/frontend/frontend-007-live-owner-gateway.md).
+in [FRONTEND-007](../tasks/frontend/frontend-007-live-owner-gateway.md) and
+[FRONTEND-008](../tasks/frontend/frontend-008-live-task-reads.md).
 
 ## Prerequisites
 
@@ -108,6 +110,23 @@ the terminal. Paste the code into the live screen, then enter an existing UUIDv7
 Project ID. The card reads real `id`, `name`, `revision` and `execution_gate`;
 health alone does not prove Project access.
 
+The live Task list then reads 20 Tasks at a time. Use **Previous page**,
+**Next page** and **Refresh tasks**; **Open TASK-…** opens its read-only detail.
+The card shows description, Definition of Done, properties, waits, and each
+artifact's ID, kind, title and creation date. Stage names come from the version pinned by the fresh Task detail,
+including an old version in a soft-deleted Pipeline catalog. List rows show raw
+stage/priority IDs: there is no invented priority label, assignee or Run state.
+The canonical detail response still contains inline artifact bodies and metadata;
+the card does not render them or follow referenced URLs/object refs.
+
+**Refresh task** retries a read. A failed refresh keeps the previous data marked
+stale; an initial failure does not appear as an empty list. If a cursor becomes
+invalid, use **Restart pagination**. An oversized response reports the interface
+limit (64 KiB for lists, 1 MiB for detail/Pipeline), without truncation or a claim
+that the Task is corrupt. Changing Project clears the selected Task and cursor
+history; a page reload clears Project/Task selection but retains a valid session.
+Navigation discards inactive query data, and logout/401 clears all session data.
+
 Both binaries resolve the runtime directory in this order, skipping unset or
 relative environment values:
 
@@ -179,8 +198,12 @@ just ui-test-live
 
 `ui-test-live` builds the live artifact, gateway/CLI and test fixture, checks the
 production sandbox boundary without a provider, then launches browser tests with
-real Core and an isolated PostgreSQL schema. The fixture creates its own Project
-through a named command; it does not reuse personal queues or require inference.
+real Core and an isolated PostgreSQL schema. The fixture creates its own Projects,
+Tasks, artifacts and versioned Pipelines through named commands; it does not
+reuse personal queues or require inference. Task browser checks include page20,
+cross-Project isolation, an empty Project, old pins after default change/soft
+deletion, delayed real reads, keyboard/narrow layout and explicit recovery.
+Synthetic fault tests are labelled separately from real-Core evidence.
 The suite does not run the broad backend integration target. Its temporary
 processes stop on exit; PostgreSQL test schemas are retained for diagnosis.
 
@@ -328,8 +351,9 @@ erasable syntax, not Vite aliases, TS enums or JSX. No additional runner or
 dependency installation is needed after the normal frozen install.
 
 The imported demo screens still use `src/data/types.ts` and mock services.
-The separate live entry consumes ProjectViewSchema; Task/Pipeline/Run screens
-are not connected yet. Passing contract tests alone does not prove live API
+The separate live entry consumes Project/Task/PipelineVersion contracts for real
+reads; imported demo screens and Run views are not connected yet. Passing contract
+tests alone does not prove live API
 integration. See [FRONTEND-002](../tasks/frontend/frontend-002-task-pipeline-contracts.md),
 [FRONTEND-003](../tasks/frontend/frontend-003-run-read-contracts.md) and the
 [field/gap map](../docs/UI_BACKEND_ALIGNMENT.md#8-read-contracts-frontend-002).

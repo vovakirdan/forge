@@ -1,4 +1,4 @@
-import { useActionState, useRef, useState, useSyncExternalStore } from "react";
+import { useActionState, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "../components/ui/button.tsx";
 import { Input } from "../components/ui/input.tsx";
@@ -6,6 +6,9 @@ import { UuidV7Schema } from "../contracts/common.ts";
 import { describeApiError } from "./api.ts";
 import type { LiveApi } from "./api.ts";
 import type { LiveSession } from "./session.ts";
+import { prepareProjectChange } from "./read-cache.ts";
+import { useReadLifetime } from "./use-read-lifetime.ts";
+import { TaskBrowser } from "./TaskBrowser.tsx";
 
 type LiveProps = { api: LiveApi; session: LiveSession };
 
@@ -20,7 +23,7 @@ export function LiveApp({ api, session }: LiveProps) {
             {state.status === "authenticated" ? "Live connection" : "Connect to Forge"}
           </h1>
           <p className="text-sm text-muted-foreground">
-            Local, read-only Project access. No demo data.
+            Local, read-only Project and Task access. No demo data.
           </p>
         </header>
         {state.notice && (
@@ -84,13 +87,14 @@ function Connection({ api, session, generation }: LiveProps & { generation: numb
   const queries = useQueryClient();
   const [projectId, setProjectId] = useState<string | null>(null);
   const [idError, setIdError] = useState<string | null>(null);
+  const projectKey = useMemo(() => ["project", generation, projectId], [generation, projectId]);
   const health = useQuery({
     queryKey: ["health", generation],
     queryFn: ({ signal }) => session.request(generation, (token) => api.health(token, signal)),
     retry: false,
   });
   const project = useQuery({
-    queryKey: ["project", generation, projectId],
+    queryKey: projectKey,
     enabled: projectId !== null,
     queryFn: ({ signal }) => {
       if (!projectId) throw new Error("Project ID is missing");
@@ -98,17 +102,23 @@ function Connection({ api, session, generation }: LiveProps & { generation: numb
     },
     retry: false,
   });
+  useReadLifetime(projectKey);
+  const currentProject =
+    project.data?.id.toLowerCase() === projectId?.toLowerCase() ? project.data : undefined;
   const [, loadProject] = useActionState((_state: null, data: FormData) => {
     const id = data.get("projectId");
-    void queries.cancelQueries({ queryKey: ["project", generation] });
     if (typeof id !== "string" || !UuidV7Schema.safeParse(id.trim()).success) {
+      prepareProjectChange(queries, generation);
       setProjectId(null);
       setIdError("Enter a valid UUIDv7 Project ID.");
     } else {
       setIdError(null);
       const next = id.trim();
       if (next === projectId) void project.refetch();
-      else setProjectId(next);
+      else {
+        prepareProjectChange(queries, generation);
+        setProjectId(next);
+      }
     }
     return null;
   }, null);
@@ -169,12 +179,20 @@ function Connection({ api, session, generation }: LiveProps & { generation: numb
           Loading Project…
         </p>
       )}
+      {currentProject && project.isFetching && (
+        <p role="status" className="text-sm">
+          Refreshing Project… Previous data remains visible.
+        </p>
+      )}
       {projectId && project.isError && (
         <section
           aria-label="Project error"
           className="space-y-3 rounded-xl border border-border p-6"
         >
-          <p role="alert">{describeApiError(project.error)}</p>
+          <p role="alert">
+            {currentProject ? "Showing stale Project. " : ""}
+            {describeApiError(project.error)}
+          </p>
           <Button
             variant="secondary"
             disabled={project.isFetching}
@@ -184,7 +202,7 @@ function Connection({ api, session, generation }: LiveProps & { generation: numb
           </Button>
         </section>
       )}
-      {projectId && project.isSuccess && (
+      {currentProject && (
         <section
           aria-label="Project"
           className="space-y-4 rounded-xl border border-border bg-card p-6"
@@ -192,15 +210,24 @@ function Connection({ api, session, generation }: LiveProps & { generation: numb
           <h2 className="text-lg font-semibold">Project</h2>
           <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-6 gap-y-3 text-sm">
             <dt className="text-muted-foreground">ID</dt>
-            <dd className="break-all font-mono">{project.data.id}</dd>
+            <dd className="break-all font-mono">{currentProject.id}</dd>
             <dt className="text-muted-foreground">Name</dt>
-            <dd className="break-words">{project.data.name}</dd>
+            <dd className="break-words">{currentProject.name}</dd>
             <dt className="text-muted-foreground">Revision</dt>
-            <dd>{project.data.revision}</dd>
+            <dd>{currentProject.revision}</dd>
             <dt className="text-muted-foreground">Execution gate</dt>
-            <dd>{project.data.execution_gate}</dd>
+            <dd>{currentProject.execution_gate}</dd>
           </dl>
         </section>
+      )}
+      {projectId && currentProject && (
+        <TaskBrowser
+          key={projectId}
+          api={api}
+          session={session}
+          generation={generation}
+          projectId={projectId}
+        />
       )}
     </>
   );

@@ -1,7 +1,7 @@
 # ADR: локальная browser boundary
 
 **Дата:** 17 сентября 2026
-**Статус:** target принят; FRONTEND-007 реализует owner gateway и первое Project read
+**Статус:** target принят; FRONTEND-007 — owner gateway, FRONTEND-008 — Task reads
 **Область:** local-owner Control Room; remote control и Tauri отложены
 
 ## 1. Решение и уровень доказательства
@@ -19,6 +19,10 @@ Rust gateway, bootstrap, sessions, CSP и первое Core Project read; фак
 инструмент без доступа к Core, не production boundary и не auth prototype.
 Успешный static smoke сам по себе не доказывает безопасность gateway.
 
+[FRONTEND-008](../tasks/frontend/frontend-008-live-task-reads.md) расширяет этот
+live entry read-only списком и карточкой Task, а allowlist — scoped Task и
+PipelineVersion reads. Доказательство этого среза записывается отдельно в Task.
+
 | Вариант | Решение |
 |---|---|
 | Static client + отдельный Rust gateway | Принят: нет Node runtime в установленном продукте, доменная authority остаётся в Core |
@@ -32,7 +36,7 @@ Static assets позже можно использовать в Tauri. WebView, 
 ## 2. Build и runtime contract
 
 В FRONTEND-007 runtime artifact — **`frontend/dist-live`**, отдельный plain-Vite
-React entry с TanStack Query и общими styles/primitives. Для login/Project card
+React entry с TanStack Query и общими styles/primitives. Для login/Project/Task
 не нужен router. Он не загружает mock root, Sidebar/TopBar, ProjectProvider,
 service barrel или Lovable error reporter. Новый `just ui-build-live` не меняет
 прежние demo/build/static workflows и не требует новых frontend dependencies.
@@ -76,8 +80,9 @@ bundle. Обычный demo на 5173 и прежний browser suite на 4173 
 Не получает DB, NATS, provider keys, container socket, `CoreService` или право
 запускать CLI/shell. Не импортирует management router Core в TCP listener.
 
-Первый transport-срез разрешает только authenticated read: health и один
-существующий Project по известному ID. Health показывает доступность транспорта,
+Первый transport-срез разрешил authenticated health и Project read по известному
+ID. FRONTEND-008 добавляет список/карточку Task и точную PipelineVersion внутри
+Project scope. Health показывает доступность транспорта,
 но не доказывает чтение DB или готовность Project. Для этого нужен отдельный
 Project GET. В дальнейшем каждый method/path добавляется в allowlist явно;
 универсальные proxy, URL, произвольные headers и filesystem paths запрещены.
@@ -107,13 +112,41 @@ Project GET. В дальнейшем каждый method/path добавляет
   соединяется только с этим endpoint, не следует redirects.
 - Каждый route имеет request/response byte limits, connection/read deadlines
   и bounded concurrency. Auth/control JSON ≤1 KiB; headers ≤16 KiB; Core body
-  ≤64 KiB, включая chunked/error responses. Connect ≤1 s, целый HTTP/control
+  ≤64 KiB для health/Project/Task list; Task detail/PipelineVersion ≤1 MiB,
+  включая chunked/error responses. Connect ≤1 s, целый HTTP/control
   exchange ≤5 s, включая idle/body/upstream; до 32 HTTP connections,
   8 API requests и 4 control connections, без неограниченной очереди.
   Ошибка Core даёт явный unavailable/timeout, не mock response или retry loop.
 - Secrets, Authorization, bootstrap body и raw upstream errors не попадают в
   logs/traces; auth и API responses используют `Cache-Control: no-store`.
   Service worker не кэширует authenticated content.
+
+### Scoped Task reads (FRONTEND-008)
+
+Новые paths: `GET /api/projects/{project_id}/tasks`,
+`GET /api/projects/{project_id}/tasks/{task_id}` и
+`GET /api/projects/{project_id}/pipelines/{pipeline_version_id}`. IDs — UUIDv7.
+Только список принимает `limit` (1–100, default 20) и непустой opaque `cursor`
+до 1024 UTF-8 bytes. Неизвестные/повторные query keys и некорректное encoding
+отклоняются; gateway собирает upstream path/query заново, без raw forwarding.
+
+Превышение declared или streamed response limit возвращает безопасный
+502 с `code: response_too_large`; данные не обрезаются, Task не объявляется
+повреждённой. Core list 409 с `error.code: cursor_invalid` становится безопасным
+409 с `code: cursor_invalid`. Остальные raw upstream errors не раскрываются.
+
+UI хранит текущие page/detail/pipeline, удаляя неактивные query records при
+навигации; cursor history хранит только строки. Query keys включают session
+generation и Project scope, detail/Pipeline IDs. Project switch, logout и 401
+отменяют старые reads и исключают их поздние ответы. Refresh failure оставляет
+явно stale данные. Invalid cursor предлагает первую страницу.
+
+Pipeline читается только для выбранной карточки по pin свежего Task detail.
+List показывает raw stage ID без fan-out. Неизвестная стадия и отсутствие
+стадии различаются. Артефакты показаны только как ID/kind/title/date; inline body
+и metadata приходят внутри канонического detail, но не рендерятся. Object refs
+и URL не открываются и не загружаются автоматически. UI не выводит
+Run activity, Employee ownership или priority labels из отсутствующих данных.
 
 ## 4. Owner bootstrap и session — target contract
 
@@ -200,5 +233,6 @@ test и restart expiry. Static traversal tests FRONTEND-006 не заменяю�
 
 UI0.1/UI0.3 остаются открытыми. Пользователь согласовал ранний preparatory-срез
 UI0.2 для ADR/static proof, затем отдельный login/Project read FRONTEND-007;
+следом согласован ранний Task read срез UI1.3/FRONTEND-008.
 полные dependencies и exit gates эпиков
 сохраняются. Remote deployment, Tauri и installer остаются отдельными вехами.

@@ -16,6 +16,11 @@ Frontend использует React/TypeScript, TanStack Start/Query, Tailwind �
 часто ограничены toast/local state. Исходный код сохранён для адаптации, не объявлен
 production-ready. Сборка и реальная интеграция — будущие gates UI0–UI4.
 
+Текущий срез: FRONTEND-007 добавил отдельный owner live entry;
+[FRONTEND-008](../tasks/frontend/frontend-008-live-task-reads.md) подключает
+реальные Task list/detail и pinned PipelineVersion. Матрица ниже описывает
+импортированный baseline; его mock Board/Team ещё не подключены к Core.
+
 ## 2. Покрытие экранов
 
 | Область | Frontend baseline | Backend baseline / gap | Направление |
@@ -295,6 +300,32 @@ observed state Run остаются независимыми; запрос ос�
 reason из properties, Employee aggregation, current Run, постоянного assignee,
 priority rank или безопасного HTML/URL из JSON.
 
-`just ui-test-presentation` запускает отдельные synthetic unit tests. Этот слой
-не подключается к экранам и не вызывает API, команды или side effects.
+`just ui-test-presentation` запускает отдельные synthetic unit tests. В срезе
+FRONTEND-005 слой ещё не подключался к экранам; FRONTEND-008 использует его для
+read-only Task UI. Сами builders не вызывают API, команды или side effects.
 Именованные gaps разделов 8–9, UI0.1 и UI0.3 остаются открытыми.
+
+## 11. Live Task reads FRONTEND-008
+
+Отдельный `src/live` использует существующие Project/Task/PipelineVersion DTO,
+не legacy demo types. Gateway расширен только scoped GET; новые Core endpoints,
+DTO, migrations и domain state отсутствуют.
+
+| Данные | Live UI | Ограничение |
+|---|---|---|
+| TaskSummaryView | Список по 20, Previous/Next/Refresh | Без total/filter/auto-pagination; stage/priority — raw IDs |
+| TaskDetailView | Plain-text поля, properties JSON, каждый wait | Нет реконструкции cancellation reason, assignee или Run state |
+| ArtifactView | ID/kind/title/created_at | Body/metadata links не открываются; detail целиком bounded 1 MiB |
+| PipelineVersionView | Стадия выбранной Task по свежему detail pin | Не default/latest; ошибка не скрывает Task; no_stage отдельно |
+
+Ограничения DTO разделов 8–9 остаются явными. В частности, approval неизвестных
+properties требует Project schema, но её публичная команда настройки ещё не
+открыта. Fixture проверяет typed properties в draft через named CreateTask;
+не меняет schema напрямую в БД. Это не реализация schema editor UI1.1/UI1.3.
+
+Gateway проверяет новые IDs/query/bounds; live API валидирует Zod и совпадение
+запрошенных detail/version IDs. Scope находится в route/query key, не выдуманном
+поле DTO. Неактивные page/detail/pipeline queries удаляются при навигации,
+поздние ответы отменяются; полные auth/transport limits остаются из FRONTEND-007.
+Настоящие Core и fault-injection проверки перечислены в
+[Task evidence](../tasks/frontend/frontend-008-live-task-reads.md).

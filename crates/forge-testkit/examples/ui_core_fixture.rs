@@ -6,11 +6,15 @@ use anyhow::{Context, Result};
 use forge_testkit::m0::{LocalHttpApi, M0Harness};
 use serde_json::json;
 
+#[path = "ui_core_fixture/tasks.rs"]
+mod tasks;
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let harness = M0Harness::start_configured(Ok).await?;
     let name = "Forge live <img src=x onerror=window.forgeInjected=true>";
     let project_id = harness.create_project(name).await?;
+    let fixture = tasks::seed(&harness, project_id).await?;
     harness.start_project(project_id).await?;
     let project = harness
         .store
@@ -27,7 +31,10 @@ async fn main() -> Result<()> {
             "project_id": project_id,
             "project_name": name,
             "revision": project.revision(),
-            "execution_gate": "open"
+            "execution_gate": "open",
+            "tasks": fixture.tasks,
+            "second_project": fixture.second_project,
+            "empty_project": fixture.empty_project
         })
     );
     std::io::stdout().flush()?;

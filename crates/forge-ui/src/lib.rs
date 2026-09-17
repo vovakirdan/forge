@@ -9,6 +9,9 @@ mod core_client_tests;
 mod http;
 #[cfg(test)]
 mod http_tests;
+mod read_target;
+#[cfg(test)]
+mod read_target_tests;
 #[cfg(test)]
 mod server_tests;
 

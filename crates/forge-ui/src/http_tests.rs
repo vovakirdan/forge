@@ -252,3 +252,68 @@ async fn api_capacity_is_bounded_without_waiting_and_duplicate_host_is_rejected(
         StatusCode::FORBIDDEN
     );
 }
+
+#[tokio::test]
+async fn task_routes_reject_invalid_queries_ids_methods_and_bodies_before_core() {
+    let state = state();
+    let code = state.sessions.issue_code().unwrap();
+    let session = state.sessions.exchange(&code.code).unwrap();
+    let project = "01988000-0000-7000-8000-000000000001";
+    for (method, suffix, expected) in [
+        ("GET", "tasks?limit=0", StatusCode::BAD_REQUEST),
+        ("GET", "tasks?limit=1&limit=2", StatusCode::BAD_REQUEST),
+        ("GET", "tasks?cursor=a&cursor=b", StatusCode::BAD_REQUEST),
+        ("GET", "tasks?actor=owner", StatusCode::BAD_REQUEST),
+        ("GET", "tasks?cursor=%", StatusCode::BAD_REQUEST),
+        ("GET", "tasks?cursor=%FF", StatusCode::BAD_REQUEST),
+        (
+            "GET",
+            "tasks/00000000-0000-0000-0000-000000000000",
+            StatusCode::NOT_FOUND,
+        ),
+        (
+            "GET",
+            "pipelines/00000000-0000-0000-0000-000000000000",
+            StatusCode::NOT_FOUND,
+        ),
+        (
+            "GET",
+            "pipelines/01988000-0000-7000-8000-000000000002?limit=20",
+            StatusCode::NOT_FOUND,
+        ),
+        (
+            "GET",
+            "tasks/01988000-0000-7000-8000-000000000002?cursor=a",
+            StatusCode::NOT_FOUND,
+        ),
+        ("POST", "tasks", StatusCode::NOT_FOUND),
+        (
+            "DELETE",
+            "tasks/01988000-0000-7000-8000-000000000002",
+            StatusCode::NOT_FOUND,
+        ),
+        ("OPTIONS", "tasks", StatusCode::NOT_FOUND),
+    ] {
+        let response = handle(
+            State(state.clone()),
+            request(method, &format!("/api/projects/{project}/{suffix}"))
+                .header("authorization", format!("Bearer {}", session.token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(response.status(), expected, "{method} {suffix}");
+    }
+    for (header, value) in [("content-length", "1"), ("transfer-encoding", "chunked")] {
+        let response = handle(
+            State(state.clone()),
+            request("GET", &format!("/api/projects/{project}/tasks?limit=20"))
+                .header("authorization", format!("Bearer {}", session.token))
+                .header(header, value)
+                .body(Body::from("x"))
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+}
