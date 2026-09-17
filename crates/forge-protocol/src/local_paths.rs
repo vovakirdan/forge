@@ -18,6 +18,12 @@ pub fn default_runtime_directory() -> PathBuf {
     )
 }
 
+/// Private control socket used only by the owner CLI to request a UI login code.
+#[must_use]
+pub fn default_ui_control_socket_path() -> PathBuf {
+    default_runtime_directory().join("ui-control.sock")
+}
+
 fn absolute_environment_path(name: &str) -> Option<PathBuf> {
     env::var_os(name)
         .map(PathBuf::from)

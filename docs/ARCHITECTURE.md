@@ -11,9 +11,11 @@ Forge — Linux-first local control plane для автономной AI-ком�
 M0–M3 использует CLI и local HTTP API; Core запускает изолированные Employee
 Runs, хранит их durable историю и управляет очередью. По решению 11 сентября
 2026 [Control Room UI0–UI4](UI_IMPLEMENTATION_PLAN.md) подключается до installer
-M4. В UI0 принят [static client + Rust gateway target](UI_BROWSER_BOUNDARY.md).
-FRONTEND-006 проверяет только static hosting; диаграммы ниже описывают
-существующий backend, не уже реализованный web ingress.
+M4. В UI0 реализуется [static client + Rust gateway](UI_BROWSER_BOUNDARY.md).
+FRONTEND-006 проверяет static demo hosting; FRONTEND-007 добавляет owner login
+и read-only Project экран через отдельный `forge-ui`. Результаты его приёмки —
+в [Task](../tasks/frontend/frontend-007-live-owner-gateway.md). Диаграмма ниже
+показывает backend; browser boundary описана отдельно в разделе 6.
 
 Источники истины:
 
@@ -38,9 +40,10 @@ Forge MVP — **modular monolith plus isolated execution supervisor**.
 | Микросервисы | не дают ценности на одном local host, но усложняют contracts, deployment и debug |
 | Модульный Core + Supervisor | сохраняет простой local install и даёт отдельную boundary для provision/stop/Run observation |
 
-Core и Supervisor — два native Rust service processes. PostgreSQL, NATS
-JetStream, Redis, MinIO, AgentMemory, LiteLLM и Prometheus — local dependencies,
-не самостоятельные доменные services.
+Core и Supervisor — отдельные native Rust service processes. Локальный browser
+подключается через третий native adapter `forge-ui`, без собственной доменной
+authority. PostgreSQL, NATS JetStream, Redis, MinIO, AgentMemory, LiteLLM и
+Prometheus — local dependencies, не самостоятельные доменные services.
 
 ## 3. System shape
 
@@ -84,11 +87,12 @@ domain code never imports HTTP, SQLx, Podman or a provider SDK.
 | `forge-domain` | Task/Pipeline/Employee/Run value types, invariants и domain events |
 | `forge-application` | named commands, authorization, transaction orchestration и ports |
 | `forge-storage` | SQLx repositories, migrations, outbox и object metadata persistence |
-| `forge-protocol` | Protobuf, OpenAPI schema, shared command/event wire types |
+| `forge-protocol` | Protobuf, OpenAPI schema, shared command/event wire types, owner UDS checks и UI control frames |
 | `forge-core` | Axum API, scheduler, outbox consumers, context compiler, Summarizer jobs и Tool Gateway policy |
 | `forge-supervisor` | Podman backend, WorkSurface mount control, watchdog, log collection и adapter lifecycle |
 | `forge-provider-*` | provider/runtime adapters; no canonical database authority |
-| `forge-cli` | normal HTTP/SSE client; no direct Core function calls |
+| `forge-cli` | normal HTTP/SSE client и owner-terminal UI login; no direct Core function calls |
+| `forge-ui` | static live assets, volatile owner sessions, allowlisted HTTP reads over Core UDS; no DB/CoreService/provider dependency |
 | `forge-testkit` | fake clocks, provider/supervisor fakes, container fixtures и contract-test helpers |
 
 `forge-domain` exposes no repository implementation. `forge-application` owns
@@ -193,22 +197,36 @@ Run write-effect messages carry current `run_id`, lease fencing token,
 environment epoch and monotonic sequence. W3C trace context is propagated across
 gRPC and allowed HTTP boundaries.
 
-### Browser boundary target (FRONTEND-006)
+### Local browser boundary (FRONTEND-007)
 
 `Browser → dedicated loopback Rust/Axum gateway → private Core UDS`.
-Gateway отдаёт static `frontend/dist/client`, проверяет local-owner session и
-явный method/path allowlist. Он не получает DB, `CoreService`, CLI subprocess,
-generic proxy или management router Core на TCP. Core остаётся владельцем
-stable actor, authorization, named commands, revision и idempotency.
+`forge-ui` bind-ит только `127.0.0.1:0` и фиксирует точный origin. Он загружает
+hashed manifest и immutable snapshot `frontend/dist-live`, проверяет Host/Origin,
+owner session и allowlist. Gateway не получает DB, `CoreService`, CLI subprocess,
+generic proxy или management router Core на TCP. Core сохраняет stable actor,
+authorization, named commands, revision и idempotency.
 
-Bootstrap — одноразовый terminal code; session — bearer в `sessionStorage` и
-Authorization header. Exact Host/Origin, expiry/revocation, CSP, bounded I/O и
-sandbox denial обязательны до подключения Core. Детальный контракт и ещё не
-пройденные security gates — в [ADR](UI_BROWSER_BOUNDARY.md).
+Отдельный owner-only control UDS выдаёт одноразовый код через
+`forge-cli ui login`; CLI показывает его только на controlling TTY. Code TTL —
+5 минут, пять неверных попыток инвалидируют код. Session — volatile opaque bearer
+на 8 часов; browser хранит его в `sessionStorage` и передаёт в Authorization.
+Logout и restart отзывают sessions; exact Host/Origin, CSP, bounded I/O и
+проверки socket/peer UID защищают границу. Подробные лимиты — в
+[ADR](UI_BROWSER_BOUNDARY.md).
 
-Эта задача реализует static build и mock-only file-server smoke, не сам gateway,
-auth или live read. Build-time SSR prerender не требует Node runtime в будущем
-установленном продукте. Прежние CLI/UDS и demo/dev workflows остаются без изменений.
+HTTP surface ограничен exchange/logout и authenticated `GET /api/health`,
+`GET /api/projects/{uuid}`. Hyper передаёт только фиксированный GET в Core UDS,
+без browser credentials/actor headers, redirects или TCP fallback. Live entry
+показывает connection state и поля Project через существующий Zod contract;
+не импортирует demo layout/services. Commands, SSE и остальные экраны отложены.
+
+FRONTEND-006 остаётся отдельным mock-only static proof `frontend/dist/client`
+с build-time SSR prerender и test-only file server. FRONTEND-007 использует
+plain React/Vite entry без SSR; Node нужен только для build/test. Реальные
+Core/browser, sandbox и security results фиксируются в
+[FRONTEND-007](../tasks/frontend/frontend-007-live-owner-gateway.md), а не выводятся
+из наличия adapter или прежнего static smoke. Прежние CLI/UDS и demo workflows
+сохранены; installer и полные UI0 gates не закрыты.
 
 ## 7. State, data and transactions
 

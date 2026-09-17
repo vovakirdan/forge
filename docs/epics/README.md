@@ -37,7 +37,10 @@ browser smoke существующего demo в UI0.3.
 pure Task/Run presentation в UI0.1, без подключения экранов.
 [FRONTEND-006](../../tasks/frontend/frontend-006-static-hosting-boundary.md) начинает
 UI0.2 с согласованного preparatory-среза: ADR/static proof без gateway/auth.
-Остальные UI epics — planned; полные gates UI0.1/UI0.3 не пройдены.
+[FRONTEND-007](../../tasks/frontend/frontend-007-live-owner-gateway.md) добавляет
+отдельный owner gateway/live entry, terminal login и Core Project read.
+Приёмка этого среза фиксируется в Task, не выводится из FRONTEND-006 evidence.
+Остальные UI epics — planned; полные gates UI0.1/UI0.2/UI0.3 не пройдены.
 Задачи — в [Task index](../../tasks/INDEX.md).
 
 | Milestone | Epic | Выход |

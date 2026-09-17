@@ -7,9 +7,13 @@ license.workspace = true
 publish = false
 
 [dependencies]
+nix = { version = "0.30", default-features = false, features = ["fs", "user"] }
 prost.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+thiserror.workspace = true
+time.workspace = true
+tokio.workspace = true
 tonic.workspace = true
 tonic-prost.workspace = true
 

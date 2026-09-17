@@ -4,11 +4,14 @@
     "src/**/*.tsx",
     "tests/browser/**/*.ts",
     "tests/static/**/*.ts",
+    "tests/live/**/*.ts",
     "scripts/**/*.ts",
     "playwright.config.ts",
     "playwright.static.config.ts",
+    "playwright.live*.config.ts",
     "vite.config.ts",
     "vite.static.config.ts",
+    "vite.live.config.ts",
     "eslint.config.js"
   ],
   "compilerOptions": {

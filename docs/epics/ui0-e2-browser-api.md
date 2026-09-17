@@ -1,7 +1,7 @@
 # Epic UI0.2 — Локальная browser boundary и API client
 
 **Milestone:** UI0 — Модель интерфейса и локальная API-граница
-**Статус:** in_progress — только preparatory ADR/static proof; gateway/auth ещё не реализованы
+**Статус:** in_progress — static proof и owner gateway/Project read срез; полная приёмка эпика впереди
 **Тип / приоритет:** integration / P0
 **Источники:** [UI-план](../UI_IMPLEMENTATION_PLAN.md),
 [матрица соответствия](../UI_BACKEND_ALIGNMENT.md)
@@ -15,18 +15,26 @@
 
 Core обслуживает HTTP/JSON через UDS `0600`; browser не умеет обращаться к нему
 напрямую. [FRONTEND-006](../../tasks/frontend/frontend-006-static-hosting-boundary.md)
-фиксирует [ADR](../UI_BROWSER_BOUNDARY.md): static React/TanStack client и будущий
-отдельный Rust/Axum gateway. Lovable wrapper остаётся build tool, SSR prerender
-допустим только при сборке shell. В runtime не требуется Node/Nitro.
+фиксирует [ADR](../UI_BROWSER_BOUNDARY.md): static client и отдельный Rust/Axum
+gateway. Historical static demo использует Lovable wrapper и build-time SSR
+prerender. FRONTEND-007 добавляет отдельный plain React/Vite live entry без SSR;
+в runtime gateway не требуется Node/Nitro.
 
 FRONTEND-006 проверяет static build через независимый file server, а не через
-SSR preview. Bootstrap/session пока только описаны; Core health/read и security
-negative tests ещё не выполнены. Это ограниченный preparatory-срез, не закрытие
-epic или доказательство безопасного browser ingress.
+SSR preview. Это ограниченный preparatory-срез, не закрытие epic или
+доказательство безопасного browser ingress.
 
 Static-срез проверен 2 Node и 13 browser tests, прежними 7 dev-browser tests,
 47 contract и 18 presentation tests, typecheck/lint/обеими сборками и
-независимыми spec/quality reviews. Evidence и negative probes — в Task.
+независимыми spec/quality reviews. Evidence и negative probes — в FRONTEND-006.
+
+[FRONTEND-007](../../tasks/frontend/frontend-007-live-owner-gateway.md) реализует
+`forge-ui`: exact loopback origin, private owner control UDS/TTY login, opaque
+sessions, CSP, bounded assets/transport и allowlisted Core reads. Отдельный
+`frontend/dist-live` показывает health и Project по ID через Zod contract,
+без mock layout/services. Commands, SSE и остальные экраны сюда не входят.
+Результаты unit/browser/Core/sandbox приёмки фиксируются в Task; наличие кода
+или historical static tests не означает, что эти gates уже пройдены.
 
 Независимо от hosting, boundary имеет browser-facing loopback origin и доступ
 к owner-local Core API; она не получает собственный scheduler или DB-write слой.
@@ -55,19 +63,19 @@ Remote control, accounts/RBAC, OAuth service, WebSocket, API gateway platform,
 ## Контракты и зависимости
 
 **Зависимости:** UI0.1 и UI0.3. Пользователь разрешил FRONTEND-006 (ADR/static
-proof) до их полного закрытия на основе FRONTEND-001–005. Это исключение только
-для preparatory-среза, остальные gates сохраняются. Финальное packaging и
-защищённый Core transport proof входят в UI0.2.
+proof), затем FRONTEND-007 (owner login/Project read) до их полного закрытия на
+основе FRONTEND-001–005. Это исключение для двух ограниченных срезов; остальные
+gates сохраняются. Финальное packaging и полный typed transport входят в UI0.2.
 Существующий CLI over UDS остаётся совместимым. Browser actor определяется
 trusted server boundary, а не полем запроса. Валидация прав остаётся в Core.
 Hosting/session ADR и conformance tests — обязательный выход до feature wiring.
 
 ## Направления будущей нарезки
 
-1. Hosting/security ADR и static proof — FRONTEND-006; отдельно gateway и
-   local authentication handshake с keyless health/Project read proof.
+1. Hosting/security ADR и static proof — FRONTEND-006; owner gateway,
+   authentication и keyless health/Project read acceptance — FRONTEND-007.
 2. OpenAPI completeness и typed read/command client.
-3. Browser transport/session enforcement и health smoke.
+3. Расширение защищённого transport на feature routes с policy и contract tests.
 4. Scoped live updates, error/replay/conflict integration tests.
 
 ## Exit gate и проверка

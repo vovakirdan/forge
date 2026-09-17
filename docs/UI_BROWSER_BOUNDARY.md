@@ -1,21 +1,23 @@
 # ADR: локальная browser boundary
 
 **Дата:** 17 сентября 2026
-**Статус:** target принят; FRONTEND-006 проверяет только static hosting
+**Статус:** target принят; FRONTEND-007 реализует owner gateway и первое Project read
 **Область:** local-owner Control Room; remote control и Tauri отложены
 
 ## 1. Решение и уровень доказательства
 
-Frontend поставляется как static React/TanStack client. Будущий тонкий
+Frontend поставляется как static React client. Тонкий
 Rust/Axum gateway отдаёт assets и связывает browser с закрытым Core UDS:
 
 `Browser → loopback Rust gateway → owner-local Core HTTP/JSON UDS`
 
 В [FRONTEND-006](../tasks/frontend/frontend-006-static-hosting-boundary.md)
-реализован только build/test path статического demo. Rust gateway, bootstrap,
-sessions, CSP и Core reads ещё не реализованы. Node file server — тестовый
+реализован только build/test path статического demo. Отдельная
+[FRONTEND-007](../tasks/frontend/frontend-007-live-owner-gateway.md) добавляет
+Rust gateway, bootstrap, sessions, CSP и первое Core Project read; фактические
+результаты приёмки фиксируются в Task. Node file server FRONTEND-006 — тестовый
 инструмент без доступа к Core, не production boundary и не auth prototype.
-Успешный static smoke не доказывает безопасность будущего gateway.
+Успешный static smoke сам по себе не доказывает безопасность gateway.
 
 | Вариант | Решение |
 |---|---|
@@ -29,10 +31,25 @@ Static assets позже можно использовать в Tauri. WebView, 
 
 ## 2. Build и runtime contract
 
+В FRONTEND-007 runtime artifact — **`frontend/dist-live`**, отдельный plain-Vite
+React entry с TanStack Query и общими styles/primitives. Для login/Project card
+не нужен router. Он не загружает mock root, Sidebar/TopBar, ProjectProvider,
+service barrel или Lovable error reporter. Новый `just ui-build-live` не меняет
+прежние demo/build/static workflows и не требует новых frontend dependencies.
+
+`forge-live-manifest.json` содержит `format: "forge-live-v1"` и `files` с
+`path`/SHA-256. Build gate запрещает inline scripts/handlers и remote scripts.
+Gateway проверяет hashes, типы файлов и paths, затем хранит immutable snapshot
+разрешённых assets: ≤8 MiB/file, ≤32 MiB total, manifest ≤64 KiB/256 files.
+Запросы не открывают filesystem paths; unknown assets/API дают 404, не shell.
+Manifest — allowlist/integrity check trusted owner artifact, не подпись издателя.
+
+Исторический static proof FRONTEND-006 сохраняется отдельно:
+
 - `just ui-build-static` использует отдельную Vite-конфигурацию с TanStack SPA
   mode, `nitro: false` и отключённым автоматическим внедрением environment.
   Версии, lockfile и обычный `just ui-build` не меняются.
-- Runtime artifact — только `frontend/dist/client`: SPA shell, JS/CSS и public
+- Artifact static demo — только `frontend/dist/client`: SPA shell, JS/CSS и public
   assets. SSR bundle, который toolchain создаёт для prerender на этапе сборки,
   не поставляется и не исполняется при обслуживании browser.
 - TanStack SPA mode создаёт shell, но само по себе не запрещает server functions.
@@ -46,15 +63,15 @@ Static assets позже можно использовать в Tauri. WebView, 
   Playwright владеет его запуском и остановкой; занятый порт означает отказ.
 - Shell fallback допустим для UI navigation. Missing assets, traversal/root
   escape, `/api`, `/v1` и `/_serverFn` не превращаются в успешную HTML-страницу.
-  API errors будущего gateway тоже не должны скрываться за SPA fallback.
+  API errors gateway тоже не должны скрываться за SPA fallback.
 
 Build и smoke выполняются последовательно с ограничениями памяти. `vite preview`
 не служит static proof: установленный Start preview plugin загружает server
 bundle. Обычный demo на 5173 и прежний browser suite на 4173 остаются отдельными.
 
-## 3. Будущий Rust gateway
+## 3. Rust gateway
 
-Gateway — отдельный native adapter, не новый домен и не второй Core. Он получает
+`forge-ui` — отдельный native adapter, не новый домен и не второй Core. Он получает
 только static assets, свой session state и фиксированный owner-local UDS path.
 Не получает DB, NATS, provider keys, container socket, `CoreService` или право
 запускать CLI/shell. Не импортирует management router Core в TCP listener.
@@ -77,42 +94,50 @@ Project GET. В дальнейшем каждый method/path добавляет
   у read, он также должен совпасть. На same-origin GET browser может его не
   отправить: отсутствие Origin само по себе не заменяет проверку bearer token.
 - Public surface — только login shell/assets и строго ограниченный exchange.
-  Любой Core read, включая health, требует действующей session. Host/Origin и
-  Fetch Metadata — защита browser boundary, но не аутентификация. Native local
+  Любой Core read, включая health, требует действующей session. Host/Origin —
+  защита browser boundary, но не аутентификация. Native local
   процесс умеет подделать headers; authority даёт possession секрета.
-- Bootstrap/mutation принимают только ожидаемый JSON content type и schema;
+- Bootstrap принимает только ожидаемый JSON content type и schema; logout
+  имеет пустое тело и требует session/Origin. Будущие JSON commands потребуют
+  отдельного schema/content-type contract;
   cross-origin preflight не получает разрешающих CORS headers. Проверки не
   полагаются на один только браузерный CORS. [OWASP CSRF](https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html).
 - UDS path задаёт trusted owner config, не request. Проверяются type/owner/mode
   socket и parent directory; ошибка приводит к отказу без TCP fallback. Клиент
   соединяется только с этим endpoint, не следует redirects.
 - Каждый route имеет request/response byte limits, connection/read deadlines
-  и bounded concurrency. Ошибка Core даёт явный unavailable/timeout, не mock
-  response и не бесконечный retry. Точные численные лимиты фиксирует следующая
-  implementation Task вместе с boundary tests.
+  и bounded concurrency. Auth/control JSON ≤1 KiB; headers ≤16 KiB; Core body
+  ≤64 KiB, включая chunked/error responses. Connect ≤1 s, целый HTTP/control
+  exchange ≤5 s, включая idle/body/upstream; до 32 HTTP connections,
+  8 API requests и 4 control connections, без неограниченной очереди.
+  Ошибка Core даёт явный unavailable/timeout, не mock response или retry loop.
 - Secrets, Authorization, bootstrap body и raw upstream errors не попадают в
   logs/traces; auth и API responses используют `Cache-Control: no-store`.
   Service worker не кэширует authenticated content.
 
 ## 4. Owner bootstrap и session — target contract
 
-1. Gateway сначала успешно bind-ит listener и фиксирует origin. После этого
+1. Gateway сначала успешно bind-ит listener и фиксирует origin. Затем owner
+   вызывает `forge-cli ui login --control-socket …`: через отдельный private UDS
    генерируется single-use CSPRNG код с 256 битами энтропии и TTL **5 минут**.
    Код показывается только в owner terminal; пользователь вставляет его в UI.
    Он не попадает в URL/history, argv, env, provider context, telemetry или logs.
 2. Browser отправляет код JSON POST на same-origin exchange. Gateway проверяет
    Host/Origin, размер/формат, TTL и атомарно consumes код. При двух одновременных
    exchange ровно один может выдать session. Invalid/expired/replayed код не
-   раскрывается ответом; число попыток и concurrency ограничены.
+   раскрывается ответом; после пяти неверных попыток pending code инвалидируется.
 3. Только явная owner CLI операция может выдать новый код; старый инвалидируется.
    Неаутентифицированного HTTP mint/reset endpoint нет. Интерактивный terminal
    вывод отделён от daemon journal. При отсутствии controlling owner TTY
    выдача отказывает безопасно: код не печатается в redirected stdout/journal.
-   Доставка кода CLI после запуска service —
-   часть следующего local-owner implementation contract.
+   Control UDS: owner directory 0700, socket/lock 0600, peer UID проверяется
+   с обеих сторон. Lifetime lock и проверка inode защищают от двух владельцев
+   и очистки чужого socket. Протокол — 4-byte big-endian length + JSON ≤1 KiB,
+   одна команда `issue_login_code` на соединение. Initial/reissued code идут
+   одинаковым путём; daemon никогда сам не печатает код.
 4. Успех возвращает новый opaque CSPRNG bearer token (256 бит) и absolute expiry
    **8 часов**. Сервер держит volatile session state; restart инвалидирует все
-   sessions. Токен привязан к экземпляру gateway/owner authority, не является
+   sessions; максимум 16 активных sessions. Токен привязан к экземпляру gateway/owner authority, не является
    provider credential. Автоматического refresh нет.
 5. Browser хранит token в `sessionStorage` и передаёт только в
    `Authorization: Bearer …` same-origin запросов. Не использует cookie,
@@ -128,7 +153,7 @@ Cookies не изолированы по port. Для нескольких се�
 header. [RFC 6265 §8.5](https://www.rfc-editor.org/rfc/rfc6265#section-8.5).
 
 `sessionStorage` отделяет origin и page session, но не гарантирует уникальный
-server session на tab: новая вкладка с opener может скопировать token. Копии
+   server session на tab: новая вкладка с opener может скопировать token. Копии
 представляют одну server session, и logout инвалидирует их все. Открытие новых
 окон использует `noopener`; отдельный login создаёт отдельную session.
 [MDN sessionStorage](https://developer.mozilla.org/en-US/docs/Web/API/Window/sessionStorage).
@@ -137,9 +162,9 @@ Bearer в JS storage уязвим при XSS. До подключения Core �
 неограниченных script sources/eval, безопасный text/Markdown/URL rendering,
 отсутствие выполнения HTML из Task/log/Artifact, `frame-ancestors 'none'`,
 `base-uri 'none'`, `object-src 'none'`, `nosniff` и отказ от сторонних scripts.
-Нужные build-time hashes для shell scripts проверяются на реальном static build;
-попутный `unsafe-inline` для scripts не служит решением. Это обязательный gate,
-а не утверждение о текущем demo. [OWASP HTML5 Security](https://cheatsheetseries.owasp.org/cheatsheets/HTML5_Security_Cheat_Sheet.html).
+Plain-Vite live shell не содержит inline JS: применяется `script-src 'self'`
+без nonce/hash exceptions или `unsafe-inline`. CSP проверяется на production
+live build, а не на demo/HMR. [OWASP HTML5 Security](https://cheatsheetseries.owasp.org/cheatsheets/HTML5_Security_Cheat_Sheet.html).
 
 ## 5. Authority, sandbox и streaming
 
@@ -161,9 +186,9 @@ header; native EventSource с токеном в URL запрещён. Текущ
 пачки: нужны cursor resume/dedup, bounded reconnect/backoff, request cancellation
 при смене Project и offline/stale state. Event остаётся projection, не command.
 
-## 6. Следующий implementation gate
+## 6. Implementation gate FRONTEND-007
 
-Отдельная Task реализует gateway/session и keyless Core read smoke. До её
+FRONTEND-007 реализует gateway/session и keyless Core read smoke. До её
 закрытия нельзя подключать реальные экраны к UDS через временный открытый proxy.
 
 Негативные тесты должны доказать rejection до Core effect для чужого Host/Origin
@@ -174,5 +199,6 @@ header; native EventSource с токеном в URL запрещён. Текущ
 test и restart expiry. Static traversal tests FRONTEND-006 не заменяют их.
 
 UI0.1/UI0.3 остаются открытыми. Пользователь согласовал ранний preparatory-срез
-UI0.2 только для этого ADR/static proof; полные dependencies и exit gates эпиков
+UI0.2 для ADR/static proof, затем отдельный login/Project read FRONTEND-007;
+полные dependencies и exit gates эпиков
 сохраняются. Remote deployment, Tauri и installer остаются отдельными вехами.

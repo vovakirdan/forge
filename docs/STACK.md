@@ -16,8 +16,9 @@ Forge — Linux-first local control plane для AI-команды разраб�
 длительные изолированные Runs, хранит durable историю Task и допускает несколько
 параллельных Employee. CLI остаётся операторским интерфейсом backend baseline;
 локальный web UI добавляется отдельным workstream UI0–UI4. Его hosting/toolchain
-выбраны в UI0: static client и будущий Rust gateway; remote control остаётся
-отложенным. Реализованный static proof отделён от будущего защищённого ingress.
+выбраны в UI0: static client и отдельный Rust gateway; remote control остаётся
+отложенным. FRONTEND-006 static demo proof отделён от FRONTEND-007 owner login
+и read-only Project entry; фактическая приёмка записывается в соответствующих Task.
 
 Ключевые ограничения:
 
@@ -42,6 +43,7 @@ Forge — Linux-first local control plane для AI-команды разраб�
 | Observability instrumentation | Rust `tracing` + OpenTelemetry API | structured process diagnostics, correlation and W3C trace context |
 | RunEnvironment | rootless Podman OCI container | изолированное выполнение одного Run |
 | CLI | Rust binary | основной local client Core API |
+| Local browser gateway | Rust, Tokio, Axum, Hyper HTTP/1 | owner bootstrap/session, static live assets и allowlisted Core UDS reads |
 | Data services | rootless Podman containers | PostgreSQL, NATS JetStream, Redis, MinIO, AgentMemory, LiteLLM и Prometheus |
 
 Core и Supervisor работают как нативные host services. Их нельзя запускать в
@@ -69,8 +71,8 @@ package manager/script runner и Node `24.14.0` для существующег�
 Единственный frontend lockfile — `bun.lock`, установка — frozen. React/TanStack/
 Vite и Lovable wrapper импортированного прототипа сохранены без dependency upgrade.
 Команды находятся в [frontend README](../frontend/README.md). Это решение для
-локального demo; production hosting/browser auth остаются в UI0.2, а component
-harness и CI — в оставшейся части UI0.3.
+локального demo и отдельного live build. FRONTEND-007 добавляет native gateway
+и owner auth в UI0.2; component harness и CI остаются в UI0.3.
 
 FRONTEND-002 добавляет только read-contract tests: установленный Zod 3 и
 встроенный `node:test` в закреплённом Node, без нового test framework/dependencies.
@@ -85,20 +87,34 @@ browser contexts. Ни системный Chrome, ни запущенный вр
 fallback. Это mock-only smoke, не live Core acceptance; отдельный component
 runner, CI и production hosting этим выбором не вводятся.
 
-**Static hosting decision, FRONTEND-006:** установленный Forge будет отдавать
-React/TanStack SPA assets через отдельный тонкий Rust/Axum gateway, без Node
-runtime. `just ui-build-static` собирает `frontend/dist/client`; server bundle
+**Static proof, FRONTEND-006:** `just ui-build-static` собирает mock-only
+React/TanStack SPA в `frontend/dist/client`; server bundle
 нужен toolchain только для build-time shell prerender и не поставляется.
 Lovable wrapper сохранён, но в отдельном static target выключены Nitro и
 автоматический environment export. Прежний demo/build workflow не меняется.
 `just ui-test-static` проверяет client assets через test-only Node file server
 на 4174, без Core или SSR runtime. Зависимости и lockfile не меняются.
 
-Gateway/auth — пока принятый target, не реализация. Local-owner bootstrap
-использует terminal code; browser session — explicit bearer header, не cookies.
-Причины, сроки жизни, security gates и границы будущего Tauri описаны в
-[browser boundary ADR](UI_BROWSER_BOUNDARY.md). UI0.1/UI0.3 остаются открытыми;
-static proof — согласованный ранний preparatory-срез UI0.2.
+**Live boundary, FRONTEND-007:** `just ui-build-live` собирает отдельный
+`frontend/dist-live`: plain React/Vite с установленными React/Tailwind plugins
+и TanStack Query, без TanStack Start, Lovable wrapper, SSR или demo imports.
+Новых frontend dependencies нет. Manifest задаёт paths и SHA-256; Rust gateway
+проверяет файлы и хранит bounded immutable snapshot. Node не нужен в runtime.
+
+`forge-ui` — отдельный crate/binary на уже используемых Axum/Tokio/Hyper;
+Hyper HTTP/1 client работает поверх проверенного owner UnixStream. В gateway
+нет DB, CoreService или provider dependencies. `forge-protocol` разделяет с CLI
+owner socket checks и bounded control frames; `forge-cli ui login` получает
+terminal code через private UDS. Код и session используют CSPRNG 256 бит,
+session store — in-memory, без Redis/БД/JWT. Browser передаёт explicit bearer
+header, не cookies. Первый live экран читает health и один Project по ID;
+commands и SSE пока не подключены.
+
+Причины выбора, TTL, limits и security gates — в
+[browser boundary ADR](UI_BROWSER_BOUNDARY.md), результаты приёмки — в
+[FRONTEND-007](../tasks/frontend/frontend-007-live-owner-gateway.md).
+UI0.1/UI0.2/UI0.3 остаются открытыми: пользователь согласовал ранние static proof
+и login/Project read срезы до полных gates.
 
 ## 4. Execution isolation
 
@@ -134,14 +150,18 @@ daemon, сохраняя возможность запустить dependencies 
 | Boundary | Protocol | Rule |
 |---|---|---|
 | CLI ↔ Core | HTTP/JSON commands | каждая mutation — именованная команда с idempotency key |
+| Browser ↔ forge-ui | same-origin HTTP/JSON over loopback | owner bearer session; в FRONTEND-007 только auth и health/Project reads |
+| forge-ui ↔ Core | allowlisted HTTP/1 GET over owner UDS | проверка path/permissions/peer UID, без browser headers и TCP fallback |
+| CLI ↔ forge-ui | private owner UDS, length-prefixed JSON | одна bounded issue_login_code command; вывод секрета только owner TTY |
 | Core → CLI | Server-Sent Events | поток доменных/операционных updates; bidirectional UI protocol в MVP не нужен |
 | Core ↔ Supervisor | gRPC + Protobuf over authenticated local Unix socket | Supervisor сообщает observed state; Core остаётся authority для Task и Pipeline |
 | Adapter ↔ Core | provider-neutral typed command messages | provider-specific protocol не становится частью доменной модели |
 | RunEnvironment ↔ external world | Tool Gateway | MCP, память, integrations, secrets и разрешённая сеть проверяются capability policy и аудитируются |
 
 External API по умолчанию локален. Текущий operator API доступен через owner-only
-UDS; target local browser boundary и session contract приняты в
-[ADR UI0.2](UI_BROWSER_BOUNDARY.md), реализация ещё впереди. Remote control и
+UDS; отдельный gateway FRONTEND-007 реализует ограниченную browser boundary по
+[ADR UI0.2](UI_BROWSER_BOUNDARY.md). Остальные API routes добавляются явно, не
+через generic proxy. Remote control и
 public ingress остаются вне local MVP; capability checks остаются
 в Core, а не в транспорте, UI или CLI.
 

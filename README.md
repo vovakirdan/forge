@@ -1,6 +1,8 @@
 # Forge
 
-The imported `frontend/` is a Control Room prototype, not yet connected to Core.
+The imported `frontend/` Control Room screens remain a mock prototype. A separate
+live entry now supports local owner login and reads a real Core Project; see the
+[live UI runbook](frontend/README.md#live-owner-ui-frontend-007).
 The [UI roadmap](docs/UI_IMPLEMENTATION_PLAN.md) and
 [frontend/backend alignment](docs/UI_BACKEND_ALIGNMENT.md) define its adaptation.
 Milestones UI0–UI4 precede the M4 installer; see the [epic index](docs/epics/README.md).

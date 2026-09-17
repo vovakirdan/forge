@@ -8,9 +8,13 @@
 
 /// Canonical Linux-local Unix-socket directory convention.
 pub mod local_paths;
+/// Owner-only local socket validation shared by native UI adapters.
+pub mod owner_socket;
 /// Secret-free private runner launch metadata, separate from canonical RunSpec.
 pub mod runtime;
 pub mod trace_context;
+/// Bounded private owner CLI-to-UI bootstrap protocol; never an HTTP endpoint.
+pub mod ui_control;
 
 /// HTTP/JSON and SSE wire envelopes.
 pub mod wire;

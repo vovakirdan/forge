@@ -24,6 +24,14 @@ ui-build-static:
 ui-test-static:
     cd frontend && bun run test:static
 
+# Build the isolated live entry, not the mock demo or its SSR bundle.
+ui-build-live:
+    cd frontend && bun run build:live
+
+# Keyless owner login and Project read through the real Rust gateway and Core.
+ui-test-live:
+    @bash ./scripts/test-ui-live.sh
+
 # Check the imported UI's TypeScript baseline without emitting files.
 ui-typecheck:
     cd frontend && bun run typecheck

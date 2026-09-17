@@ -23,6 +23,11 @@ struct Arguments {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Owner-only browser bootstrap; requires an interactive controlling terminal.
+    Ui {
+        #[command(subcommand)]
+        command: UiCommand,
+    },
     /// Print an offline configure_employee_runtime payload; no enrollment or execution.
     ProfileTemplate {
         /// Explicit lane, identity references, model, image, prompts, limits and budget JSON.
@@ -69,6 +74,16 @@ enum Command {
 }
 
 #[derive(Debug, Subcommand)]
+enum UiCommand {
+    /// Print one short-lived UI login code only on the owner controlling terminal.
+    Login {
+        /// Private UI control socket (the Core --socket is not used).
+        #[arg(long, value_name = "PATH")]
+        control_socket: Option<PathBuf>,
+    },
+}
+
+#[derive(Debug, Subcommand)]
 enum DemoScenario {
     /// Create, dispatch, and verify one completed Task with evidence.
     M0,
@@ -92,6 +107,14 @@ async fn run(arguments: Arguments) -> Result<()> {
         None => LocalClient::from_environment(),
     };
     match command {
+        Command::Ui {
+            command: UiCommand::Login { control_socket },
+        } => {
+            let socket = control_socket
+                .unwrap_or_else(forge_protocol::local_paths::default_ui_control_socket_path);
+            forge_cli::ui_login::login(&socket).await?;
+            Ok(())
+        }
         Command::ProfileTemplate { payload } => {
             let input = serde_json::from_str(&payload)
                 .context("profile template requires a valid secret-free JSON object")?;

@@ -1,7 +1,7 @@
 # Forge: Control Room implementation plan
 
 **Дата:** 11 сентября 2026
-**Статус:** UI0.1/UI0.3 in_progress; UI0.2 preparatory-срез, остальные epics planned; milestones не закрыты
+**Статус:** UI0.1/UI0.2/UI0.3 in_progress; остальные epics planned; milestones не закрыты
 **Иерархия:** Milestone → Epic → будущие Task
 **Baseline:** backend `1439211`; frontend — неизменённый импорт пользовательского UI
 
@@ -35,8 +35,10 @@ frontend. Backend расширяется там, где отсутствует �
 pure Task/Run presentation в UI0.1.
 [FRONTEND-006](../tasks/frontend/frontend-006-static-hosting-boundary.md) добавляет
 static hosting proof и [browser boundary ADR](UI_BROWSER_BOUNDARY.md), без Core
-connection. Это согласованное исключение для preparatory-работы UI0.2 до полных
-gates UI0.1/UI0.3; статус и порядок Task —
+connection. [FRONTEND-007](../tasks/frontend/frontend-007-live-owner-gateway.md)
+добавляет Rust owner gateway, отдельный live entry, login и Project read.
+Это согласованные ранние срезы UI0.2 до полных gates UI0.1/UI0.3; реализация
+не заменяет результаты security/browser приёмки. Статус и порядок Task —
 в [индексе](../tasks/INDEX.md). Остальные Task
 появятся при разборе выбранного эпика. Описание будущего gate не означает, что
 он уже пройден.
@@ -214,10 +216,12 @@ summary видна, но не объявляет исходную Task неус�
 contracts — Runs, Inbox и Knowledge. Одновременные правки общей OpenAPI schema,
 command client и project cache координируются одним владельцем контракта.
 
-Исключение от 17 сентября: FRONTEND-006 выполняет ADR/static proof UI0.2 после
-FRONTEND-001–005, не ожидая полного закрытия UI0.1/UI0.3. Это не обход их exit
-gates и не разрешение feature wiring без auth boundary. Gateway/session, Core
-read proof и typed transport требуют следующих отдельно нарезанных Task.
+Исключение от 17 сентября: после FRONTEND-001–005 пользователь согласовал
+FRONTEND-006 (ADR/static proof), затем FRONTEND-007 (owner gateway/session и
+отдельный health/Project read экран), не ожидая полного закрытия UI0.1/UI0.3.
+Это не обход их exit gates и не разрешение подключать остальные features без
+security proof. Полный API client, commands/replay/conflicts и SSE требуют
+следующих отдельно нарезанных Task; FRONTEND-007 не закрывает весь UI0.2.
 
 На ближайший разбор: оставшиеся gates UI0.1/UI0.3 и implementation UI0.2;
 после их gates — UI1.1 и UI1.2.

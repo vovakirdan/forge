@@ -16,7 +16,7 @@ forge-protocol = { path = "../forge-protocol" }
 forge-provider-claude = { path = "../forge-provider-claude" }
 forge-provider-codex = { path = "../forge-provider-codex" }
 forge-provider-opencode = { path = "../forge-provider-opencode" }
-nix = { version = "0.30", default-features = false, features = ["user"] }
+nix = { version = "0.30", default-features = false, features = ["fs", "process", "term", "user"] }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

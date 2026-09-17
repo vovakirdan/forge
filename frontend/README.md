@@ -1,9 +1,15 @@
-# Forge Control Room — local demo
+# Forge Control Room — local demo and live Project read
 
-This is the imported React/TanStack UI with in-memory mock services. It does not
-connect to Forge Core. Tasks, employees, metrics and management actions shown in
-the demo are not evidence of real execution. No Lovable account, API keys,
-database, Podman services or provider Runs are needed.
+The imported React/TanStack demo uses in-memory mock services and does not connect
+to Forge Core. Its tasks, employees, metrics and management actions are not
+evidence of real execution. The separate FRONTEND-007 live entry adds owner login
+and read-only Project access through the native Rust gateway. It does not load
+the demo shell or services; Board, Team, commands and SSE remain future work.
+
+The demo needs no Lovable account, API keys, database, Podman services or provider
+Runs. The live screen needs a running local Core and an existing Project ID;
+it does not need provider credentials or start Runs. Acceptance results belong
+in [FRONTEND-007](../tasks/frontend/frontend-007-live-owner-gateway.md).
 
 ## Prerequisites
 
@@ -19,7 +25,7 @@ node --version
 Keep `bun.lock` as the only lockfile. Do not run `npm install` or regenerate the
 dependency tree to work around a frozen-install failure.
 
-## Start from the Forge repository root
+## Start the demo from the Forge repository root
 
 ```sh
 just ui-install
@@ -60,8 +66,130 @@ The unchanged Lovable Vite wrapper builds client assets in `.output/public` and
 Nitro **cloudflare-module** output in `.output/server`, including `index.mjs`
 and Wrangler configuration. This is not a standalone Node server or the chosen
 Forge production host. Use the dev command for this demo. FRONTEND-006 adds the
-separate static target below; actual gateway/authentication remain work in
-[UI0.2](../docs/epics/ui0-e2-browser-api.md).
+separate static demo target below. The native gateway uses the distinct live
+artifact described next; the full [UI0.2](../docs/epics/ui0-e2-browser-api.md)
+epic remains open.
+
+## Live owner UI (FRONTEND-007)
+
+Use the [backend development prerequisites](../README.md#local-development),
+including Rust 1.98.0 and `protoc`, in addition to the frontend tools above.
+Start your existing Core as its normal owner and keep its management API on a
+private Unix socket. These instructions attach a read-only UI; they do not
+start Core, create a Project, migrate a database or install Forge.
+
+From the repository root, build one target at a time:
+
+```sh
+just ui-install
+just ui-build-live
+CARGO_BUILD_JOBS=2 cargo build --locked -p forge-ui -p forge-cli
+```
+
+Run the gateway in one terminal, using the default socket convention:
+
+```sh
+./target/debug/forge-ui serve --assets-dir frontend/dist-live
+```
+
+It prints `Origin: http://127.0.0.1:<port>` with an OS-selected port. Open that
+exact origin, not `localhost`, another port or a remote address. In a second
+interactive terminal under the same owner and runtime environment:
+
+```sh
+./target/debug/forge-cli ui login
+```
+
+The current Cargo executable is `forge-cli`, even though its help calls the
+command `forge`. Login requires stdin/stdout on the owner's controlling TTY;
+do not pipe, redirect, capture or journal its output, or run it through the
+non-TTY check wrapper below. It prints the origin, one-time code and expiry to
+the terminal. Paste the code into the live screen, then enter an existing UUIDv7
+Project ID. The card reads real `id`, `name`, `revision` and `execution_gate`;
+health alone does not prove Project access.
+
+Both binaries resolve the runtime directory in this order, skipping unset or
+relative environment values:
+
+1. `$XDG_RUNTIME_DIR/forge`;
+2. `$XDG_STATE_HOME/forge/run`;
+3. `$HOME/.local/state/forge/run`;
+4. `/tmp/forge`.
+
+The Core endpoint is `api.sock`; the distinct UI control endpoint is
+`ui-control.sock`. If Core uses another path, pass explicit absolute paths,
+replacing the examples with your owner-private directory:
+
+```sh
+./target/debug/forge-ui serve --assets-dir frontend/dist-live \
+  --core-socket /absolute/owner-private/api.sock \
+  --control-socket /absolute/owner-private/ui-control.sock
+```
+
+```sh
+./target/debug/forge-cli ui login \
+  --control-socket /absolute/owner-private/ui-control.sock
+```
+
+The gateway can create a missing private control directory. It refuses to repair
+an existing unsafe path: the immediate parent must be owned by this user with
+mode `0700`, sockets must be `0600`, path components must not be symlinks, and
+the connected peer UID must match. CLI `--socket` is not the UI control option.
+An existing live control listener causes startup to fail; do not delete its
+socket or kill an unrelated process.
+
+Codes expire after five minutes; a new login command invalidates the previous
+code, and five incorrect code attempts invalidate the pending code. Sessions
+last at most eight hours and live only in gateway memory and browser
+`sessionStorage`. Logout revokes the current session, including token copies in
+other tabs. If the network is unavailable, the screen distinguishes local logout
+from unconfirmed server revocation. Gateway restart invalidates all sessions;
+it may also select a different port. Core unavailability is shown explicitly,
+without mock data or automatic login retries. Stop the gateway with Ctrl-C;
+its owned control socket is removed, while its lifetime lock file is retained.
+
+`vite.live.config.ts` uses the installed React/Tailwind plugins and TanStack
+Query, not TanStack Start or the Lovable wrapper. `frontend/dist-live` contains
+the HTML, assets and `forge-live-manifest.json`. The gateway validates hashes
+and paths, then serves an immutable in-memory snapshot: changing files requires
+a rebuild and gateway restart. The manifest is an integrity allowlist for a
+trusted owner build, not a publisher signature. Client env export, public-dir
+copying and source maps are disabled. The live shell uses strict CSP without
+inline scripts, eval or third-party scripts; keep secrets out of source and
+assets. Node is needed for build/test only, not for serving this artifact.
+
+### Live checks
+
+Service-free session/API/manifest/config tests run from the repository root:
+
+```sh
+(cd frontend && bun run test:live-unit)
+```
+
+For the separate keyless browser acceptance, prepare the local development
+services and pinned Playwright Chromium as documented above and in the backend
+README. PostgreSQL and NATS must be ready; the synthetic sandbox image is also
+required. From the repository root, sequentially:
+
+```sh
+just ui-browser-install
+just build-runtime-fixture
+just ui-test-live
+```
+
+`ui-test-live` builds the live artifact, gateway/CLI and test fixture, checks the
+production sandbox boundary without a provider, then launches browser tests with
+real Core and an isolated PostgreSQL schema. The fixture creates its own Project
+through a named command; it does not reuse personal queues or require inference.
+The suite does not run the broad backend integration target. Its temporary
+processes stop on exit; PostgreSQL test schemas are retained for diagnosis.
+
+Live Playwright uses one worker, no retries and no trace, HAR, screenshot, video
+or stored auth fixture. Ignored failure diagnostics live under
+`frontend/test-results/`. A separate intentional failure checks issued code/token
+values against output and artifacts; do not enable richer auth recording to debug
+it. Source/tests and the existence of this recipe are not a PASS claim: see the
+Task's evidence for commands actually run and remaining checks.
 
 ## Static build and smoke (FRONTEND-006)
 
@@ -78,7 +206,7 @@ running the ordinary build, before testing them. It must fail if the shell is
 missing; it never falls back to a dev or SSR server.
 
 `vite.static.config.ts` uses the existing Lovable wrapper with TanStack SPA mode
-and Nitro disabled. The runtime artifact is **`frontend/dist/client`**, including
+and Nitro disabled. The static demo artifact is **`frontend/dist/client`**, including
 `_shell.html`. TanStack still builds a server bundle to prerender the shell at
 build time. Do not ship or serve that bundle: a running Node/Nitro/SSR process is
 not required for this static UI. The existing dev and ordinary build commands
@@ -103,10 +231,10 @@ apply. Reports remain in ignored test output directories. Test/config/scripts
 are included in typecheck. Do not run static and dev browser suites together.
 
 This proves **mock-only UI from static assets**, not authentication or live Core
-integration. The accepted future host is a dedicated Rust/Axum gateway over
-private Core UDS. The terminal-code login, bearer session, CSP and security gates
-are specified, not implemented: see the [ADR](../docs/UI_BROWSER_BOUNDARY.md)
-and [Task evidence](../tasks/frontend/frontend-006-static-hosting-boundary.md).
+integration. FRONTEND-007 implements its separate live entry and Rust/Axum
+gateway over private Core UDS; it does not serve this demo artifact. The
+[ADR](../docs/UI_BROWSER_BOUNDARY.md) distinguishes both boundaries. Historical
+static results remain in [FRONTEND-006 evidence](../tasks/frontend/frontend-006-static-hosting-boundary.md).
 Tauri, remote control, installer, component harness and CI remain separate work.
 
 ## Resource-limited checks
@@ -121,8 +249,11 @@ systemd-run --user --scope --quiet \
   timeout 300s just ui-build
 ```
 
-Apply it separately to install, browser install/tests, contract tests, typecheck and lint. Keep checks sequential and
-do not run Rust validation alongside them. A memory-limit failure remains a
+Apply it separately to install, browser install/tests, contract tests, typecheck
+and lint. For the aggregate live acceptance, use the same memory/CPU limits
+with `timeout 1200s just ui-test-live`; it builds Rust and frontend sequentially
+and defaults Cargo jobs to two. Keep checks sequential and do not run another
+Rust validation alongside them. A memory-limit failure remains a
 failed check; investigate it rather than silently dropping the limits. For a
 bounded demo session use the same wrapper with `timeout 1200s just ui-dev`.
 
@@ -135,9 +266,11 @@ do not disable the rule to make the baseline look clean.
 
 The automated demo browser smoke is described below and in
 [FRONTEND-004](../tasks/frontend/frontend-004-browser-smoke.md). Component-unit
-tests, CI, visual baselines and backend unavailable/offline/permission states
-remain in [UI0.3](../docs/epics/ui0-e3-frontend-tooling.md). API integration,
-domain alignment and real data belong to the [UI roadmap](../docs/UI_IMPLEMENTATION_PLAN.md).
+tests, CI, visual baselines and full-screen backend unavailable/offline/permission
+coverage remain in [UI0.3](../docs/epics/ui0-e3-frontend-tooling.md). FRONTEND-007
+adds these failure states only for its isolated login/Project screen. The other
+API integrations and domain alignment remain in the
+[UI roadmap](../docs/UI_IMPLEMENTATION_PLAN.md).
 
 ## Browser smoke (demo only)
 
@@ -194,8 +327,9 @@ the separate compiler check. Contract modules use relative `.ts` imports and
 erasable syntax, not Vite aliases, TS enums or JSX. No additional runner or
 dependency installation is needed after the normal frozen install.
 
-The current screens still use `src/data/types.ts` and mock services; they do not
-consume these contracts yet. Passing contract tests does not prove live API
+The imported demo screens still use `src/data/types.ts` and mock services.
+The separate live entry consumes ProjectViewSchema; Task/Pipeline/Run screens
+are not connected yet. Passing contract tests alone does not prove live API
 integration. See [FRONTEND-002](../tasks/frontend/frontend-002-task-pipeline-contracts.md),
 [FRONTEND-003](../tasks/frontend/frontend-003-run-read-contracts.md) and the
 [field/gap map](../docs/UI_BACKEND_ALIGNMENT.md#8-read-contracts-frontend-002).

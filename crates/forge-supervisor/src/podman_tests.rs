@@ -30,6 +30,7 @@ use crate::{
 mod fixture;
 mod input_acceptance;
 mod receipt_admission;
+mod ui_boundary;
 use fixture::*;
 
 #[tokio::test]

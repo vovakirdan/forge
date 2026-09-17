@@ -12,6 +12,7 @@ members = [
     "crates/forge-core",
     "crates/forge-supervisor",
     "crates/forge-cli",
+    "crates/forge-ui",
     "crates/forge-testkit",
 ]
 default-members = [
@@ -27,6 +28,7 @@ default-members = [
     "crates/forge-core",
     "crates/forge-supervisor",
     "crates/forge-cli",
+    "crates/forge-ui",
     "crates/forge-testkit",
 ]
 resolver = "3"
