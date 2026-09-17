@@ -59,8 +59,55 @@ files and is not part of this workflow.
 The unchanged Lovable Vite wrapper builds client assets in `.output/public` and
 Nitro **cloudflare-module** output in `.output/server`, including `index.mjs`
 and Wrangler configuration. This is not a standalone Node server or the chosen
-Forge production host. Use the dev command for this demo; hosting and browser
-authentication are separate work in [UI0.2](../docs/epics/ui0-e2-browser-api.md).
+Forge production host. Use the dev command for this demo. FRONTEND-006 adds the
+separate static target below; actual gateway/authentication remain work in
+[UI0.2](../docs/epics/ui0-e2-browser-api.md).
+
+## Static build and smoke (FRONTEND-006)
+
+From the repository root, after the usual frozen install and Chromium setup:
+
+```sh
+just ui-build-static
+just ui-test-static
+```
+
+Run these separately and sequentially with the resource limits below. The test
+command does not rebuild: rebuild static assets after source changes, and after
+running the ordinary build, before testing them. It must fail if the shell is
+missing; it never falls back to a dev or SSR server.
+
+`vite.static.config.ts` uses the existing Lovable wrapper with TanStack SPA mode
+and Nitro disabled. The runtime artifact is **`frontend/dist/client`**, including
+`_shell.html`. TanStack still builds a server bundle to prerender the shell at
+build time. Do not ship or serve that bundle: a running Node/Nitro/SSR process is
+not required for this static UI. The existing dev and ordinary build commands
+are unchanged; no dependency or lockfile upgrade is involved.
+
+Automatic wrapper environment definitions and Vite client env export are off
+for this target. This does not promise that build tools cannot read `.env` or
+the host environment; never place secrets in client source or public assets.
+There is no runtime public environment configuration or credential delivery.
+
+The smoke starts a test-only Node built-in file server on
+**http://127.0.0.1:4174/**. It serves only built client files and allowlisted UI
+navigation paths, without importing the SSR bundle, proxying requests, or
+connecting to Core. Missing assets, `/api`, `/v1`, `/_serverFn`, and traversal
+attempts are errors, not successful SPA fallback. A busy port fails explicitly;
+Playwright starts/stops its own server and never reuses or kills another one.
+
+The suite reuses the seven demo scenarios and adds static route/reload and
+boundary checks. Node tests use synthetic files to exercise file containment.
+The same console/page-error collector, one Chromium worker and no retries
+apply. Reports remain in ignored test output directories. Test/config/scripts
+are included in typecheck. Do not run static and dev browser suites together.
+
+This proves **mock-only UI from static assets**, not authentication or live Core
+integration. The accepted future host is a dedicated Rust/Axum gateway over
+private Core UDS. The terminal-code login, bearer session, CSP and security gates
+are specified, not implemented: see the [ADR](../docs/UI_BROWSER_BOUNDARY.md)
+and [Task evidence](../tasks/frontend/frontend-006-static-hosting-boundary.md).
+Tauri, remote control, installer, component harness and CI remain separate work.
 
 ## Resource-limited checks
 

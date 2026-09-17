@@ -15,6 +15,10 @@ demo. Component harness, CI, visual baselines и error/offline/permission states
 В FRONTEND-004 проверены семь сценариев двумя последовательными root runs,
 error collector, отказ на занятом порте и cleanup после global timeout.
 
+[FRONTEND-006](../../tasks/frontend/frontend-006-static-hosting-boundary.md) в UI0.2
+переиспользует эти сценарии для отдельного static build и file server на 4174.
+Он не заменяет dev-suite на 4173 и не закрывает component/CI/live API gates.
+
 ## Цель
 
 Сделать frontend обычной проверяемой частью repository, с воспроизводимой

@@ -16,7 +16,8 @@ Forge — Linux-first local control plane для AI-команды разраб�
 длительные изолированные Runs, хранит durable историю Task и допускает несколько
 параллельных Employee. CLI остаётся операторским интерфейсом backend baseline;
 локальный web UI добавляется отдельным workstream UI0–UI4. Его hosting/toolchain
-ещё не выбраны; remote control остаётся отложенным.
+выбраны в UI0: static client и будущий Rust gateway; remote control остаётся
+отложенным. Реализованный static proof отделён от будущего защищённого ingress.
 
 Ключевые ограничения:
 
@@ -84,6 +85,21 @@ browser contexts. Ни системный Chrome, ни запущенный вр
 fallback. Это mock-only smoke, не live Core acceptance; отдельный component
 runner, CI и production hosting этим выбором не вводятся.
 
+**Static hosting decision, FRONTEND-006:** установленный Forge будет отдавать
+React/TanStack SPA assets через отдельный тонкий Rust/Axum gateway, без Node
+runtime. `just ui-build-static` собирает `frontend/dist/client`; server bundle
+нужен toolchain только для build-time shell prerender и не поставляется.
+Lovable wrapper сохранён, но в отдельном static target выключены Nitro и
+автоматический environment export. Прежний demo/build workflow не меняется.
+`just ui-test-static` проверяет client assets через test-only Node file server
+на 4174, без Core или SSR runtime. Зависимости и lockfile не меняются.
+
+Gateway/auth — пока принятый target, не реализация. Local-owner bootstrap
+использует terminal code; browser session — explicit bearer header, не cookies.
+Причины, сроки жизни, security gates и границы будущего Tauri описаны в
+[browser boundary ADR](UI_BROWSER_BOUNDARY.md). UI0.1/UI0.3 остаются открытыми;
+static proof — согласованный ранний preparatory-срез UI0.2.
+
 ## 4. Execution isolation
 
 ### Primary backend: rootless Podman
@@ -124,8 +140,9 @@ daemon, сохраняя возможность запустить dependencies 
 | RunEnvironment ↔ external world | Tool Gateway | MCP, память, integrations, secrets и разрешённая сеть проверяются capability policy и аудитируются |
 
 External API по умолчанию локален. Текущий operator API доступен через owner-only
-UDS; local browser boundary и session contract проектируются в UI0.2. Remote
-control и public ingress остаются вне local MVP; capability checks остаются
+UDS; target local browser boundary и session contract приняты в
+[ADR UI0.2](UI_BROWSER_BOUNDARY.md), реализация ещё впереди. Remote control и
+public ingress остаются вне local MVP; capability checks остаются
 в Core, а не в транспорте, UI или CLI.
 
 ## 6. Data and event layer

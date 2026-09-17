@@ -1,7 +1,7 @@
 # Epic UI0.2 — Локальная browser boundary и API client
 
 **Milestone:** UI0 — Модель интерфейса и локальная API-граница
-**Статус:** planned; hosting/security decision перед implementation tasks
+**Статус:** in_progress — только preparatory ADR/static proof; gateway/auth ещё не реализованы
 **Тип / приоритет:** integration / P0
 **Источники:** [UI-план](../UI_IMPLEMENTATION_PLAN.md),
 [матрица соответствия](../UI_BACKEND_ALIGNMENT.md)
@@ -14,11 +14,19 @@
 ## Исходная точка и design gate
 
 Core обслуживает HTTP/JSON через UDS `0600`; browser не умеет обращаться к нему
-напрямую. Импорт использует TanStack Start/Nitro и Lovable build wrapper.
-До coding tasks фиксируется hosting ADR: остаётся ли локальный SSR host или
-frontend собирается как static client. Выбор проверяется минимальным build и
-health smoke, учитывает результат UI0.3 и описывается в STACK/ARCHITECTURE.
-Это отдельный ограниченный design шаг, не скрытый выбор исполнителя.
+напрямую. [FRONTEND-006](../../tasks/frontend/frontend-006-static-hosting-boundary.md)
+фиксирует [ADR](../UI_BROWSER_BOUNDARY.md): static React/TanStack client и будущий
+отдельный Rust/Axum gateway. Lovable wrapper остаётся build tool, SSR prerender
+допустим только при сборке shell. В runtime не требуется Node/Nitro.
+
+FRONTEND-006 проверяет static build через независимый file server, а не через
+SSR preview. Bootstrap/session пока только описаны; Core health/read и security
+negative tests ещё не выполнены. Это ограниченный preparatory-срез, не закрытие
+epic или доказательство безопасного browser ingress.
+
+Static-срез проверен 2 Node и 13 browser tests, прежними 7 dev-browser tests,
+47 contract и 18 presentation tests, typecheck/lint/обеими сборками и
+независимыми spec/quality reviews. Evidence и negative probes — в Task.
 
 Независимо от hosting, boundary имеет browser-facing loopback origin и доступ
 к owner-local Core API; она не получает собственный scheduler или DB-write слой.
@@ -46,15 +54,18 @@ Remote control, accounts/RBAC, OAuth service, WebSocket, API gateway platform,
 
 ## Контракты и зависимости
 
-**Зависимости:** UI0.1 и UI0.3. Toolchain preflight UI0.3 служит входом в
-hosting ADR; финальная адаптация packaging и hosting proof входят в UI0.2.
+**Зависимости:** UI0.1 и UI0.3. Пользователь разрешил FRONTEND-006 (ADR/static
+proof) до их полного закрытия на основе FRONTEND-001–005. Это исключение только
+для preparatory-среза, остальные gates сохраняются. Финальное packaging и
+защищённый Core transport proof входят в UI0.2.
 Существующий CLI over UDS остаётся совместимым. Browser actor определяется
 trusted server boundary, а не полем запроса. Валидация прав остаётся в Core.
 Hosting/session ADR и conformance tests — обязательный выход до feature wiring.
 
 ## Направления будущей нарезки
 
-1. Hosting/security ADR и local authentication handshake prototype.
+1. Hosting/security ADR и static proof — FRONTEND-006; отдельно gateway и
+   local authentication handshake с keyless health/Project read proof.
 2. OpenAPI completeness и typed read/command client.
 3. Browser transport/session enforcement и health smoke.
 4. Scoped live updates, error/replay/conflict integration tests.

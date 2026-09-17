@@ -11,6 +11,7 @@
   "scripts": {
     "dev": "vite dev --host 127.0.0.1 --port 5173 --strictPort",
     "build": "vite build",
+    "build:static": "vite build --config vite.static.config.ts",
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
     "lint": "eslint .",
@@ -20,6 +21,8 @@
     "test:browser": "playwright test",
     "test:browser:install": "playwright install chromium",
     "test:browser:serve": "vite dev --host 127.0.0.1 --port 4173 --strictPort",
+    "test:static": "node --test --test-concurrency=1 scripts/*.test.ts && playwright test --config playwright.static.config.ts",
+    "test:static:serve": "node scripts/serve-static.ts",
     "format": "prettier --write ."
   },
   "overrides": {

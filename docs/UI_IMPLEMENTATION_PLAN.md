@@ -1,7 +1,7 @@
 # Forge: Control Room implementation plan
 
 **Дата:** 11 сентября 2026
-**Статус:** UI0.1 и UI0.3 in_progress; остальные epics planned, milestones не закрыты
+**Статус:** UI0.1/UI0.3 in_progress; UI0.2 preparatory-срез, остальные epics planned; milestones не закрыты
 **Иерархия:** Milestone → Epic → будущие Task
 **Baseline:** backend `1439211`; frontend — неизменённый импорт пользовательского UI
 
@@ -32,7 +32,11 @@ frontend. Backend расширяется там, где отсутствует �
 в UI0.1. [FRONTEND-004](../tasks/frontend/frontend-004-browser-smoke.md)
 добавляет воспроизводимый browser smoke в UI0.3.
 [FRONTEND-005](../tasks/frontend/frontend-005-task-run-presentation.md) добавляет
-pure Task/Run presentation в UI0.1; статус и порядок Task —
+pure Task/Run presentation в UI0.1.
+[FRONTEND-006](../tasks/frontend/frontend-006-static-hosting-boundary.md) добавляет
+static hosting proof и [browser boundary ADR](UI_BROWSER_BOUNDARY.md), без Core
+connection. Это согласованное исключение для preparatory-работы UI0.2 до полных
+gates UI0.1/UI0.3; статус и порядок Task —
 в [индексе](../tasks/INDEX.md). Остальные Task
 появятся при разборе выбранного эпика. Описание будущего gate не означает, что
 он уже пройден.
@@ -210,7 +214,13 @@ summary видна, но не объявляет исходную Task неус�
 contracts — Runs, Inbox и Knowledge. Одновременные правки общей OpenAPI schema,
 command client и project cache координируются одним владельцем контракта.
 
-На ближайший разбор: UI0.1 и UI0.3, затем UI0.2; после их gates — UI1.1 и UI1.2.
+Исключение от 17 сентября: FRONTEND-006 выполняет ADR/static proof UI0.2 после
+FRONTEND-001–005, не ожидая полного закрытия UI0.1/UI0.3. Это не обход их exit
+gates и не разрешение feature wiring без auth boundary. Gateway/session, Core
+read proof и typed transport требуют следующих отдельно нарезанных Task.
+
+На ближайший разбор: оставшиеся gates UI0.1/UI0.3 и implementation UI0.2;
+после их gates — UI1.1 и UI1.2.
 Это очередь эпиков для будущей нарезки, не пять заранее выданных coding tasks.
 
 ## 6. Проверки и evidence

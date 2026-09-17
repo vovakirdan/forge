@@ -9,6 +9,7 @@
 | [FRONTEND-003](frontend/frontend-003-run-read-contracts.md) | UI0.1 | P0 | done | FRONTEND-002; Run API и diagnostics projection | Run ownership/states и diagnostics; все 47 contract tests проходят, экраны без изменений |
 | [FRONTEND-004](frontend/frontend-004-browser-smoke.md) | UI0.3 | P0 | done | FRONTEND-001; Linux, Bun/Node и Chromium | 7 browser tests, два root прогона; error/timeout/occupied-port probes; mock-only UI |
 | [FRONTEND-005](frontend/frontend-005-task-run-presentation.md) | UI0.1 | P0 | done | FRONTEND-002/003 | Pure Task/Run presentation; 18 tests, source DTO и независимые состояния, без подключения экранов |
+| [FRONTEND-006](frontend/frontend-006-static-hosting-boundary.md) | UI0.2 | P0 | done | FRONTEND-001–005; ранний preparatory-срез согласован | Static proof: 2 Node + 13 browser tests; принятый ADR, без gateway/auth/Core connection |
 
 ## Порядок и параллельность
 
@@ -19,14 +20,18 @@ FRONTEND-004 добавляет browser smoke [UI0.3](../docs/epics/ui0-e3-front
 FRONTEND-005 добавляет presentation поверх проверенных Task/Run DTO.
 Далее отдельно нарезаются оставшиеся contracts/fixtures UI0.1,
 component harness, CI и оставшиеся состояния UI0.3.
-[UI0.2](../docs/epics/ui0-e2-browser-api.md) ждёт обоих эпиков.
+FRONTEND-006 начинает [UI0.2](../docs/epics/ui0-e2-browser-api.md) с ADR/static
+proof до полного закрытия обоих эпиков по явному согласованию пользователя.
+Gateway/session и live Core proof остаются отдельными Task; полные epic gates
+сохраняются.
 Это порядок эпиков, не заранее созданные дополнительные Task.
 
 У FRONTEND-001 нет Task dependencies. Проверки install/build/dev выполняются
 последовательно: общий `node_modules`, generated routes и порт 5173 исключают
 параллельную валидацию в той же копии. То же ограничение действует для
-FRONTEND-002/003/004/005: install, browser/contract/presentation tests, typecheck, lint и build
-запускаются по очереди. Browser harness владеет отдельным портом 4173;
+FRONTEND-002/003/004/005/006: install, browser/static/contract/presentation tests,
+typecheck, lint и build запускаются по очереди. Browser harness владеет
+портом 4173; static harness — портом 4174;
 ручной demo на 5173 не используется тестами.
 Документацию можно готовить отдельно,
 не меняя файлы исполнителя. EXT milestones не блокируют эту задачу.

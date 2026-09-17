@@ -11,8 +11,9 @@ Forge — Linux-first local control plane для автономной AI-ком�
 M0–M3 использует CLI и local HTTP API; Core запускает изолированные Employee
 Runs, хранит их durable историю и управляет очередью. По решению 11 сентября
 2026 [Control Room UI0–UI4](UI_IMPLEMENTATION_PLAN.md) подключается до installer
-M4. Browser hosting/security boundary проектируется в UI0; диаграммы ниже
-описывают существующий backend, не уже реализованный web ingress.
+M4. В UI0 принят [static client + Rust gateway target](UI_BROWSER_BOUNDARY.md).
+FRONTEND-006 проверяет только static hosting; диаграммы ниже описывают
+существующий backend, не уже реализованный web ingress.
 
 Источники истины:
 
@@ -191,6 +192,23 @@ All mutable public commands carry an idempotency key and expected revision. All
 Run write-effect messages carry current `run_id`, lease fencing token,
 environment epoch and monotonic sequence. W3C trace context is propagated across
 gRPC and allowed HTTP boundaries.
+
+### Browser boundary target (FRONTEND-006)
+
+`Browser → dedicated loopback Rust/Axum gateway → private Core UDS`.
+Gateway отдаёт static `frontend/dist/client`, проверяет local-owner session и
+явный method/path allowlist. Он не получает DB, `CoreService`, CLI subprocess,
+generic proxy или management router Core на TCP. Core остаётся владельцем
+stable actor, authorization, named commands, revision и idempotency.
+
+Bootstrap — одноразовый terminal code; session — bearer в `sessionStorage` и
+Authorization header. Exact Host/Origin, expiry/revocation, CSP, bounded I/O и
+sandbox denial обязательны до подключения Core. Детальный контракт и ещё не
+пройденные security gates — в [ADR](UI_BROWSER_BOUNDARY.md).
+
+Эта задача реализует static build и mock-only file-server smoke, не сам gateway,
+auth или live read. Build-time SSR prerender не требует Node runtime в будущем
+установленном продукте. Прежние CLI/UDS и demo/dev workflows остаются без изменений.
 
 ## 7. State, data and transactions
 

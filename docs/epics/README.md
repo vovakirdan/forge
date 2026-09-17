@@ -34,8 +34,11 @@ diagnostics contracts без подключения экранов.
 [FRONTEND-004](../../tasks/frontend/frontend-004-browser-smoke.md) добавляет
 browser smoke существующего demo в UI0.3.
 [FRONTEND-005](../../tasks/frontend/frontend-005-task-run-presentation.md) добавляет
-pure Task/Run presentation в UI0.1, без подключения экранов. Остальные UI epics
-— planned; полные gates UI0.1/UI0.3 не пройдены. Задачи — в [Task index](../../tasks/INDEX.md).
+pure Task/Run presentation в UI0.1, без подключения экранов.
+[FRONTEND-006](../../tasks/frontend/frontend-006-static-hosting-boundary.md) начинает
+UI0.2 с согласованного preparatory-среза: ADR/static proof без gateway/auth.
+Остальные UI epics — planned; полные gates UI0.1/UI0.3 не пройдены.
+Задачи — в [Task index](../../tasks/INDEX.md).
 
 | Milestone | Epic | Выход |
 |---|---|---|

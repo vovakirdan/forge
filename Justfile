@@ -16,6 +16,14 @@ ui-dev:
 ui-build:
     cd frontend && bun run build
 
+# Build the static-only browser artifact; dist/server is build-time prerender output.
+ui-build-static:
+    cd frontend && bun run build:static
+
+# Serve dist/client only and reuse the browser smoke plus static boundary checks.
+ui-test-static:
+    cd frontend && bun run test:static
+
 # Check the imported UI's TypeScript baseline without emitting files.
 ui-typecheck:
     cd frontend && bun run typecheck
