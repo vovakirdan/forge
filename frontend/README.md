@@ -74,7 +74,7 @@ systemd-run --user --scope --quiet \
   timeout 300s just ui-build
 ```
 
-Apply it separately to install, contract tests, typecheck and lint. Keep checks sequential and
+Apply it separately to install, browser install/tests, contract tests, typecheck and lint. Keep checks sequential and
 do not run Rust validation alongside them. A memory-limit failure remains a
 failed check; investigate it rather than silently dropping the limits. For a
 bounded demo session use the same wrapper with `timeout 1200s just ui-dev`.
@@ -86,10 +86,53 @@ The installation/build/static-check results and browser evidence are recorded in
 The imported UI has existing fast-refresh lint warnings. They remain visible;
 do not disable the rule to make the baseline look clean.
 
-There is no component/browser test suite wired into this package yet. The manual
-browser smoke is not a substitute for that harness, which remains in
-[UI0.3](../docs/epics/ui0-e3-frontend-tooling.md). API integration, domain alignment
-and real data belong to the [UI roadmap](../docs/UI_IMPLEMENTATION_PLAN.md).
+The automated demo browser smoke is described below and in
+[FRONTEND-004](../tasks/frontend/frontend-004-browser-smoke.md). Component-unit
+tests, CI, visual baselines and backend unavailable/offline/permission states
+remain in [UI0.3](../docs/epics/ui0-e3-frontend-tooling.md). API integration,
+domain alignment and real data belong to the [UI roadmap](../docs/UI_IMPLEMENTATION_PLAN.md).
+
+## Browser smoke (demo only)
+
+From the repository root, run these commands in order:
+
+```sh
+just ui-install
+just ui-browser-install
+just ui-test-browser
+```
+
+The browser installation downloads Chromium for the pinned Playwright version;
+it needs network access and disk space. Tests use that browser, never a system
+Chrome fallback. Missing Linux shared libraries are an explicit setup failure:
+the recipe does not run `sudo` or install OS packages. If the launch reports
+missing libraries, use the [Playwright system dependency instructions](https://playwright.dev/docs/browsers#install-system-dependencies)
+to provision that host separately, then rerun the smoke suite.
+
+The suite starts its own Vite process at **http://127.0.0.1:4173/**, refuses an
+occupied port and stops its own server after completion. It does not reuse or
+stop a manual demo on 5173. No Core, database, containers, credentials or paid
+model calls are involved. The imported in-memory services supply demo data;
+these checks do not prove that real Forge commands or provider Runs work.
+
+One Chromium worker runs isolated tests without retries: navigation/reload,
+Task drawer and Full page, command palette search, keyboard/focus behaviour,
+and dialogs at a narrow viewport. The narrow check does not certify the whole
+desktop layout as mobile-ready. Browser console errors and unhandled page
+errors fail the suite. Contract tests remain a separate command.
+
+Failure traces/screenshots live in ignored `frontend/test-results/`; the ignored
+`frontend/playwright-report/` HTML report never opens automatically. These are
+diagnostics, not screenshot golden baselines. Tests/config participate in
+`just ui-typecheck`. Use the resource-limited wrapper above for each command;
+do not run two suites or a build alongside the browser run in this checkout.
+
+Smoke waits for client-loaded project data before interacting with SSR markup.
+An early-click hydration race was observed during test development; this
+readiness gate does not claim to fix the underlying early-interaction path.
+See the Task evidence for that remaining UI0.3 check and known tooling warnings.
+During normal cleanup Bun may print server exit 143 for SIGTERM; the suite's
+final result and exit code determine whether the run passed.
 
 ## Core read contracts
 

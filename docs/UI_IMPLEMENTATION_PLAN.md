@@ -29,7 +29,9 @@ frontend. Backend расширяется там, где отсутствует �
 17 сентября начата [FRONTEND-001](../tasks/frontend/frontend-001-local-demo-baseline.md)
 в UI0.3, затем [FRONTEND-002](../tasks/frontend/frontend-002-task-pipeline-contracts.md)
 и [FRONTEND-003](../tasks/frontend/frontend-003-run-read-contracts.md)
-в UI0.1; статус и порядок Task — в [индексе](../tasks/INDEX.md). Остальные Task
+в UI0.1. [FRONTEND-004](../tasks/frontend/frontend-004-browser-smoke.md)
+добавляет воспроизводимый browser smoke в UI0.3; статус и порядок Task —
+в [индексе](../tasks/INDEX.md). Остальные Task
 появятся при разборе выбранного эпика. Описание будущего gate не означает, что
 он уже пройден.
 

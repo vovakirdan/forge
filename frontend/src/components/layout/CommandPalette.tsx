@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -41,6 +41,8 @@ const pages = [
 ] as const;
 
 export function CommandPalette() {
+  const returnFocus = useRef<HTMLElement | null>(null);
+  const navigating = useRef(false);
   const { commandOpen, setCommandOpen } = useProject();
   const navigate = useNavigate();
   const { data: tasks } = useQuery({ queryKey: ["tasks"], queryFn: TaskService.list });
@@ -59,13 +61,31 @@ export function CommandPalette() {
   }, [commandOpen, setCommandOpen]);
 
   const go = (fn: () => void) => {
+    navigating.current = true;
     setCommandOpen(false);
     fn();
   };
 
   return (
-    <CommandDialog open={commandOpen} onOpenChange={setCommandOpen}>
-      <CommandInput placeholder="Jump to a task, agent, run or page…" />
+    <CommandDialog
+      open={commandOpen}
+      onOpenChange={setCommandOpen}
+      onOpenAutoFocus={() => {
+        returnFocus.current =
+          document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        navigating.current = false;
+      }}
+      onCloseAutoFocus={(event) => {
+        // Keyboard shortcuts and the external search button are not Radix Triggers.
+        event.preventDefault();
+        if (!navigating.current && returnFocus.current?.isConnected) returnFocus.current.focus();
+        returnFocus.current = null;
+      }}
+    >
+      <CommandInput
+        aria-label="Search commands"
+        placeholder="Jump to a task, agent, run or page…"
+      />
       <CommandList>
         <CommandEmpty>No results.</CommandEmpty>
         <CommandGroup heading="Navigate">

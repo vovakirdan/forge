@@ -1,14 +1,19 @@
 # Epic UI0.3 — Frontend toolchain и test harness
 
 **Milestone:** UI0 — Модель интерфейса и локальная API-граница
-**Статус:** in_progress; первая Task — локальный demo baseline, epic не закрыт
+**Статус:** in_progress; local demo baseline и browser smoke — отдельные срезы, epic не закрыт
 **Тип / приоритет:** foundation / P0
 **Источники:** [UI-план](../UI_IMPLEMENTATION_PLAN.md),
 [матрица соответствия](../UI_BACKEND_ALIGNMENT.md)
 
-**Task:** [FRONTEND-001](../../tasks/frontend/frontend-001-local-demo-baseline.md).
+**Tasks:** [FRONTEND-001](../../tasks/frontend/frontend-001-local-demo-baseline.md)
+и [FRONTEND-004](../../tasks/frontend/frontend-004-browser-smoke.md).
 Команды и границы локального запуска — в [frontend README](../../frontend/README.md).
-Test harness, CI и остальные gates эпика остаются отдельными шагами.
+FRONTEND-004 вводит browser smoke навигации, диалогов и клавиатуры для mock-only
+demo. Component harness, CI, visual baselines и error/offline/permission states
+остаются отдельными шагами; browser smoke не закрывает live API gate.
+В FRONTEND-004 проверены семь сценариев двумя последовательными root runs,
+error collector, отказ на занятом порте и cleanup после global timeout.
 
 ## Цель
 
@@ -68,3 +73,9 @@ Baseline build/toolchain проверяется без ожидания hosting 
 frozen install сначала фиксируется причина/минимальное совместимое изменение,
 а не заменяется весь frontend framework. Технические решения принимаются до
 декомпозиции зависящих feature tasks и отражаются в STACK/ARCHITECTURE.
+
+FRONTEND-004 выявила hydration errors при слишком раннем клике по SSR-разметке.
+Smoke ожидает клиентские query data, не скрывая console/page errors. Это не
+исправление самого раннего пользовательского взаимодействия: такую проверку
+нужно вернуть при работе с loading/keyboard states, не объявляя её покрытой
+обычным navigation smoke.

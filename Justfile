@@ -28,6 +28,14 @@ ui-lint:
 ui-test-contracts:
     cd frontend && bun run test:contracts
 
+# Install Playwright's pinned Chromium; does not install Linux system packages.
+ui-browser-install:
+    cd frontend && bun run test:browser:install
+
+# Test the mock-only UI with one Chromium worker and an owned local Vite server.
+ui-test-browser:
+    cd frontend && bun run test:browser
+
 # Create owner-only synthetic configuration for the local development topology.
 dev-init:
     @./scripts/dev-init.sh

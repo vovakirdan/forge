@@ -68,12 +68,21 @@ package manager/script runner и Node `24.14.0` для существующег�
 Единственный frontend lockfile — `bun.lock`, установка — frozen. React/TanStack/
 Vite и Lovable wrapper импортированного прототипа сохранены без dependency upgrade.
 Команды находятся в [frontend README](../frontend/README.md). Это решение для
-локального demo; production hosting/browser auth остаются в UI0.2, а test harness
-и CI — в оставшейся части UI0.3.
+локального demo; production hosting/browser auth остаются в UI0.2, а component
+harness и CI — в оставшейся части UI0.3.
 
 FRONTEND-002 добавляет только read-contract tests: установленный Zod 3 и
 встроенный `node:test` в закреплённом Node, без нового test framework/dependencies.
 Это отдельный `just ui-test-contracts`, не component/browser harness UI0.3.
+
+**Browser smoke, FRONTEND-004:** `@playwright/test` строго `1.63.0` и его
+Chromium. Это единственная новая прямая dev dependency; существующие runtime
+dependencies не обновляются. Установка browser binaries — отдельная команда
+`just ui-browser-install`, тестирование — `just ui-test-browser`. Playwright
+управляет отдельным loopback Vite на `4173`, использует один worker и изолирует
+browser contexts. Ни системный Chrome, ни запущенный вручную сервер не служат
+fallback. Это mock-only smoke, не live Core acceptance; отдельный component
+runner, CI и production hosting этим выбором не вводятся.
 
 ## 4. Execution isolation
 

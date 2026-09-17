@@ -16,6 +16,9 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test:contracts": "node --test --test-concurrency=1 src/contracts/*.test.ts",
+    "test:browser": "playwright test",
+    "test:browser:install": "playwright install chromium",
+    "test:browser:serve": "vite dev --host 127.0.0.1 --port 4173 --strictPort",
     "format": "prettier --write ."
   },
   "overrides": {
@@ -78,6 +81,7 @@
   "devDependencies": {
     "@eslint/js": "^9.32.0",
     "@lovable.dev/vite-tanstack-config": "^2.15.0",
+    "@playwright/test": "1.63.0",
     "@types/node": "^22.16.5",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
