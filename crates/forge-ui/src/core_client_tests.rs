@@ -127,6 +127,7 @@ async fn unauthorized_or_cross_origin_browser_never_connects_to_existing_core_so
         "/api/health",
         "/api/projects/01988000-0000-7000-8000-000000000001/tasks?limit=20",
         "/api/projects/01988000-0000-7000-8000-000000000001/tasks/01988000-0000-7000-8000-000000000002",
+        "/api/projects/01988000-0000-7000-8000-000000000001/pipelines?limit=20",
         "/api/projects/01988000-0000-7000-8000-000000000001/pipelines/01988000-0000-7000-8000-000000000002",
         "/api/projects/01988000-0000-7000-8000-000000000001/runs?limit=20",
         "/api/projects/01988000-0000-7000-8000-000000000001/runs/01988000-0000-7000-8000-000000000002",
@@ -196,12 +197,13 @@ fn response(status: u16, body: &[u8]) -> Vec<u8> {
     ].concat()
 }
 
-fn scoped_targets() -> [ReadTarget; 5] {
+fn scoped_targets() -> [ReadTarget; 6] {
     let project = "01988000-0000-7000-8000-000000000001";
     let item = "01988000-0000-7000-8000-000000000002";
     [
         ReadTarget::parse(&format!("/api/projects/{project}/tasks"), None).unwrap(),
         ReadTarget::parse(&format!("/api/projects/{project}/tasks/{item}"), None).unwrap(),
+        ReadTarget::parse(&format!("/api/projects/{project}/pipelines"), None).unwrap(),
         ReadTarget::parse(&format!("/api/projects/{project}/pipelines/{item}"), None).unwrap(),
         ReadTarget::parse(&format!("/api/projects/{project}/runs"), None).unwrap(),
         ReadTarget::parse(&format!("/api/projects/{project}/runs/{item}"), None).unwrap(),
@@ -300,6 +302,7 @@ async fn browser_scoped_reads_forward_only_scoped_path_and_safe_query() {
         for suffix in [
             "tasks?cursor=a%26actor%3Downer%2Bb&limit=2",
             "tasks/01988000-0000-7000-8000-000000000002",
+            "pipelines?cursor=a%26actor%3Downer%2Bb&limit=2",
             "pipelines/01988000-0000-7000-8000-000000000002",
             "runs?cursor=a%26actor%3Downer%2Bb&limit=2",
             "runs/01988000-0000-7000-8000-000000000002",
@@ -328,7 +331,12 @@ async fn browser_preserves_scoped_not_found_and_sanitizes_cursor_and_size_errors
     for path in [
         "/api/projects/01988000-0000-7000-8000-000000000001/tasks?limit=20",
         "/api/projects/01988000-0000-7000-8000-000000000001/runs?limit=20",
+        "/api/projects/01988000-0000-7000-8000-000000000001/pipelines?limit=20",
     ] {
+        let (base_path, query) = path.split_once('?').unwrap();
+        let bound = ReadTarget::parse(base_path, Some(query))
+            .unwrap()
+            .body_limit;
         for (upstream, status, expected) in [
             (
                 response(404, br#"{"error":"private missing-task details"}"#),
@@ -352,11 +360,7 @@ async fn browser_preserves_scoped_not_found_and_sanitizes_cursor_and_size_errors
                 serde_json::json!({"error":"invalid Core response"}),
             ),
             (
-                format!(
-                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n",
-                    CORE_BODY_LIMIT + 1
-                )
-                .into_bytes(),
+                format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n", bound + 1).into_bytes(),
                 axum::http::StatusCode::BAD_GATEWAY,
                 serde_json::json!({"error":"response exceeds interface limit","code":"response_too_large"}),
             ),
@@ -369,6 +373,37 @@ async fn browser_preserves_scoped_not_found_and_sanitizes_cursor_and_size_errors
             assert_eq!(
                 serde_json::from_slice::<serde_json::Value>(&bytes).unwrap(),
                 expected
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn pipeline_list_accepts_more_than_summary_bound_without_relaxing_other_lists() {
+    let body = serde_json::to_vec(&serde_json::json!({
+        "items": [{"instructions": "x".repeat(CORE_BODY_LIMIT)}]
+    }))
+    .unwrap();
+    assert!(body.len() > CORE_BODY_LIMIT && body.len() < DETAIL_BODY_LIMIT);
+    for (resource, expected) in [
+        ("pipelines", axum::http::StatusCode::OK),
+        ("tasks", axum::http::StatusCode::BAD_GATEWAY),
+        ("runs", axum::http::StatusCode::BAD_GATEWAY),
+    ] {
+        // Transport-only JSON; the browser/Core fixture separately validates actual definitions.
+        let path =
+            format!("/api/projects/01988000-0000-7000-8000-000000000001/{resource}?limit=20");
+        let (result, _) = browser_read(&path, response(200, &body)).await;
+        assert_eq!(result.status(), expected, "{resource}");
+        let bytes = axum::body::to_bytes(result.into_body(), DETAIL_BODY_LIMIT)
+            .await
+            .unwrap();
+        if resource == "pipelines" {
+            assert_eq!(bytes.as_ref(), body.as_slice());
+        } else {
+            assert_eq!(
+                serde_json::from_slice::<serde_json::Value>(&bytes).unwrap()["code"],
+                "response_too_large"
             );
         }
     }

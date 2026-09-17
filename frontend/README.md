@@ -1,4 +1,4 @@
-# Forge Control Room — local demo and live Project/Task/Run reads
+# Forge Control Room — local demo and live read-only views
 
 The imported React/TanStack demo uses in-memory mock services and does not connect
 to Forge Core. Its tasks, employees, metrics and management actions are not
@@ -6,15 +6,17 @@ evidence of real execution. The separate FRONTEND-007 live entry adds owner logi
 and read-only Project access through the native Rust gateway. FRONTEND-008 adds
 the real Task list and detail card with pinned Pipeline stage. FRONTEND-009 adds
 Project-wide Run list/detail and diagnostic availability in a separate Runs
-section. It does not load the demo shell or services; Board, Team, commands,
-SSE and body/context viewers remain future work.
+section. FRONTEND-010 adds Pipeline versions and a read-only stage inspector.
+The live entry does not load the demo shell or services; Board, Team, Pipeline
+editing, commands, SSE and body/context viewers remain future work.
 
 The demo needs no Lovable account, API keys, database, Podman services or provider
 Runs. The live screen needs a running local Core and an existing Project ID;
 it does not need provider credentials or start Runs. Acceptance results belong
 in [FRONTEND-007](../tasks/frontend/frontend-007-live-owner-gateway.md),
-[FRONTEND-008](../tasks/frontend/frontend-008-live-task-reads.md) and
-[FRONTEND-009](../tasks/frontend/frontend-009-live-run-reads.md), not in the
+[FRONTEND-008](../tasks/frontend/frontend-008-live-task-reads.md),
+[FRONTEND-009](../tasks/frontend/frontend-009-live-run-reads.md) and
+[FRONTEND-010](../tasks/frontend/frontend-010-live-pipeline-reads.md), not in the
 existence of these instructions.
 
 ## Prerequisites
@@ -127,8 +129,8 @@ the card does not render them or follow referenced URLs/object refs.
 **Refresh task** retries a read. A failed refresh keeps the previous data marked
 stale; an initial failure does not appear as an empty list. If a cursor becomes
 invalid, use **Restart pagination**. An oversized response reports the interface
-limit (64 KiB for lists, 1 MiB for detail/Pipeline), without truncation or a claim
-that the Task is corrupt.
+limit (64 KiB for Task/Run lists, 1 MiB for their details and Pipeline version
+list/detail), without truncation or a claim that the Task is corrupt.
 
 Choose **Runs** to read the selected Project's Runs, then **Open Run …** for a
 card. **Previous page**, **Next page**, **Refresh runs**, **Refresh run** and
@@ -148,8 +150,32 @@ Run pagination loads all Project Runs before selecting a page; browser limits
 do not remove that server-side limitation. Large diagnostics may exceed 1 MiB
 and produce an explicit size error.
 
-Switching **Tasks**/**Runs** cancels old reads and drops their selection/cursor
-history; returning starts from page one. Changing Project also resets the section
+Choose **Pipeline versions** to read versions in pages of 20, not a unique-Pipeline
+catalog or a total count. Selecting a version makes a fresh detail read. The
+name, catalog revision, default/latest pointers and soft-deletion state are
+mutable catalog metadata; only the version's definition is immutable. Default
+need not be the latest version, and soft deletion does not remove its history.
+The screen does not infer pinned Task usage or offer editing/publication.
+
+The detail lists Task kinds, entry stage, stage-visit limit, stages, transitions
+and artifact requirements. The inspector initially selects the entry stage and
+shows the selected stage's executor, outcomes, instructions and typed workspace,
+acceptance and system-action configuration. Unresolved references retain their
+IDs rather than being matched by name. Instructions are plain text; unknown
+fields, raw JSON and private hook runtime data are not exposed as a viewer.
+System actions are described, not executed.
+
+A `null` workspace, acceptance policy or stage-visit limit means **not configured**.
+It does not promise no WorkSurface, automatic acceptance or unlimited execution.
+The list contains full version definitions and has a 1 MiB response cap, like its
+detail. Core currently loads all versions before pagination and reads catalog
+metadata per version (N+1); this slice does not fix that server-side limitation.
+A valid page can exceed the cap: the UI reports a size error, without truncation
+or silently retrying with a smaller page. Empty data and failed reads remain
+distinct; a failed refresh marks retained data stale.
+
+Switching **Tasks**, **Runs** or **Pipeline versions** cancels old reads and drops
+their selection/cursor history; returning starts from page one. Changing Project also resets the section
 to Tasks. A page reload clears Project selection but retains a valid session.
 Navigation cancels reads immediately and removes inactive query data after the
 scope change commits, without recreating still-observed old queries. Logout/401
@@ -237,8 +263,13 @@ observed Stopped before publishing its coordinates. This proves real Core reads
 with deterministic test execution, not a provider or sandbox Run. Synthetic
 cases for all five purposes, nullable owners, independent states, diagnostic
 contents and injected failures are labelled separately from real-Core evidence.
-The current acceptance outcome belongs in FRONTEND-009; this runbook does not
-claim its checks passed.
+Pipeline acceptance uses separate Projects with 23 + 1 versions and an empty
+Project, created through named commands without provider Runs. It covers an
+older default, a soft-deleted catalog and a full-definition list larger than
+64 KiB but within 1 MiB; policy/executor variants and injected failures use
+separately labelled synthetic cases. Run and Pipeline acceptance outcomes belong
+in FRONTEND-009 and FRONTEND-010 respectively; this runbook does not claim their
+checks passed.
 The suite does not run the broad backend integration target. Its temporary
 processes stop on exit; PostgreSQL test schemas are retained for diagnosis.
 
@@ -388,8 +419,8 @@ dependency installation is needed after the normal frozen install.
 The imported demo screens still use `src/data/types.ts` and mock services.
 The separate live entry consumes Project/Task/PipelineVersion/Run contracts for
 real reads; imported demo screens remain disconnected. FRONTEND-009 reuses the
-existing Run schemas without changing the Core wire format. Passing contract
-tests alone does not prove live API
+existing Run schemas; FRONTEND-010 reuses Pipeline list/detail schemas without
+changing the Core wire format. Passing contract tests alone does not prove live API
 integration. See [FRONTEND-002](../tasks/frontend/frontend-002-task-pipeline-contracts.md),
 [FRONTEND-003](../tasks/frontend/frontend-003-run-read-contracts.md) and the
 [field/gap map](../docs/UI_BACKEND_ALIGNMENT.md#8-read-contracts-frontend-002).
@@ -421,11 +452,17 @@ Diagnostics distinguish absent (`null`) from present (including `{}`) reports.
 Counts describe only loaded incidents, evidence and incomplete streams. Presence
 does not prove success, completeness of stored history or accepted work.
 
+FRONTEND-010 adds pure Pipeline version/stage presentation for the read-only
+inspector. Catalog metadata stays distinct from immutable definition data;
+missing policies mean not configured, not an inferred execution policy. Neither
+loaded versions nor stage counts imply total catalog size or pinned Task usage.
+
 Run `just ui-test-presentation` from the repository root, or
 `bun run test:presentation` here. Like contract tests, these synthetic tests use
 Node's built-in runner and relative `.ts` imports without services, keys or a
 browser. Run them sequentially with the same resource limits as the other checks.
 The imported screens still use demo services. The separate live entry uses this
-presentation layer for Task and Run reads. See
+presentation layer for Task, Run and Pipeline reads. See
 [FRONTEND-005](../tasks/frontend/frontend-005-task-run-presentation.md) and
-[FRONTEND-009](../tasks/frontend/frontend-009-live-run-reads.md).
+[FRONTEND-009](../tasks/frontend/frontend-009-live-run-reads.md), plus
+[FRONTEND-010](../tasks/frontend/frontend-010-live-pipeline-reads.md).

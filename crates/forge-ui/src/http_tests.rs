@@ -373,3 +373,86 @@ async fn run_routes_reject_unscoped_reads_commands_queries_and_body_before_core(
         }
     }
 }
+
+#[tokio::test]
+async fn pipeline_list_does_not_open_catalog_mutations_or_unbounded_queries() {
+    let state = state();
+    let code = state.sessions.issue_code().unwrap();
+    let session = state.sessions.exchange(&code.code).unwrap();
+    let project = "01988000-0000-7000-8000-000000000001";
+    let version = "01988000-0000-7000-8000-000000000002";
+    for (method, suffix, expected) in [
+        ("GET", "pipelines?limit=101".into(), StatusCode::BAD_REQUEST),
+        (
+            "GET",
+            "pipelines?limit=1&limit=2".into(),
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            "GET",
+            "pipelines?cursor=a&cursor=b".into(),
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            "GET",
+            "pipelines?cursor=%FF".into(),
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            "GET",
+            "pipelines?deleted=false".into(),
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            "GET",
+            "pipelines?actor=owner".into(),
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            "GET",
+            format!("pipelines/{version}?limit=20"),
+            StatusCode::NOT_FOUND,
+        ),
+        (
+            "GET",
+            format!("pipelines/{version}/versions"),
+            StatusCode::NOT_FOUND,
+        ),
+        ("POST", "pipelines".into(), StatusCode::NOT_FOUND),
+        (
+            "POST",
+            format!("pipelines/{version}/publish"),
+            StatusCode::NOT_FOUND,
+        ),
+        (
+            "DELETE",
+            format!("pipelines/{version}"),
+            StatusCode::NOT_FOUND,
+        ),
+        ("OPTIONS", "pipelines".into(), StatusCode::NOT_FOUND),
+    ] {
+        let response = handle(
+            State(state.clone()),
+            request(method, &format!("/api/projects/{project}/{suffix}"))
+                .header("authorization", format!("Bearer {}", session.token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(response.status(), expected, "{method} {suffix}");
+    }
+    for suffix in ["pipelines?limit=20".into(), format!("pipelines/{version}")] {
+        for (header, value) in [("content-length", "1"), ("transfer-encoding", "chunked")] {
+            let response = handle(
+                State(state.clone()),
+                request("GET", &format!("/api/projects/{project}/{suffix}"))
+                    .header("authorization", format!("Bearer {}", session.token))
+                    .header(header, value)
+                    .body(Body::from("x"))
+                    .unwrap(),
+            )
+            .await;
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        }
+    }
+}

@@ -3,13 +3,14 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "../components/ui/button.tsx";
 import { TaskBrowser } from "./TaskBrowser.tsx";
 import { RunBrowser } from "./RunBrowser.tsx";
+import { PipelineBrowser } from "./PipelineBrowser.tsx";
 import { prepareSectionChange } from "./read-cache.ts";
 import type { ProjectReadScope } from "./read-scope.ts";
 
 export function ProjectReads(scope: ProjectReadScope) {
   const queries = useQueryClient();
-  const [section, setSection] = useState<"tasks" | "runs">("tasks");
-  function select(next: "tasks" | "runs") {
+  const [section, setSection] = useState<"tasks" | "runs" | "pipelines">("tasks");
+  function select(next: "tasks" | "runs" | "pipelines") {
     if (next === section) return;
     prepareSectionChange(queries, scope.generation, scope.projectId);
     setSection(next);
@@ -31,8 +32,17 @@ export function ProjectReads(scope: ProjectReadScope) {
         >
           Runs
         </Button>
+        <Button
+          variant={section === "pipelines" ? "default" : "outline"}
+          aria-pressed={section === "pipelines"}
+          onClick={() => select("pipelines")}
+        >
+          Pipeline versions
+        </Button>
       </nav>
-      {section === "tasks" ? <TaskBrowser {...scope} /> : <RunBrowser {...scope} />}
+      {section === "tasks" && <TaskBrowser {...scope} />}
+      {section === "runs" && <RunBrowser {...scope} />}
+      {section === "pipelines" && <PipelineBrowser {...scope} />}
     </>
   );
 }

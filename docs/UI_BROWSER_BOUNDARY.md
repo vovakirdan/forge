@@ -1,7 +1,7 @@
 # ADR: локальная browser boundary
 
 **Дата:** 17 сентября 2026
-**Статус:** target принят; FRONTEND-007 — owner gateway, FRONTEND-008/009 — Task/Run reads
+**Статус:** target принят; FRONTEND-007 — owner gateway, FRONTEND-008–010 — Task/Run/Pipeline reads
 **Область:** local-owner Control Room; remote control и Tauri отложены
 
 ## 1. Решение и уровень доказательства
@@ -25,6 +25,9 @@ PipelineVersion reads. Доказательство этого среза зап
 [FRONTEND-009](../tasks/frontend/frontend-009-live-run-reads.md) добавляет
 Project-wide список/карточку Run с ограниченной диагностикой. Его проверки
 также фиксируются отдельно; полные UI0.2/UI2.1 gates остаются открытыми.
+[FRONTEND-010](../tasks/frontend/frontend-010-live-pipeline-reads.md) добавляет
+Pipeline version list и read-only stage inspector. Это ранний срез UI1.2,
+не editor или закрытие gate; его evidence фиксируется в отдельной Task.
 
 | Вариант | Решение |
 |---|---|
@@ -39,7 +42,7 @@ Static assets позже можно использовать в Tauri. WebView, 
 ## 2. Build и runtime contract
 
 В FRONTEND-007 runtime artifact — **`frontend/dist-live`**, отдельный plain-Vite
-React entry с TanStack Query и общими styles/primitives. Для login/Project/Task/Run
+React entry с TanStack Query и общими styles/primitives. Для login/Project/Task/Run/Pipeline
 не нужен router. Он не загружает mock root, Sidebar/TopBar, ProjectProvider,
 service barrel или Lovable error reporter. Новый `just ui-build-live` не меняет
 прежние demo/build/static workflows и не требует новых frontend dependencies.
@@ -85,7 +88,8 @@ bundle. Обычный demo на 5173 и прежний browser suite на 4173 
 
 Первый transport-срез разрешил authenticated health и Project read по известному
 ID. FRONTEND-008 добавляет список/карточку Task и точную PipelineVersion внутри
-Project scope; FRONTEND-009 — список/карточку Run. Health показывает доступность транспорта,
+Project scope; FRONTEND-009 — список/карточку Run, FRONTEND-010 — список версий
+Pipeline. Health показывает доступность транспорта,
 но не доказывает чтение DB или готовность Project. Для этого нужен отдельный
 Project GET. В дальнейшем каждый method/path добавляется в allowlist явно;
 универсальные proxy, URL, произвольные headers и filesystem paths запрещены.
@@ -115,7 +119,8 @@ Project GET. В дальнейшем каждый method/path добавляет
   соединяется только с этим endpoint, не следует redirects.
 - Каждый route имеет request/response byte limits, connection/read deadlines
   и bounded concurrency. Auth/control JSON ≤1 KiB; headers ≤16 KiB; Core body
-  ≤64 KiB для health/Project/Task list/Run list; Task detail/PipelineVersion/Run detail ≤1 MiB,
+  ≤64 KiB для health/Project/Task list/Run list; Task/Run detail и Pipeline version
+  list/detail ≤1 MiB,
   включая chunked/error responses. Connect ≤1 s, целый HTTP/control
   exchange ≤5 s, включая idle/body/upstream; до 32 HTTP connections,
   8 API requests и 4 control connections, без неограниченной очереди.
@@ -182,6 +187,48 @@ named commands, а не прямые DB writes или модели. Synthetic al
 отдельны от real Core reads. Core всё ещё загружает все Runs Project до
 пагинации; count bounds diagnostics могут дать ответ больше 1 MiB. Эти gaps
 не скрываются усечением или фоновым скачиванием всей истории.
+
+### Scoped Pipeline version reads (FRONTEND-010)
+
+Добавлен `GET /api/projects/{project_id}/pipelines`; существующий detail path
+`/pipelines/{pipeline_version_id}` сохраняется. Это allowlisted Core GET, без
+новых Core endpoints, dependencies или миграций. IDs — UUIDv7; list принимает
+те же строгие `limit` (1–100, default 20) и opaque `cursor` (непустой, ≤1024
+UTF-8 bytes). Detail не принимает query. Owner auth, Host/Origin, UDS guards,
+deadlines и concurrency limits остаются прежними.
+
+List возвращает полные version DTO, поэтому его cap — **1 MiB**, как detail;
+Task/Run lists по-прежнему ограничены **64 KiB**. Declared/streamed oversize
+даёт безопасный `502/response_too_large`, cursor-invalid — `409/cursor_invalid`.
+Нет partial JSON, скрытого уменьшения limit или adaptive retry. Core пока
+загружает все версии до пагинации и читает catalog для каждой версии (N+1).
+Даже допустимый page может превысить cap; это ограничение интерфейса, не
+повреждение definition. Initial failure не подменяется empty list; неудачный
+refresh сохраняет явно stale snapshot.
+
+Третий раздел **Pipeline versions** показывает версии, не полный каталог
+уникальных Pipeline. Нет total, pinned Task usage, editor или mutation buttons.
+Выбор версии читает fresh detail: name, catalog revision, default/latest и
+deleted_at изменяемы, immutable только definition. Default не обязан совпадать
+с latest; soft deletion не делает историю недоступной. Весь read DTO нельзя
+кэшировать навсегда как immutable version.
+
+Detail показывает Task kinds, entry stage, max_stage_visits, stages/transitions
+и artifact requirements. Read-only inspector по умолчанию выбирает entry stage;
+unresolved reference остаётся явным ID, без поиска по имени. Executor/outcomes,
+workspace/acceptance/system action показываются как typed configuration;
+instructions — plain text, не HTML или executable Markdown. Неизвестные поля,
+raw JSON и private hook runtime не становятся viewer или действием.
+`null` означает «не настроено», не отсутствие WorkSurface, автоматическую
+acceptance или гарантию неограниченного исполнения.
+
+Tasks остаётся разделом по умолчанию. Навигация между Tasks/Runs/Pipeline versions
+отменяет reads, сбрасывает selection/cursors и после unmount удаляет старые
+query records. Keys содержат session, Project, page/version scope и независимы
+от Task-specific Pipeline pin read. Late replies, logout/401 и reload следуют
+правилам остальных reads; refresh только ручной. Fixture создаёт 23 + 1 версии
+и empty Project через named commands, без provider Runs; synthetic policy и
+failure cases помечаются отдельно от real Core reads.
 
 ## 4. Owner bootstrap и session — target contract
 
@@ -269,5 +316,5 @@ test и restart expiry. Static traversal tests FRONTEND-006 не заменяю�
 UI0.1/UI0.3 остаются открытыми. Пользователь согласовал ранний preparatory-срез
 UI0.2 для ADR/static proof, затем отдельный login/Project read FRONTEND-007;
 следом согласованы ранние Task read срез UI1.3/FRONTEND-008 и Run read срез
-UI2.1/FRONTEND-009. Полные dependencies и exit gates эпиков
+UI2.1/FRONTEND-009, затем Pipeline read срез UI1.2/FRONTEND-010. Полные dependencies и exit gates эпиков
 сохраняются. Remote deployment, Tauri и installer остаются отдельными вехами.

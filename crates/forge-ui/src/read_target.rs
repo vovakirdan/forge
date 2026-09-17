@@ -35,10 +35,14 @@ impl ReadTarget {
                 let project = uuid::Uuid::parse_str(project).map_err(|_| ApiError::NotFound)?;
                 target.path = format!("/v1/projects/{project}");
             }
-            [project, resource @ ("tasks" | "runs")] => {
+            [project, resource @ ("tasks" | "pipelines" | "runs")] => {
                 let project = uuid_v7(project)?;
                 target.path = format!("/v1/projects/{project}/{resource}?{}", pagination(query)?);
                 target.cursor_conflict = true;
+                // Pipeline pages contain full definitions, not compact summaries.
+                if *resource == "pipelines" {
+                    target.body_limit = DETAIL_BODY_LIMIT;
+                }
             }
             [project, resource @ ("tasks" | "pipelines" | "runs"), id] if query.is_none() => {
                 let project = uuid_v7(project)?;

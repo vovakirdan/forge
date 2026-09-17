@@ -34,6 +34,12 @@ fn scoped_reads_have_fixed_paths_limits_and_cursor_policy() {
             false,
         ),
         (
+            format!("/api/projects/{PROJECT}/pipelines"),
+            format!("/v1/projects/{PROJECT}/pipelines?limit=20"),
+            DETAIL_BODY_LIMIT,
+            true,
+        ),
+        (
             format!("/api/projects/{PROJECT}/pipelines/{TASK}"),
             format!("/v1/projects/{PROJECT}/pipelines/{TASK}"),
             DETAIL_BODY_LIMIT,
@@ -128,13 +134,14 @@ fn cursor_limit_counts_decoded_utf8_bytes_not_characters_or_encoded_length() {
 }
 
 #[test]
-fn only_task_and_run_lists_accept_queries_and_other_resources_stay_closed() {
+fn only_allowlisted_lists_accept_queries_and_other_resources_stay_closed() {
     for path in [
         "/api/health".into(),
         format!("/api/projects/{PROJECT}"),
         format!("/api/projects/{PROJECT}/tasks/{TASK}"),
         format!("/api/projects/{PROJECT}/pipelines/{TASK}"),
-        format!("/api/projects/{PROJECT}/pipelines"),
+        format!("/api/projects/{PROJECT}/pipelines/"),
+        format!("/api/projects/{PROJECT}/pipelines/{TASK}/versions"),
         format!("/api/projects/{PROJECT}/tasks/"),
         format!("/api/projects/{PROJECT}/tasks/{TASK}/artifacts"),
         format!("/api/projects/{PROJECT}/employees"),
@@ -166,6 +173,8 @@ fn new_routes_require_both_identifiers_to_be_uuidv7() {
             format!("/api/projects/{invalid}/tasks/{TASK}"),
             format!("/api/projects/{PROJECT}/tasks/{invalid}"),
             format!("/api/projects/{PROJECT}/pipelines/{invalid}"),
+            format!("/api/projects/{invalid}/pipelines"),
+            format!("/api/projects/{invalid}/pipelines/{TASK}"),
             format!("/api/projects/{invalid}/runs"),
             format!("/api/projects/{invalid}/runs/{TASK}"),
             format!("/api/projects/{PROJECT}/runs/{invalid}"),
@@ -176,6 +185,49 @@ fn new_routes_require_both_identifiers_to_be_uuidv7() {
             );
         }
     }
+}
+
+#[test]
+fn pipeline_list_uses_full_definition_bound_and_strict_pagination() {
+    let path = format!("/api/projects/{PROJECT}/pipelines");
+    let target = ReadTarget::parse(&path, Some("limit=100&cursor=a%26limit%3D1%2B%25")).unwrap();
+    assert_eq!(target.body_limit, DETAIL_BODY_LIMIT);
+    assert!(target.cursor_conflict);
+    assert_eq!(
+        target.path,
+        format!("/v1/projects/{PROJECT}/pipelines?limit=100&cursor=a%26limit%3D1%2B%25")
+    );
+    for query in [
+        "",
+        "limit=0",
+        "limit=101",
+        "limit=+1",
+        "limit=1.0",
+        "limit=1&%6cimit=2",
+        "cursor=",
+        "cursor=a&cursor=b",
+        "cursor=%",
+        "cursor=%GG",
+        "cursor=%FF",
+        "token=x",
+        "pipeline_id=x",
+        "deleted=false",
+        "limit=20&",
+        "cursor=a&actor=owner",
+    ] {
+        assert!(
+            matches!(
+                ReadTarget::parse(&path, Some(query)),
+                Err(ApiError::BadRequest)
+            ),
+            "{query}"
+        );
+    }
+    assert!(ReadTarget::parse(&path, Some(&format!("cursor={}", "%D1%8F".repeat(512)))).is_ok());
+    assert!(matches!(
+        ReadTarget::parse(&path, Some(&format!("cursor={}", "%D1%8F".repeat(513)))),
+        Err(ApiError::BadRequest)
+    ));
 }
 
 #[test]

@@ -19,7 +19,8 @@ Forge — Linux-first local control plane для AI-команды разраб�
 выбраны в UI0: static client и отдельный Rust gateway; remote control остаётся
 отложенным. FRONTEND-006 static demo proof отделён от FRONTEND-007 owner login
 и read-only Project entry. FRONTEND-008 добавляет Task/Pipeline reads,
-FRONTEND-009 — Project-wide Run list/detail с ограниченной диагностикой;
+FRONTEND-009 — Project-wide Run list/detail с ограниченной диагностикой,
+FRONTEND-010 — Pipeline versions и read-only stage inspector;
 фактическая приёмка записывается в соответствующих Task.
 
 Ключевые ограничения:
@@ -118,15 +119,25 @@ availability, loaded counts и stream completeness. Inline объекты всё
 приходят в detail response, но не рендерятся и не открывают body/URL viewer.
 Обновление ручное; переключение области отменяет reads и удаляет старый cache
 после commit. Commands и SSE пока не подключены.
+FRONTEND-010 переиспользует эти же gateway, Zod и Query для третьего раздела
+Pipeline versions, без новых dependencies, Core API или миграций. List содержит
+полные definitions и ограничен 1 MiB, как Pipeline detail; Task/Run lists
+сохраняют 64 KiB, их details — 1 MiB. Mutable catalog metadata не делает всю
+PipelineVersion DTO immutable. Inspector не добавляет редактор или выполнение
+hooks; nullable policies не заменяются предполагаемыми defaults.
 
 Причины выбора, TTL, limits и security gates — в
 [browser boundary ADR](UI_BROWSER_BOUNDARY.md), результаты приёмки — в
 [FRONTEND-007](../tasks/frontend/frontend-007-live-owner-gateway.md) и
 [FRONTEND-008](../tasks/frontend/frontend-008-live-task-reads.md). Проверки Run reads
 отслеживаются в [FRONTEND-009](../tasks/frontend/frontend-009-live-run-reads.md),
-без вывода об успехе из прежних результатов. UI0.1/UI0.2/UI0.3/UI1.3/UI2.1 остаются
-открытыми: пользователь согласовал ранние static proof, login/Project, Task и
-Run read срезы до полных gates.
+Pipeline reads — в [FRONTEND-010](../tasks/frontend/frontend-010-live-pipeline-reads.md),
+без вывода об успехе из прежних результатов. UI0.1/UI0.2/UI0.3/UI1.2/UI1.3/UI2.1
+остаются открытыми: пользователь согласовал ранние static proof, login/Project,
+Task, Run и Pipeline read срезы до полных gates. Core пока загружает все версии
+Pipeline перед пагинацией и читает catalog по одной версии (N+1); browser cap
+не исправляет этот gap. Oversize допустимой страницы — явная ошибка, без
+усечения или автоматического уменьшения страницы.
 
 ## 4. Execution isolation
 

@@ -23,7 +23,7 @@ export function LiveApp({ api, session }: LiveProps) {
             {state.status === "authenticated" ? "Live connection" : "Connect to Forge"}
           </h1>
           <p className="text-sm text-muted-foreground">
-            Local, read-only Project, Task and Run access. No demo data.
+            Local, read-only Project, Task, Run and Pipeline version access. No demo data.
           </p>
         </header>
         {state.notice && (

@@ -7,6 +7,10 @@ export const readKeys = {
     ["live", generation, project, "task", task] as const,
   pipeline: (generation: number, project: string, task: string, version: string) =>
     ["live", generation, project, "pipeline", task, version] as const,
+  pipelineVersions: (generation: number, project: string, cursor: string | null) =>
+    ["live", generation, project, "pipeline-versions", cursor] as const,
+  pipelineVersion: (generation: number, project: string, version: string) =>
+    ["live", generation, project, "pipeline-version", version] as const,
   runs: (generation: number, project: string, cursor: string | null) =>
     ["live", generation, project, "runs", cursor] as const,
   run: (generation: number, project: string, run: string) =>

@@ -2,7 +2,10 @@ import { z } from "zod";
 import { UuidV7Schema, TimestampSchema } from "../contracts/common.ts";
 import { ProjectViewSchema } from "../contracts/project.ts";
 import { TaskDetailViewSchema, TaskListResponseSchema } from "../contracts/task.ts";
-import { PipelineVersionViewSchema } from "../contracts/pipeline.ts";
+import {
+  PipelineVersionListResponseSchema,
+  PipelineVersionViewSchema,
+} from "../contracts/pipeline.ts";
 import { RunDetailViewSchema, RunListResponseSchema } from "../contracts/run.ts";
 
 export const SessionSchema = z.object({
@@ -163,6 +166,17 @@ export function createLiveApi(fetcher: typeof fetch = fetch) {
       );
       if (value.id.toLowerCase() !== taskId.toLowerCase())
         throw new LiveApiError("invalid_response");
+      return value;
+    },
+    async pipelines(projectId: string, cursor: string | null, token: string, signal: AbortSignal) {
+      identifiers(projectId);
+      const search = new URLSearchParams({ limit: "20" });
+      if (cursor !== null) search.set("cursor", cursor);
+      const value = await json(
+        await request(`/api/projects/${projectId}/pipelines?${search}`, "GET", signal, token),
+        PipelineVersionListResponseSchema,
+      );
+      if (value.items.length > 20) throw new LiveApiError("invalid_response");
       return value;
     },
     async pipeline(projectId: string, versionId: string, token: string, signal: AbortSignal) {

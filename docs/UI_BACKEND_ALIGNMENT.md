@@ -18,7 +18,9 @@ production-ready. Сборка и реальная интеграция — бу
 
 Текущий срез: FRONTEND-007 добавил отдельный owner live entry;
 [FRONTEND-008](../tasks/frontend/frontend-008-live-task-reads.md) подключает
-реальные Task list/detail и pinned PipelineVersion. Матрица ниже описывает
+реальные Task list/detail и pinned PipelineVersion. FRONTEND-009 добавляет
+Project-wide Run reads, FRONTEND-010 — Pipeline versions и stage inspector.
+Матрица ниже описывает
 импортированный baseline; его mock Board/Team ещё не подключены к Core.
 
 ## 2. Покрытие экранов
@@ -366,3 +368,43 @@ diagnostics проверяются отдельно помеченными synth
 Named gaps раздела 9 сохраняются, включая OpenAPI drift и подробные evidence
 schemas. Core загружает все Runs Project перед пагинацией; diagnostics count
 bounds не гарантируют размер ≤1 MiB. UI сообщает об oversized response явно.
+
+## 13. Live Pipeline version reads FRONTEND-010
+
+[FRONTEND-010](../tasks/frontend/frontend-010-live-pipeline-reads.md) добавляет
+третий read-only раздел Pipeline versions и существующий Core list GET в
+gateway allowlist. Core API, DTO schemas, dependencies и миграции не меняются.
+
+| Данные | Live UI | Ограничение |
+|---|---|---|
+| PipelineVersionListResponse | Версии страницами по 20 в серверном порядке, Previous/Next/Refresh | Не unique-Pipeline catalog; нет total или pinned Task usage |
+| Catalog metadata в version DTO | Name, catalog revision, default/latest, soft-delete state | Изменяемы; default может быть старше latest |
+| Version definition | Task kinds, entry stage, max_stage_visits, stages/transitions и artifact requirements | Immutable definition, не весь read DTO; detail читается отдельно от list |
+| Selected stage | Executor, outcomes, plain-text instructions, typed workspace/acceptance/system action | Только inspector, без editor, запуска actions или private hook runtime viewer |
+
+Stage inspector начинает с entry stage. Неизвестный reference сохраняет ID и
+явное unresolved состояние; совпадение имён не заменяет ссылку. `null` workspace,
+acceptance и max_stage_visits означает «не настроено»: UI не обещает отсутствие
+WorkSurface, автоматическую acceptance или unlimited execution. Неизвестные
+passthrough fields и raw JSON не показываются; instructions не исполняются.
+
+List содержит full DTO и ограничен **1 MiB**, как Pipeline detail. Task/Run lists
+сохраняют **64 KiB**, их details — **1 MiB**. Строгие limit/cursor, safe oversize
+и cursor-invalid errors повторяют прежние reads. Допустимая страница может
+превысить cap: нет truncation или adaptive retry с меньшим limit. Core сначала
+загружает все версии и читает catalog для каждой (N+1); новый UI не закрывает
+этот backend gap. Пустая страница не подменяет failed read; refresh failure
+оставляет явно stale данные.
+
+Session/Project/page/version keys независимы от Task-specific Pipeline pin read.
+Смена раздела отменяет reads, сбрасывает selection/cursors и удаляет неактивные
+query records после unmount; default Tasks, logout/401 и ручное обновление
+сохраняются. Mutable catalog metadata требует fresh detail, а не бесконечного
+immutable cache по version ID.
+
+Keyless fixture создаёт отдельные Projects с 23 + 1 версиями и empty Project
+через named commands, без provider Runs; сценарий включает older default,
+soft-delete и full-definition list больше 64 KiB, но не больше 1 MiB. Synthetic
+executor/policy/failure cases отделены от real Core reads. Приёмка фиксируется
+в Task, не предполагается из этого контракта. Полный UI1.2 с editor, commands,
+pinned Task usage и hooks остаётся открытым.

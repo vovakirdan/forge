@@ -1,7 +1,7 @@
 # Forge: Control Room implementation plan
 
 **Дата:** 11 сентября 2026
-**Статус:** UI0.1/UI0.2/UI0.3/UI1.3/UI2.1 in_progress; остальные epics planned; milestones не закрыты
+**Статус:** UI0.1/UI0.2/UI0.3/UI1.2/UI1.3/UI2.1 in_progress; остальные epics planned; milestones не закрыты
 **Иерархия:** Milestone → Epic → будущие Task
 **Baseline:** backend `1439211`; frontend — неизменённый импорт пользовательского UI
 
@@ -43,6 +43,9 @@ connection. [FRONTEND-007](../tasks/frontend/frontend-007-live-owner-gateway.md)
 [FRONTEND-009](../tasks/frontend/frontend-009-live-run-reads.md) добавляет
 Project-wide Run list/detail и diagnostic availability в разделе Runs:
 ранний read-only срез UI2.1, без commands, SSE и body viewer.
+[FRONTEND-010](../tasks/frontend/frontend-010-live-pipeline-reads.md) начинает
+ранний read-only срез UI1.2: версии Pipeline, fresh detail и stage inspector;
+не editor, publication или hook execution.
 Это согласованные ранние срезы UI0.2 до полных gates UI0.1/UI0.3; реализация
 не заменяет результаты security/browser приёмки. Статус и порядок Task —
 в [индексе](../tasks/INDEX.md). Остальные Task
@@ -235,14 +238,23 @@ FRONTEND-009 аналогично начинает UI2.1 существующи�
 Tasks/Runs, ручное обновление и ограниченная диагностика. Contracts FRONTEND-003
 и presentation FRONTEND-005 переиспользуются без новых Core schemas. Полные
 зависимости UI2.1, включая UI1.4 для body/context viewer, не отменяются.
+FRONTEND-010 аналогично начинает UI1.2 третьим разделом Pipeline versions.
+Список версий не объявляется полным unique-Pipeline catalog и не содержит
+выдуманного pinned Task usage. Catalog metadata в read DTO изменяема,
+definition версии immutable; policies с `null` остаются «не настроено».
+Редактор и named commands остаются будущим объёмом UI1.2.
 
 Run-приёмка разделяет реальные Core reads с M0 fake execution и synthetic
 cases пяти purposes. Ни то ни другое не является новым provider proof. Browser
 limits не закрывают gap серверной Run pagination, пока Core загружает все строки
 Project перед разбиением на страницы. Фактический результат проверок — в Task.
+Pipeline version list содержит full DTO и получает лимит 1 MiB; Task/Run lists
+сохраняют 64 KiB, все эти details — 1 MiB. Core загружает все версии и делает
+catalog read для каждой (N+1) до выдачи страницы. Законный page может превысить
+лимит: явная size error не подменяется empty list, усечением или adaptive retry.
 
 На ближайший разбор: оставшиеся gates UI0.1/UI0.3 и implementation UI0.2;
-после их gates — UI1.1 и UI1.2.
+после их gates — UI1.1 и оставшийся объём UI1.2.
 Это очередь эпиков для будущей нарезки, не пять заранее выданных coding tasks.
 
 ## 6. Проверки и evidence

@@ -6,6 +6,8 @@ use anyhow::{Context, Result};
 use forge_testkit::m0::{LocalHttpApi, M0Harness};
 use serde_json::json;
 
+#[path = "ui_core_fixture/pipelines.rs"]
+mod pipelines;
 #[path = "ui_core_fixture/runs.rs"]
 mod runs;
 #[path = "ui_core_fixture/tasks.rs"]
@@ -19,6 +21,7 @@ async fn main() -> Result<()> {
     let fixture = tasks::seed(&harness, project_id).await?;
     harness.attach_fake_supervisor().await?;
     let run_fixture = runs::seed(&harness).await?;
+    let pipeline_fixture = pipelines::seed(&harness).await?;
     harness.start_project(project_id).await?;
     let project = harness
         .store
@@ -40,7 +43,9 @@ async fn main() -> Result<()> {
             "second_project": fixture.second_project,
             "empty_project": fixture.empty_project,
             "runs_project": run_fixture.project,
-            "other_runs_project": run_fixture.other_project
+            "other_runs_project": run_fixture.other_project,
+            "pipelines_project": pipeline_fixture.project,
+            "other_pipelines_project": pipeline_fixture.other_project
         })
     );
     std::io::stdout().flush()?;

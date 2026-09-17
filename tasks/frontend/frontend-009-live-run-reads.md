@@ -125,7 +125,9 @@ UI2.1 gate, mock Board/Team, commands/SSE и evidence/context viewer не зак
 После повторного browser-прогона остановлены только PostgreSQL/NATS, поднятые
 для этой проверки. Volumes, private test schemas и безопасные diagnostics
 сохранены; `podman ps` пуст. Проверка `/proc` не нашла Core fixture, UI gateway
-или тестовый Chromium. FRONTEND-009 остаётся локальной, без commit/push.
+или тестовый Chromium. На момент этой приёмки FRONTEND-009 оставалась локальной,
+без commit/push. 17 сентября 2026 по отдельному запросу создан commit `3285f54`
+(`feat(ui): add live run list and detail`); push не выполнялся.
 
 ## Ограничения
 
@@ -134,4 +136,5 @@ Core пока загружает все Runs Project перед пагинаци
 но может превысить 1 MiB; UI сообщает об отказе, не обрезает содержимое.
 All-purpose synthetic coverage не закрывает полный UI2.1 gate. Настоящие Core
 reads с fake execution не являются provider/sandbox proof.
-FRONTEND-009 не коммитится и не отправляется без следующего явного запроса.
+Отдельный запрос на публикацию commit `3285f54` получен 17 сентября 2026:
+push выполняется вместе с FRONTEND-010, без изменения истории FRONTEND-009.

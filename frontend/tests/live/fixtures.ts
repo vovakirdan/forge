@@ -52,6 +52,22 @@ const CoreFixtureSchema = z.object({
     name: z.string(),
     run_id: z.string().uuid(),
   }),
+  pipelines_project: z.object({
+    id: z.string().uuid(),
+    name: z.string(),
+    total: z.number().int().positive(),
+    featured_id: z.string().uuid(),
+    second_id: z.string().uuid(),
+    deleted_id: z.string().uuid(),
+    pipeline_id: z.string().uuid(),
+    stage_id: z.string(),
+    stage_name: z.string(),
+  }),
+  other_pipelines_project: z.object({
+    id: z.string().uuid(),
+    name: z.string(),
+    version_id: z.string().uuid(),
+  }),
 });
 type CoreFixture = z.infer<typeof CoreFixtureSchema>;
 export type Live = {
