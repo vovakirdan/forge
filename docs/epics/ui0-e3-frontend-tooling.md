@@ -1,10 +1,14 @@
 # Epic UI0.3 — Frontend toolchain и test harness
 
 **Milestone:** UI0 — Модель интерфейса и локальная API-граница
-**Статус:** planned; начинается с воспроизводимости импортированного baseline
+**Статус:** in_progress; первая Task — локальный demo baseline, epic не закрыт
 **Тип / приоритет:** foundation / P0
 **Источники:** [UI-план](../UI_IMPLEMENTATION_PLAN.md),
 [матрица соответствия](../UI_BACKEND_ALIGNMENT.md)
+
+**Task:** [FRONTEND-001](../../tasks/frontend/frontend-001-local-demo-baseline.md).
+Команды и границы локального запуска — в [frontend README](../../frontend/README.md).
+Test harness, CI и остальные gates эпика остаются отдельными шагами.
 
 ## Цель
 

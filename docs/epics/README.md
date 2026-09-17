@@ -25,7 +25,9 @@ M0–M3 сохраняют свои ledgers и приёмку. По решени
 
 ## Control Room milestones
 
-Все UI epics имеют статус planned. Будущие Task ещё не нарезаны.
+UI0.3 имеет статус in_progress: первая [FRONTEND-001](../../tasks/frontend/frontend-001-local-demo-baseline.md)
+проверяет local demo baseline. Остальные UI epics — planned; полный UI0.3 gate
+не пройден. Выполняемые задачи — в [Task index](../../tasks/INDEX.md).
 
 | Milestone | Epic | Выход |
 |---|---|---|
@@ -60,4 +62,4 @@ M0–M3 сохраняют свои ledgers и приёмку. По решени
 
 Dependency graph, milestone gates и очередь ближайших эпиков — в
 [UI_IMPLEMENTATION_PLAN.md](../UI_IMPLEMENTATION_PLAN.md).
-Новые Task-файлы создаются только после отдельного перехода к task breakdown.
+Следующие Task-файлы создаются при отдельном разборе выбранного эпика.

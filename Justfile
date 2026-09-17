@@ -4,6 +4,26 @@ set positional-arguments := true
 default:
     @just --list
 
+# Install the UI demo with its committed lockfile; no Forge services or keys needed.
+ui-install:
+    cd frontend && bun install --frozen-lockfile
+
+# Open the mock-only UI on 127.0.0.1:5173; fail if that port is occupied.
+ui-dev:
+    cd frontend && bun run dev
+
+# Build the imported UI demo; production hosting is not configured by this recipe.
+ui-build:
+    cd frontend && bun run build
+
+# Check the imported UI's TypeScript baseline without emitting files.
+ui-typecheck:
+    cd frontend && bun run typecheck
+
+# Check the imported UI's lint baseline without rewriting files.
+ui-lint:
+    cd frontend && bun run lint
+
 # Create owner-only synthetic configuration for the local development topology.
 dev-init:
     @./scripts/dev-init.sh

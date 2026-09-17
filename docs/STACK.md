@@ -63,6 +63,14 @@ RunEnvironment в иллюзию. Контейнеры используются 
 `cargo clippy` и `cargo test`; integration tests запускают реальные сервисы в
 изолированном test environment.
 
+**Frontend developer baseline, 17 сентября 2026:** Linux, Bun `1.3.11` как
+package manager/script runner и Node `24.14.0` для существующего Vite toolchain.
+Единственный frontend lockfile — `bun.lock`, установка — frozen. React/TanStack/
+Vite и Lovable wrapper импортированного прототипа сохранены без dependency upgrade.
+Команды находятся в [frontend README](../frontend/README.md). Это решение для
+локального demo; production hosting/browser auth остаются в UI0.2, а test harness
+и CI — в оставшейся части UI0.3.
+
 ## 4. Execution isolation
 
 ### Primary backend: rootless Podman

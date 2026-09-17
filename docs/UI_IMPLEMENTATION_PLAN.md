@@ -1,7 +1,7 @@
 # Forge: Control Room implementation plan
 
 **Дата:** 11 сентября 2026
-**Статус:** согласованное направление; milestones и epics запланированы, не реализованы
+**Статус:** UI0.3 in_progress; остальные epics planned, milestones не закрыты
 **Иерархия:** Milestone → Epic → будущие Task
 **Baseline:** backend `1439211`; frontend — неизменённый импорт пользовательского UI
 
@@ -25,9 +25,11 @@ frontend. Backend расширяется там, где отсутствует �
 `UI0–UI4` — отдельные delivery milestones. `EXT1–EXT3` — design-gated расширения,
 а не автоматически принятый объём UI или обязательная зависимость установщика.
 
-Сейчас создаются только milestones и отдельные epic-документы. TASK IDs,
-TASK-файлы, точные оценки и implementation commits появятся при разборе выбранного
-эпика. Описание будущего gate не означает, что он уже пройден.
+Первоначально план содержал только milestones и отдельные epic-документы.
+17 сентября начата [FRONTEND-001](../tasks/frontend/frontend-001-local-demo-baseline.md)
+в UI0.3; статус и порядок Task — в [индексе](../tasks/INDEX.md). Остальные Task
+появятся при разборе выбранного эпика. Описание будущего gate не означает, что
+он уже пройден.
 
 ## 2. Границы первой UI-поставки
 
