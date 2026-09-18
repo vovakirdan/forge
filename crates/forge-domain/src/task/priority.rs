@@ -341,6 +341,11 @@ pub struct CancellationReasonCatalog {
 }
 
 impl CancellationReasonCatalog {
+    /// Returns active and retired reasons in stable identifier order.
+    pub fn reasons(&self) -> impl Iterator<Item = &CancellationReason> {
+        self.reasons.values()
+    }
+
     /// Creates a catalog that includes an active `unspecified` reason.
     ///
     /// # Errors
@@ -438,6 +443,22 @@ mod tests {
         let catalog = CancellationReasonCatalog::new([other]);
 
         assert!(catalog.is_err());
+    }
+
+    #[test]
+    fn cancellation_catalog_keeps_retired_entries_readable_but_unselectable() {
+        let id = super::CancellationReasonId::new("duplicate").unwrap();
+        let mut retired = CancellationReason::new(id.clone(), "Duplicate").unwrap();
+        retired.retire();
+        let catalog =
+            CancellationReasonCatalog::new([CancellationReason::unspecified().unwrap(), retired])
+                .unwrap();
+        assert!(catalog.active(&id).is_none());
+        let values = catalog.reasons().collect::<Vec<_>>();
+        assert_eq!(values.len(), 2);
+        assert_eq!(values[0].id(), &id);
+        assert!(values[0].is_retired());
+        assert_eq!(values[0].display_name(), "Duplicate");
     }
 
     #[test]

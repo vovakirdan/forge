@@ -7,8 +7,30 @@ const PROJECT: &str = "01988000-0000-7000-8000-000000000001";
 const TASK: &str = "01988000-0000-7000-8000-000000000002";
 
 #[test]
+fn cancellation_catalog_rejects_queries_subpaths_and_invalid_scope() {
+    let path = format!("/api/projects/{PROJECT}/cancellation-reasons");
+    for query in ["", "limit=1", "actor=human", "retired=false"] {
+        assert!(ReadTarget::parse(&path, Some(query)).is_err());
+    }
+    for invalid in [
+        format!("{path}/"),
+        format!("{path}/unspecified"),
+        "/api/projects/not-a-uuid/cancellation-reasons".into(),
+        "/api/projects/01988000-0000-4000-8000-000000000001/cancellation-reasons".into(),
+    ] {
+        assert!(ReadTarget::parse(&invalid, None).is_err());
+    }
+}
+
+#[test]
 fn scoped_reads_have_fixed_paths_limits_and_cursor_policy() {
     for (path, expected, limit, cursor_conflict) in [
+        (
+            format!("/api/projects/{PROJECT}/cancellation-reasons"),
+            format!("/v1/projects/{PROJECT}/cancellation-reasons"),
+            CORE_BODY_LIMIT,
+            false,
+        ),
         (
             "/api/health".into(),
             "/v1/health".into(),

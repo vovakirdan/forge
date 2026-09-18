@@ -56,6 +56,7 @@ pub fn router(core: CoreService) -> Router {
         .merge(super::git_source_policy::routes())
         .merge(super::project_hooks::routes())
         .merge(super::priority_scheme::routes())
+        .merge(super::cancellation_reasons::routes())
         .merge(super::knowledge::routes())
         .merge(super::memory::routes())
         .merge(super::system_jobs::routes())

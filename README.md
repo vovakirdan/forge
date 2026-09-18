@@ -16,6 +16,9 @@ does not approve the Task or request execution.
 Draft DoD can be saved or cleared, then the saved Task can be explicitly approved;
 see [DoD and approval](tasks/frontend/frontend-015-draft-dod-approval.md).
 Approval leaves the Project execution gate unchanged, but an open gate may start work.
+Tasks can be cancelled with an explicitly selected Project reason and optional
+note; see [Task cancellation](tasks/frontend/frontend-016-task-cancellation.md).
+Cancellation requests graceful stop; it does not prove the executor has stopped.
 Diagnostics show availability and loaded counts, not raw logs or bodies. See the
 [live UI runbook](frontend/README.md#live-owner-ui-frontend-007).
 Acceptance is tracked separately for [Run reads](tasks/frontend/frontend-009-live-run-reads.md)

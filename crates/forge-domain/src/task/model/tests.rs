@@ -105,6 +105,36 @@ fn cancellation_without_a_reason_is_rejected() {
 }
 
 #[test]
+fn custom_active_reason_is_recorded_but_retired_reason_cannot_cancel() {
+    let mut task = draft(TaskKind::Delivery);
+    let reason_id = crate::CancellationReasonId::new("duplicate").unwrap();
+    let mut reason = CancellationReason::new(reason_id.clone(), "Duplicate report").unwrap();
+    reason.retire();
+    let retired =
+        CancellationReasonCatalog::new([CancellationReason::unspecified().unwrap(), reason])
+            .unwrap();
+    let request = CancellationRequest {
+        reason_id: Some(reason_id.clone()),
+        note: None,
+        cancelled_by: Actor::human(ActorId::new()),
+        cancelled_at: Timestamp::now_utc(),
+    };
+    let before = task.clone();
+    assert!(task.cancel(&retired, request.clone()).is_err());
+    assert_eq!(task, before);
+    let active = CancellationReasonCatalog::new([
+        CancellationReason::unspecified().unwrap(),
+        CancellationReason::new(reason_id.clone(), "Duplicate report").unwrap(),
+    ])
+    .unwrap();
+    task.cancel(&active, request).unwrap();
+    let Some(super::TerminalData::Cancelled(data)) = task.terminal_data() else {
+        panic!("cancelled data")
+    };
+    assert_eq!(data.reason_id(), &reason_id);
+}
+
+#[test]
 fn analysis_completion_requires_an_attached_analysis_result() {
     let mut task = draft(TaskKind::Analysis);
     approve_and_start(&mut task);

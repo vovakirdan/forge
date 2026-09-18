@@ -12,6 +12,8 @@ FRONTEND-012 resolves Task priority names through a separate Project scheme read
 FRONTEND-013 adds priority editing for non-terminal Tasks through Core.
 FRONTEND-014 creates draft Tasks with an explicitly selected Pipeline version.
 FRONTEND-015 edits draft DoD and separately approves saved drafts through Core.
+FRONTEND-016 cancels non-terminal Tasks with a Project reason and shows the
+saved cancellation metadata; it does not add separate Run execution controls.
 The live entry does not load the demo shell or services; Board, Team, Pipeline
 editing, other commands, SSE and body/context viewers remain future work.
 
@@ -204,6 +206,19 @@ confirms the receipt; **Refresh approved data** retries failed reads without
 sending another approval. The resulting lifecycle comes from Core and may be
 ready, waiting or in_progress. Leaving or logging out cannot undo a committed
 approval. See [FRONTEND-015](../tasks/frontend/frontend-015-draft-dod-approval.md).
+
+**Cancel task** loads a fresh Task, Project and cancellation-reason catalog.
+Select an active reason explicitly (including `unspecified` if appropriate),
+optionally add a comment, and confirm the cancellation. Core requests graceful
+stop for active Runs; a cancelled Task does not mean its executor has physically
+stopped. The Task card keeps the reason ID, note, actor and timestamp visible.
+If the catalog is unavailable, the saved ID remains readable.
+
+After a conflict, refresh the baseline and confirm again; your input is retained.
+An unknown result permits only retrying the same request and idempotency key.
+Once a receipt is accepted, retrying failed reads sends no additional cancel
+command. Configuring reasons, reopening Tasks and stop/resume controls are not
+part of [FRONTEND-016](../tasks/frontend/frontend-016-task-cancellation.md).
 
 **Refresh task** retries a read. A failed refresh keeps the previous data marked
 stale; an initial failure does not appear as an empty list. If a cursor becomes

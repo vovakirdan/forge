@@ -1,7 +1,7 @@
 # Epic UI1.3 — Task board и управляемые изменения
 
 **Milestone:** UI1 — browser interface before M4 installer
-**Статус:** `in_progress`; FRONTEND-008/011/012/013/014 — согласованные Task read/draft/priority/create срезы.
+**Статус:** `in_progress`; FRONTEND-008/011–016 — согласованные Task read и management срезы.
 Остальной объём blocked by `UI0.1`, `UI0.2`, `UI0.3`, `UI1.1`, `UI1.2`.
 **Зависимости:** UI0.1 model contracts, UI0.2 browser/API boundary, UI0.3 UI tooling,
 UI1.1 Projects/Employees и UI1.2 PipelineVersion.
@@ -51,7 +51,10 @@ PipelineVersion закрепляется при создании Task, вклю�
 Существенная правка после `ready` не предлагается без явно поддержанного Core
 command/revalidation path и никогда не переписывает существующий Run context.
 
-Cancel требует `cancellation_reason_id`, note optional. Board показывает wait/dependency gate, не объявляет done/cancelled по local click.
+Cancel требует доменный `cancellation_reason_id` из каталога; существующий wire
+payload передаёт его как `cancellation_reason_key`, note optional. Board показывает
+wait/dependency gate, не объявляет done/cancelled по local click. Принятая отмена
+не подтверждает физическую остановку Run.
 
 Dependency создаётся или удаляется canonical directed record через
 `create_dependency`/`remove_dependency`; текущий `required_condition` — `task_done`.
@@ -93,7 +96,9 @@ Task и mock Board не входят; evidence и независимые reviews
 - [FRONTEND-015](../../tasks/frontend/frontend-015-draft-dod-approval.md): DoD edit
   и отдельный approval сохранённого draft, fresh pin/gate, explicit consent,
   conflict/retry/readback; без property editor или изменения execution gate;
-- остальные draft/cancel command forms и receipt conflicts;
+- [FRONTEND-016](../../tasks/frontend/frontend-016-task-cancellation.md): каталог
+  причин, явная отмена через Core и cancellation readback; без настройки каталога
+  и отдельных execution controls;
 - dependency graph/read panels и management command interactions;
 - event-driven refresh/accessibility tests для waits, terminal states и empty boards.
 

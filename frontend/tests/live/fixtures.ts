@@ -45,6 +45,10 @@ const CoreFixtureSchema = z.object({
   empty_project: z.object({ id: z.string().uuid(), name: z.string() }),
   commands_project: CommandProjectSchema,
   priority_commands_project: CommandProjectSchema,
+  cancellation_commands_project: CommandProjectSchema.extend({
+    ready_id: z.string().uuid(),
+    waiting_id: z.string().uuid(),
+  }),
   approval_commands_project: z.object({
     id: z.string().uuid(),
     name: z.string(),

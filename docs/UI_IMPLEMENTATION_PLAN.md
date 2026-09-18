@@ -273,6 +273,11 @@ FRONTEND-015 продолжает UI1.3/UI0.2: DoD edit через `amend_draft`
 Приёмка проходит без провайдеров; properties/cancel/execution controls и полные
 epic gates остаются за пределами среза. Evidence — в отдельной Task.
 
+FRONTEND-016 продолжает UI1.3/UI0.2: project cancellation catalog, отдельная
+команда отмены и сохранённые reason/note/actor/time в карточке. Receipt отделён
+от readback и от физической остановки Run. Настройка каталога, property editor,
+execution controls и полные epic gates остаются вне среза; evidence — в Task.
+
 Run-приёмка разделяет реальные Core reads с M0 fake execution и synthetic
 cases пяти purposes. Ни то ни другое не является новым provider proof. Browser
 limits не закрывают gap серверной Run pagination, пока Core загружает все строки

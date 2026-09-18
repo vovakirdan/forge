@@ -44,6 +44,7 @@ export async function commandClient(
       | typeof commandPath
       | "/api/commands/set_task_priority"
       | "/api/commands/create_task"
+      | "/api/commands/cancel_task"
       | "/api/commands/approve_task";
     projectId?: string;
   } = {},

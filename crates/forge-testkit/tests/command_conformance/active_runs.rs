@@ -244,6 +244,14 @@ pub async fn stop_cancel_and_dependency_preserve_physical_ownership(
         let setup = running_task(kind).await?;
         let fixture = &setup.fixture;
         reject_stale_fences(&setup).await?;
+        if command == CommandName::CancelTask {
+            // A reason refusal happens after the engine stages a stop; rollback
+            // must retain runnable ownership and omit all cancellation effects.
+            super::commands::reject(fixture, CommandName::CancelTask, json!({
+                "task_id":setup.task, "expected_task_revision":fixture.task(setup.task).await?.revision().get(),
+                "cancellation_reason_key":"missing_reason"
+            })).await?;
+        }
         let payload = match command {
             CommandName::StopProjectExecution => json!({"reason":"fixture stop"}),
             CommandName::CancelTask => json!({"task_id":setup.task,
@@ -261,7 +269,22 @@ pub async fn stop_cancel_and_dependency_preserve_physical_ownership(
         // This also proves failed commands restore staged stop flags and Lease-backed queue state.
         assert_faults(fixture, &envelope).await?;
         let before_stop = fixture.snapshot().await?.raw;
-        fixture.execute_as(&envelope, &fixture.context).await?;
+        let receipt = fixture.execute_as(&envelope, &fixture.context).await?;
+        let accepted = fixture.snapshot().await?;
+        accepted.assert_audit_atomic();
+        if command == CommandName::CancelTask {
+            let cancellation = accepted
+                .rows("event_log")
+                .iter()
+                .find(|event| event["event_type"] == "task_cancelled")
+                .context("cancellation event")?;
+            assert_eq!(cancellation["command_id"], receipt.command_id);
+            assert!(receipt.event_ids.iter().any(|id| cancellation["id"] == *id));
+            assert_eq!(
+                receipt.resource.as_ref().context("task resource")?.id,
+                setup.task.to_string()
+            );
+        }
         let expected = if command == CommandName::CancelTask {
             LifecycleStatus::Cancelled
         } else {

@@ -13,6 +13,8 @@ mod approval;
 mod atomicity;
 #[path = "command_conformance/boundary.rs"]
 mod boundary;
+#[path = "command_conformance/cancellation_http.rs"]
+mod cancellation_http;
 #[path = "command_conformance/clocks.rs"]
 mod clocks;
 #[path = "command_conformance/command_handoffs.rs"]

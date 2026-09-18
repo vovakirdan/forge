@@ -97,7 +97,7 @@ async fn rejected_mutations_never_connect_to_core() {
         );
     }
     for (method, path) in [
-        ("POST", "/api/commands/cancel_task"),
+        ("POST", "/api/commands/resume_task"),
         ("POST", "/v1/commands/amend_draft"),
         ("GET", "/api/commands/amend_draft"),
         ("PUT", "/api/commands/amend_draft"),

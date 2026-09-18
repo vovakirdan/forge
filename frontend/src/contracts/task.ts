@@ -61,6 +61,15 @@ export const TaskDetailViewSchema = preserveWireValue(
   taskSummaryShape.extend({
     description: z.string(),
     definition_of_done: z.string().nullable(),
+    cancellation: z
+      .object({
+        reason_id: StableKeySchema,
+        note: z.string().nullable(),
+        cancelled_by: ActorReferenceSchema,
+        cancelled_at: TimestampSchema,
+      })
+      .passthrough()
+      .nullable(),
     properties: TaskPropertiesSchema,
     artifacts: z.array(ArtifactViewSchema),
     wait_conditions: z.array(WaitConditionViewSchema),

@@ -51,6 +51,15 @@ pub(crate) struct TaskDetailView {
     properties: Value,
     artifacts: Vec<ArtifactView>,
     wait_conditions: Vec<WaitConditionView>,
+    cancellation: Option<CancellationView>,
+}
+
+#[derive(Serialize)]
+struct CancellationView {
+    reason_id: String,
+    note: Option<String>,
+    cancelled_by: ActorReference,
+    cancelled_at: String,
 }
 
 #[derive(Serialize)]
@@ -211,6 +220,15 @@ pub(crate) fn task_detail_view(read: TaskRead) -> Result<TaskDetailView, CoreErr
         properties,
         artifacts,
         wait_conditions,
+        cancellation: match task.terminal_data() {
+            Some(forge_domain::TerminalData::Cancelled(data)) => Some(CancellationView {
+                reason_id: data.reason_id().as_str().to_owned(),
+                note: data.note().map(ToOwned::to_owned),
+                cancelled_by: actor_reference(data.cancelled_by()),
+                cancelled_at: timestamp(data.cancelled_at())?,
+            }),
+            _ => None,
+        },
     })
 }
 

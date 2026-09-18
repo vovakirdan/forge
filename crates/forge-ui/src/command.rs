@@ -20,6 +20,7 @@ const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 pub(crate) enum CommandTarget {
     CreateTask,
     ApproveTask,
+    CancelTask,
     AmendDraft,
     SetTaskPriority,
 }
@@ -29,6 +30,7 @@ impl CommandTarget {
         match path {
             "/api/commands/create_task" => Some(Self::CreateTask),
             "/api/commands/approve_task" => Some(Self::ApproveTask),
+            "/api/commands/cancel_task" => Some(Self::CancelTask),
             "/api/commands/amend_draft" => Some(Self::AmendDraft),
             "/api/commands/set_task_priority" => Some(Self::SetTaskPriority),
             _ => None,
@@ -39,6 +41,7 @@ impl CommandTarget {
         match self {
             Self::CreateTask => "/v1/commands/create_task",
             Self::ApproveTask => "/v1/commands/approve_task",
+            Self::CancelTask => "/v1/commands/cancel_task",
             Self::AmendDraft => "/v1/commands/amend_draft",
             Self::SetTaskPriority => "/v1/commands/set_task_priority",
         }
@@ -174,10 +177,24 @@ pub(crate) fn validate_receipt(
     expected_revision: u64,
     task_id: Option<&str>,
 ) -> Result<(), ApiError> {
+    validate_receipt_revision(bytes, expected_revision, task_id, false)
+}
+
+pub(crate) fn validate_receipt_revision(
+    bytes: &[u8],
+    expected_revision: u64,
+    task_id: Option<&str>,
+    dependent_mutations: bool,
+) -> Result<(), ApiError> {
     let receipt: CommandReceipt =
         serde_json::from_slice(bytes).map_err(|_| ApiError::BadGateway)?;
     if !uuid_v7(&receipt.command_id)
-        || receipt.project_revision != expected_revision + 1
+        || if dependent_mutations {
+            receipt.project_revision <= expected_revision
+                || receipt.project_revision > MAX_SAFE_INTEGER
+        } else {
+            receipt.project_revision != expected_revision + 1
+        }
         || receipt.event_ids.is_empty()
         || !receipt.event_ids.iter().all(|id| uuid_v7(id))
         || !receipt.resource.as_ref().is_some_and(|resource| {
@@ -225,6 +242,15 @@ pub(crate) async fn execute(
         .await
         .map_err(|_| ApiError::TooLarge)?;
     let response = match target {
+        CommandTarget::CancelTask => {
+            let command = crate::cancel_task::CancelTask::parse(&body)?;
+            let response = state
+                .core
+                .command(CommandTarget::CancelTask, &key, body)
+                .await?;
+            command.validate_receipt(&response)?;
+            response
+        }
         CommandTarget::ApproveTask => {
             let command = crate::approve_task::ApproveTask::parse(&body)?;
             let response = state

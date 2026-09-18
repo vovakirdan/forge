@@ -39,6 +39,7 @@ export const taskDetailFixture = {
   ...taskSummaryFixture,
   description: "Compare costs and report a recommendation; no Git workspace is needed.",
   definition_of_done: "Attach the comparison and an explicit recommendation.",
+  cancellation: null,
   properties: {
     contains_migrations: { type: "boolean", value: true },
     notes: { type: "text", value: "" },

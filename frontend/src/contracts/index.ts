@@ -3,6 +3,8 @@ export * from "./amend-draft.ts";
 export * from "./set-task-priority.ts";
 export * from "./create-task.ts";
 export * from "./approve-task.ts";
+export * from "./cancel-task.ts";
+export * from "./cancellation-reasons.ts";
 export * from "./project.ts";
 export * from "./priority-scheme.ts";
 export * from "./properties.ts";

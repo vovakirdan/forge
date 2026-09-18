@@ -248,11 +248,16 @@ fn response(status: u16, body: &[u8]) -> Vec<u8> {
     ].concat()
 }
 
-fn scoped_targets() -> [ReadTarget; 7] {
+fn scoped_targets() -> [ReadTarget; 8] {
     let project = "01988000-0000-7000-8000-000000000001";
     let item = "01988000-0000-7000-8000-000000000002";
     [
         ReadTarget::parse(&format!("/api/projects/{project}/priority-scheme"), None).unwrap(),
+        ReadTarget::parse(
+            &format!("/api/projects/{project}/cancellation-reasons"),
+            None,
+        )
+        .unwrap(),
         ReadTarget::parse(&format!("/api/projects/{project}/tasks"), None).unwrap(),
         ReadTarget::parse(&format!("/api/projects/{project}/tasks/{item}"), None).unwrap(),
         ReadTarget::parse(&format!("/api/projects/{project}/pipelines"), None).unwrap(),

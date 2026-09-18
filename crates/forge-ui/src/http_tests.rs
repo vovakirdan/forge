@@ -311,7 +311,7 @@ async fn task_routes_reject_invalid_queries_ids_methods_and_bodies_before_core()
         .await;
         assert_eq!(response.status(), expected, "{method} {suffix}");
     }
-    for suffix in ["tasks?limit=20", "priority-scheme"] {
+    for suffix in ["tasks?limit=20", "priority-scheme", "cancellation-reasons"] {
         for (header, value) in [("content-length", "1"), ("transfer-encoding", "chunked")] {
             let response = handle(
                 State(state.clone()),

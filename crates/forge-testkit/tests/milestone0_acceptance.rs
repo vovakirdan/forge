@@ -19,6 +19,8 @@ use forge_testkit::m0::{
 use tokio::time::timeout;
 use uuid::Uuid;
 
+#[path = "milestone0_acceptance/cancellation.rs"]
+mod cancellation;
 #[path = "milestone0_acceptance/terminal_interruption.rs"]
 mod terminal_interruption;
 

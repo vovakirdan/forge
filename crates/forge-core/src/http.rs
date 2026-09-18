@@ -1,5 +1,6 @@
 //! Local HTTP/JSON and bounded SSE transport for the canonical Core.
 
+mod cancellation_reasons;
 mod candidate_review;
 mod communication;
 mod error;

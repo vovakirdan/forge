@@ -226,6 +226,28 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /v1/projects/{projectId}/cancellation-reasons:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    get:
+      tags: [projects]
+      operationId: getProjectCancellationReasons
+      summary: Read active and retired cancellation reasons from one Project snapshot.
+      description: No query parameters. Stable identifier order. Read-only; browser response limit is 64 KiB.
+      responses:
+        '200':
+          description: Complete reason catalog with canonical Project revision.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectCancellationReasonsView'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+
   /v1/projects/{projectId}/priority-scheme:
     parameters:
       - $ref: '#/components/parameters/ProjectId'
@@ -2437,6 +2459,34 @@ components:
         updated_at:
           $ref: '#/components/schemas/Rfc3339Timestamp'
 
+    ProjectCancellationReasonsView:
+      type: object
+      additionalProperties: false
+      required: [project_id, project_revision, reasons]
+      properties:
+        project_id: {$ref: '#/components/schemas/UuidV7'}
+        project_revision: {type: integer, minimum: 1}
+        reasons:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [id, display_name, retired]
+            properties:
+              id: {$ref: '#/components/schemas/StableKey'}
+              display_name: {type: string, minLength: 1, maxLength: 200}
+              retired: {type: boolean}
+
+    TaskCancellationView:
+      type: object
+      additionalProperties: false
+      required: [reason_id, note, cancelled_by, cancelled_at]
+      properties:
+        reason_id: {$ref: '#/components/schemas/StableKey'}
+        note: {type: [string, 'null']}
+        cancelled_by: {$ref: '#/components/schemas/ActorReference'}
+        cancelled_at: {$ref: '#/components/schemas/Rfc3339Timestamp'}
+
     TaskDetailView:
       type: object
       additionalProperties: false
@@ -2454,6 +2504,7 @@ components:
         - properties
         - artifacts
         - wait_conditions
+        - cancellation
       properties:
         id:
           $ref: '#/components/schemas/UuidV7'
@@ -2499,6 +2550,10 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/WaitConditionView'
+        cancellation:
+          anyOf:
+            - $ref: '#/components/schemas/TaskCancellationView'
+            - type: 'null'
 
     ArtifactView:
       type: object

@@ -1,7 +1,7 @@
 # ADR: локальная browser boundary
 
 **Дата:** 18 сентября 2026
-**Статус:** target принят; FRONTEND-007 — owner gateway, FRONTEND-008–010/012 — reads; FRONTEND-011/013/014 — draft text/priority/create commands (приёмка в Task)
+**Статус:** target принят; FRONTEND-007 — owner gateway, FRONTEND-008–010/012 — reads; FRONTEND-011/013–016 — draft/priority/create/approve/cancel commands (приёмка в Task)
 **Область:** local-owner Control Room; remote control и Tauri отложены
 
 ## 1. Решение и уровень доказательства
@@ -33,7 +33,9 @@ Pipeline version list и read-only stage inspector. Это ранний срез
 [FRONTEND-013](../tasks/frontend/frontend-013-task-priority-edit.md) добавляет
 `set_task_priority`, а [FRONTEND-014](../tasks/frontend/frontend-014-create-draft-task.md) —
 создание draft через `create_task`. [FRONTEND-015](../tasks/frontend/frontend-015-draft-dod-approval.md)
-расширяет amend DoD и добавляет отдельный `approve_task`. Остальные команды и SSE остаются закрытыми;
+расширяет amend DoD и добавляет отдельный `approve_task`.
+[FRONTEND-016](../tasks/frontend/frontend-016-task-cancellation.md) добавляет
+каталог причин, `cancel_task` и cancellation metadata. Остальные команды и SSE остаются закрытыми;
 эти срезы не закрывают весь UI0.2/UI1.3.
 
 | Вариант | Решение |
@@ -200,6 +202,32 @@ Conflict требует fresh baseline и повторного подтверж�
 Task revision читаются из Core, а не выводятся как ready/revision + 1: human,
 external и зависимости могут ждать, system entry — находиться в работе.
 Единственная открытая панель подчиняется общим leave/session/scope guards.
+
+### Task cancellation (FRONTEND-016)
+
+`GET /api/projects/{project_id}/cancellation-reasons` открывает только
+одноимённый scoped Core read с `/v1`. Ответ до 64 KiB содержит `project_id`,
+`project_revision`, `reasons` (`id`, `display_name`, `retired`); query и
+subresources не разрешены. Настройка каталога не входит в browser allowlist.
+Task detail возвращает nullable `cancellation` с `reason_id`, `note`,
+`cancelled_by` (ActorReference) и `cancelled_at` (RFC3339).
+
+`POST /api/commands/cancel_task` принимает `project_id`, `expected_revision`,
+payload `{task_id, expected_task_revision, cancellation_reason_key, note?}`.
+Причина — stable key существующего каталога Core, note — optional/null string
+до 20 000 Unicode scalar values. Сохраняются strict object schemas, UUIDv7,
+safe revisions, Idempotency-Key, 512 KiB request и 64 KiB receipt limits.
+Cancel receipt требует Project revision больше исходной, а не ровно +1:
+одна транзакция может изменить зависимые ожидания. Проверка остальных команд
+не меняется; Task resource identity и event IDs остаются обязательными.
+
+Форма читает свежие Project/Task/catalog, требует явный выбор активной причины
+и отдельное подтверждение. Conflict refresh сохраняет ввод и сбрасывает consent;
+unknown outcome повторяет только frozen body/key. Receipt подтверждает отмену
+отдельно от GET readback. Catalog failure не скрывает исторический reason ID.
+Core запрашивает graceful stop активных Runs и блокирует late outcomes, но UI
+не выдаёт это за наблюдаемую физическую остановку. Отдельные execution controls
+и reconciliation остаются UI2.3; отмена не меняет Project execution gate.
 
 ### Scoped Task reads (FRONTEND-008)
 

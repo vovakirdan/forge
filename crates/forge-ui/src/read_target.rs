@@ -39,6 +39,10 @@ impl ReadTarget {
                 let project = uuid_v7(project)?;
                 target.path = format!("/v1/projects/{project}/priority-scheme");
             }
+            [project, "cancellation-reasons"] if query.is_none() => {
+                let project = uuid_v7(project)?;
+                target.path = format!("/v1/projects/{project}/cancellation-reasons");
+            }
             [project, resource @ ("tasks" | "pipelines" | "runs")] => {
                 let project = uuid_v7(project)?;
                 target.path = format!("/v1/projects/{project}/{resource}?{}", pagination(query)?);

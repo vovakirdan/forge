@@ -5,6 +5,9 @@ mod approve_task;
 mod approve_task_tests;
 mod assets;
 mod auth;
+mod cancel_task;
+#[cfg(test)]
+mod cancel_task_tests;
 mod command;
 #[cfg(test)]
 mod command_client_tests;

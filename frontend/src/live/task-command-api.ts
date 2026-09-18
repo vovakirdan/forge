@@ -28,7 +28,7 @@ async function boundedJson(response: Response): Promise<unknown> {
 
 export async function sendTaskCommand(
   fetcher: typeof fetch,
-  command: "amend_draft" | "set_task_priority" | "create_task" | "approve_task",
+  command: "amend_draft" | "set_task_priority" | "create_task" | "approve_task" | "cancel_task",
   attempt: TaskCommandAttempt | CreateTaskAttempt,
   request: { expected_revision: number; payload: object },
   token: string,
@@ -89,7 +89,9 @@ export async function sendTaskCommand(
     (command !== "create_task" &&
       (!("taskId" in attempt) ||
         receipt.data.resource.id.toLowerCase() !== attempt.taskId.toLowerCase())) ||
-    receipt.data.project_revision !== request.expected_revision + 1
+    (command === "cancel_task"
+      ? receipt.data.project_revision <= request.expected_revision
+      : receipt.data.project_revision !== request.expected_revision + 1)
   )
     throw new LiveCommandError("outcome_unknown");
   return receipt.data;

@@ -14,6 +14,9 @@ import { TaskDraftEditor } from "./TaskDraftEditor.tsx";
 import { TaskPriorityEditor } from "./TaskPriorityEditor.tsx";
 import { canChangePriority } from "./priority-attempt.ts";
 import { TaskApprovalPanel } from "./TaskApprovalPanel.tsx";
+import { TaskCancellationPanel } from "./TaskCancellationPanel.tsx";
+import { TaskCancellationFacts } from "./TaskCancellationFacts.tsx";
+import { canCancelTask } from "./cancellation-attempt.ts";
 
 export function TaskDetailPanel(
   scope: ProjectReadScope & {
@@ -23,7 +26,9 @@ export function TaskDetailPanel(
   },
 ) {
   const { api, session, generation, projectId, taskId, onClose } = scope;
-  const [editing, setEditing] = useState<"draft" | "priority" | "approval" | null>(null);
+  const [editing, setEditing] = useState<"draft" | "priority" | "approval" | "cancellation" | null>(
+    null,
+  );
   const title = useRef<HTMLHeadingElement>(null);
   const key = useMemo(
     () => readKeys.task(generation, projectId, taskId),
@@ -78,12 +83,21 @@ export function TaskDetailPanel(
           >
             Refresh task
           </Button>
+          {!editing &&
+            detail.isSuccess &&
+            !detail.isFetching &&
+            canCancelTask(detail.data.lifecycle) && (
+              <Button onClick={() => setEditing("cancellation")}>Cancel task</Button>
+            )}
           <Button variant="outline" onClick={onClose}>
             Close task
           </Button>
         </div>
       </div>
       {editing === "draft" && <TaskDraftEditor {...scope} onCancel={() => setEditing(null)} />}
+      {editing === "cancellation" && (
+        <TaskCancellationPanel {...scope} onCancel={() => setEditing(null)} />
+      )}
       {editing === "priority" && (
         <TaskPriorityEditor {...scope} onCancel={() => setEditing(null)} />
       )}
@@ -107,6 +121,9 @@ export function TaskDetailPanel(
       {task && (
         <>
           <TaskFacts task={task} priorities={scope.priorities} detail />
+          {task.cancellation && (
+            <TaskCancellationFacts {...scope} cancellation={task.cancellation} />
+          )}
           {detail.isSuccess && !detail.isFetching && task.current_stage_id !== null ? (
             <PinnedStage
               key={`${task.pipeline_version_id}:${task.revision}`}

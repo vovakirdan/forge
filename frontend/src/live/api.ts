@@ -15,6 +15,8 @@ import type { TaskCommandAttempt } from "../contracts/task-command.ts";
 import type { CreateTaskAttempt } from "../contracts/create-task.ts";
 import { sendCreateTask } from "./create-task-api.ts";
 import { sendApproveTask } from "./approve-task-api.ts";
+import { sendCancelTask } from "./cancel-task-api.ts";
+import { CancellationReasonsViewSchema } from "../contracts/cancellation-reasons.ts";
 
 export const SessionSchema = z.object({
   token: z.string().regex(/^[0-9a-f]{64}$/),
@@ -133,6 +135,25 @@ export function createLiveApi(fetcher: typeof fetch = fetch) {
   }
 
   return {
+    cancelTask(attempt: TaskCommandAttempt, token: string, signal: AbortSignal) {
+      return sendCancelTask(
+        fetcher,
+        attempt,
+        token,
+        signal,
+        () => new LiveApiError("unauthorized"),
+      );
+    },
+    async cancellationReasons(projectId: string, token: string, signal: AbortSignal) {
+      identifiers(projectId);
+      const value = await json(
+        await request(`/api/projects/${projectId}/cancellation-reasons`, "GET", signal, token),
+        CancellationReasonsViewSchema,
+      );
+      if (value.project_id.toLowerCase() !== projectId.toLowerCase())
+        throw new LiveApiError("invalid_response");
+      return value;
+    },
     approveTask(attempt: TaskCommandAttempt, token: string, signal: AbortSignal) {
       return sendApproveTask(
         fetcher,
