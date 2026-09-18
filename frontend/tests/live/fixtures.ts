@@ -37,6 +37,12 @@ const CoreFixtureSchema = z.object({
     task_title: z.string(),
   }),
   empty_project: z.object({ id: z.string().uuid(), name: z.string() }),
+  commands_project: z.object({
+    id: z.string().uuid(),
+    name: z.string(),
+    drafts: z.array(z.object({ id: z.string().uuid(), key: z.string() })).length(12),
+    cancelled_id: z.string().uuid(),
+  }),
   runs_project: z.object({
     id: z.string().uuid(),
     name: z.string(),

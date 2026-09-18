@@ -31,10 +31,12 @@ export function TaskBrowser(scope: ProjectReadScope) {
   });
   useReadLifetime(key);
   function closeTask() {
+    if (!scope.leaveGuard.canLeave()) return;
     setTaskId(null);
     if (opener.current?.isConnected) opener.current.focus();
   }
   function navigate(cursor: string | null, previous: (string | null)[]) {
+    if (!scope.leaveGuard.canLeave()) return;
     setTaskId(null);
     prepareReadChange(queries, key);
     setNavigation({ cursor, previous });
@@ -54,7 +56,7 @@ export function TaskBrowser(scope: ProjectReadScope) {
           </Button>
         </div>
         <p className="text-xs text-muted-foreground">
-          Read-only. Up to 20 Tasks per page; stage IDs and priority IDs are the stored values.
+          Up to 20 Tasks per page; draft titles and descriptions can be edited in Task detail.
         </p>
         {tasks.isPending && <p role="status">Loading tasks…</p>}
         {tasks.isFetching && items && (
@@ -93,7 +95,7 @@ export function TaskBrowser(scope: ProjectReadScope) {
                   onClick={(event) => {
                     opener.current = event.currentTarget;
                     if (taskId === task.id) document.getElementById("task-detail-title")?.focus();
-                    else setTaskId(task.id);
+                    else if (scope.leaveGuard.canLeave()) setTaskId(task.id);
                   }}
                   className="w-full cursor-pointer rounded text-left font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [overflow-wrap:anywhere]"
                 >

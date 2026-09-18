@@ -1,9 +1,11 @@
 # Forge
 
 The imported `frontend/` Control Room screens remain a mock prototype. A separate
-live entry supports local owner login, a real Core Project, read-only Task
+live entry supports local owner login, a real Core Project, Task
 list/detail with pinned Pipeline stages, Project-wide Run reads with separate
 requested/observed states, and read-only Pipeline versions with a stage inspector.
+Draft Task titles/descriptions can be edited through Core with revision checks
+and idempotent retry; see [draft editing](tasks/frontend/frontend-011-draft-task-edit.md).
 Diagnostics show availability and loaded counts, not raw logs or bodies. See the
 [live UI runbook](frontend/README.md#live-owner-ui-frontend-007).
 Acceptance is tracked separately for [Run reads](tasks/frontend/frontend-009-live-run-reads.md)

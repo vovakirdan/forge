@@ -12,6 +12,7 @@ export function ProjectReads(scope: ProjectReadScope) {
   const [section, setSection] = useState<"tasks" | "runs" | "pipelines">("tasks");
   function select(next: "tasks" | "runs" | "pipelines") {
     if (next === section) return;
+    if (!scope.leaveGuard.canLeave()) return;
     prepareSectionChange(queries, scope.generation, scope.projectId);
     setSection(next);
   }

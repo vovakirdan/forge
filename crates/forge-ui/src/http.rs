@@ -40,6 +40,10 @@ pub(crate) enum ApiError {
     BadGateway,
     ResponseTooLarge,
     CursorInvalid,
+    StaleRevision,
+    IdempotencyConflict,
+    ValidationFailed,
+    CommandForbidden,
     Unavailable,
     Timeout,
 }
@@ -56,15 +60,39 @@ impl IntoResponse for ApiError {
             Self::BadGateway => (StatusCode::BAD_GATEWAY, "invalid Core response"),
             Self::ResponseTooLarge => (StatusCode::BAD_GATEWAY, "response exceeds interface limit"),
             Self::CursorInvalid => (StatusCode::CONFLICT, "pagination cursor is no longer valid"),
+            Self::StaleRevision => (
+                StatusCode::CONFLICT,
+                "project revision is no longer current",
+            ),
+            Self::IdempotencyConflict => (
+                StatusCode::CONFLICT,
+                "idempotency key conflicts with another command",
+            ),
+            Self::ValidationFailed => (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "command validation failed",
+            ),
+            Self::CommandForbidden => (StatusCode::FORBIDDEN, "command forbidden"),
             Self::Unavailable => (StatusCode::SERVICE_UNAVAILABLE, "service unavailable"),
             Self::Timeout => (StatusCode::GATEWAY_TIMEOUT, "request timed out"),
         };
-        let mut body = serde_json::json!({"error":message});
-        match self {
-            Self::ResponseTooLarge => body["code"] = "response_too_large".into(),
-            Self::CursorInvalid => body["code"] = "cursor_invalid".into(),
-            _ => {}
-        }
+        let code = match self {
+            Self::BadRequest => "invalid_request",
+            Self::Unauthorized => "unauthorized",
+            Self::Forbidden | Self::CommandForbidden => "forbidden",
+            Self::NotFound => "not_found",
+            Self::TooLarge => "request_too_large",
+            Self::Capacity => "capacity",
+            Self::BadGateway => "bad_gateway",
+            Self::ResponseTooLarge => "response_too_large",
+            Self::CursorInvalid => "cursor_invalid",
+            Self::StaleRevision => "stale_revision",
+            Self::IdempotencyConflict => "idempotency_conflict",
+            Self::ValidationFailed => "validation_failed",
+            Self::Unavailable => "unavailable",
+            Self::Timeout => "timeout",
+        };
+        let body = serde_json::json!({"error":message,"code":code});
         (status, axum::Json(body)).into_response()
     }
 }
@@ -139,6 +167,16 @@ async fn guarded_dispatch(state: &HttpState, request: Request<Body>) -> Result<R
             state.sessions.logout(token)?;
             return Ok(StatusCode::NO_CONTENT.into_response());
         }
+        if request.method() == Method::POST && path == "/api/commands/amend_draft" {
+            if request.uri().query().is_some() {
+                return Err(ApiError::NotFound);
+            }
+            if origin != Some(state.origin.as_str()) {
+                return Err(ApiError::Forbidden);
+            }
+            state.sessions.authorize(bearer(headers)?)?;
+            return crate::command::amend_draft(state, request).await;
+        }
         if request.method() != Method::GET {
             return Err(ApiError::NotFound);
         }
@@ -210,7 +248,7 @@ fn bearer(headers: &HeaderMap) -> Result<&str, ApiError> {
         .ok_or(ApiError::Unauthorized)
 }
 
-fn single_header(headers: &HeaderMap, name: header::HeaderName) -> Option<&str> {
+pub(crate) fn single_header(headers: &HeaderMap, name: header::HeaderName) -> Option<&str> {
     let mut values = headers.get_all(name).iter();
     let value = values.next()?.to_str().ok()?;
     if values.next().is_some() {

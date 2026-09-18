@@ -1,7 +1,7 @@
 # Epic UI0.2 — Локальная browser boundary и API client
 
 **Milestone:** UI0 — Модель интерфейса и локальная API-граница
-**Статус:** in_progress — static proof, owner gateway и Project/Task/Run/Pipeline read срезы; полная приёмка эпика впереди
+**Статус:** in_progress — owner gateway, read срезы и первая draft command; полная приёмка эпика впереди
 **Тип / приоритет:** integration / P0
 **Источники:** [UI-план](../UI_IMPLEMENTATION_PLAN.md),
 [матрица соответствия](../UI_BACKEND_ALIGNMENT.md)
@@ -60,6 +60,12 @@ Core загружает все версии до pagination и делает cata
 
 Независимо от hosting, boundary имеет browser-facing loopback origin и доступ
 к owner-local Core API; она не получает собственный scheduler или DB-write слой.
+
+[FRONTEND-011](../../tasks/frontend/frontend-011-draft-task-edit.md) расширяет
+allowlist одной command `amend_draft`: title/description существующего черновика,
+strict envelope/receipt, frozen retry, явные revision refusals и authoritative
+refresh после commit. Requests ограничены 512 KiB, receipts/errors — 64 KiB.
+Этот срез не добавляет остальные commands/SSE; evidence и reviews — в Task.
 
 ## В границах
 

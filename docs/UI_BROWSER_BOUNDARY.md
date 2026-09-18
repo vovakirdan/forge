@@ -1,7 +1,7 @@
 # ADR: локальная browser boundary
 
-**Дата:** 17 сентября 2026
-**Статус:** target принят; FRONTEND-007 — owner gateway, FRONTEND-008–010 — Task/Run/Pipeline reads
+**Дата:** 18 сентября 2026
+**Статус:** target принят; FRONTEND-007 — owner gateway, FRONTEND-008–010 — reads; FRONTEND-011 — draft command-срез (приёмка в Task)
 **Область:** local-owner Control Room; remote control и Tauri отложены
 
 ## 1. Решение и уровень доказательства
@@ -28,6 +28,9 @@ Project-wide список/карточку Run с ограниченной ди�
 [FRONTEND-010](../tasks/frontend/frontend-010-live-pipeline-reads.md) добавляет
 Pipeline version list и read-only stage inspector. Это ранний срез UI1.2,
 не editor или закрытие gate; его evidence фиксируется в отдельной Task.
+[FRONTEND-011](../tasks/frontend/frontend-011-draft-task-edit.md) добавляет
+первую мутацию — title/description draft Task через `amend_draft`. Остальные
+команды и SSE остаются закрытыми; этот срез не закрывает весь UI0.2/UI1.3.
 
 | Вариант | Решение |
 |---|---|
@@ -110,8 +113,8 @@ Project GET. В дальнейшем каждый method/path добавляет
   защита browser boundary, но не аутентификация. Native local
   процесс умеет подделать headers; authority даёт possession секрета.
 - Bootstrap принимает только ожидаемый JSON content type и schema; logout
-  имеет пустое тело и требует session/Origin. Будущие JSON commands потребуют
-  отдельного schema/content-type contract;
+  имеет пустое тело и требует session/Origin. Draft command принимает только
+  свой строгий JSON schema/content-type contract;
   cross-origin preflight не получает разрешающих CORS headers. Проверки не
   полагаются на один только браузерный CORS. [OWASP CSRF](https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html).
 - UDS path задаёт trusted owner config, не request. Проверяются type/owner/mode
@@ -128,6 +131,46 @@ Project GET. В дальнейшем каждый method/path добавляет
 - Secrets, Authorization, bootstrap body и raw upstream errors не попадают в
   logs/traces; auth и API responses используют `Cache-Control: no-store`.
   Service worker не кэширует authenticated content.
+
+### Draft command (FRONTEND-011)
+
+Единственный mutation path: `POST /api/commands/amend_draft`, без query.
+Gateway отправляет исходное проверенное тело на фиксированный Core path
+`/v1/commands/amend_draft`; браузер не выбирает URL, actor или произвольные
+forwarded headers. Exact Origin и session обязательны до Core connection.
+
+Envelope: `project_id`, `expected_revision`, `payload` с `task_id`,
+`expected_task_revision`, `patch`. Patch содержит хотя бы одно поле `title`
+или `description`, только строки; null и неизвестные поля отклоняются.
+IDs — UUIDv7; положительные revisions должны оставлять место для безопасного
+JS-integer increment. `Idempotency-Key` — один непустой header до 128 bytes;
+live client создаёт UUIDv4 для каждой новой попытки Save.
+
+Request cap — 512 KiB, receipt/error cap — 64 KiB. Auth/read caps не меняются.
+Receipt проверяется на applied/replayed, Task resource identity, UUIDv7 command
+и event IDs, непустой event list и исходную Project revision + 1. Browser
+проверяет контракт повторно. Все gateway ошибки имеют finite `code` и fixed
+`error`; raw upstream text не передаётся.
+
+Один Save фиксирует body/key/revisions. При неизвестном результате повтор
+использует те же bytes и key: replay Core проверяется до stale revision.
+Нельзя обновить ревизию под тем же key. Stale Project остаётся
+409/stale_revision, stale Task — 400/invalid_request; error string не служит
+классификатором. После отказа пользователь явно перечитывает baseline и
+сохраняет заново; UI удерживает только изменённые пользователем поля.
+
+Успех показывается по receipt, а актуальные Project/Task/list перечитываются
+отдельно. Ошибка этих reads не отменяет receipt. Draft и retry key находятся
+только в памяти формы; уход требует предупреждения, поздний ответ не меняет
+другой Project/session. Abort, logout и уход со страницы не отменяют Core commit.
+После утраты локальной попытки нужно перечитать Task; durable offline replay
+не входит в этот срез.
+
+Сам AmendDraft сохраняет Task в draft; общая postcommit-dispatch фаза Core
+не изменяется и может обработать другую готовую работу открытого Project.
+Keyless acceptance использует отдельный stopped Project без Employees/ready
+работы. Lost-response test теряет ответ после настоящего commit, а не заменяет
+результат mock-success. Полные результаты и ограничения фиксируются в Task.
 
 ### Scoped Task reads (FRONTEND-008)
 

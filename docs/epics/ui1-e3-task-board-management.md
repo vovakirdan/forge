@@ -1,7 +1,7 @@
 # Epic UI1.3 — Task board и управляемые изменения
 
 **Milestone:** UI1 — browser interface before M4 installer
-**Статус:** `in_progress`; ранний read-only FRONTEND-008 согласован отдельно.
+**Статус:** `in_progress`; read-only FRONTEND-008 и draft edit FRONTEND-011 согласованы отдельно.
 Остальной объём blocked by `UI0.1`, `UI0.2`, `UI0.3`, `UI1.1`, `UI1.2`.
 **Зависимости:** UI0.1 model contracts, UI0.2 browser/API boundary, UI0.3 UI tooling,
 UI1.1 Projects/Employees и UI1.2 PipelineVersion.
@@ -71,6 +71,13 @@ update: отдельный change command или расширение conditions
 точная pinned Pipeline stage, properties/waits и ID/kind/title/date артефактов. Mock Board,
 commands, priority catalogs, dependencies и Run activity остаются вне Task.
 Это не закрытие полного exit gate эпика.
+
+[FRONTEND-011](../../tasks/frontend/frontend-011-draft-task-edit.md) добавляет
+title/description edit существующей draft Task через `amend_draft`. Форма
+фиксирует Project/Task revisions, сохраняет ввод после отказа и повторяет
+неопределённый запрос только с исходными body/key. Receipt подтверждает запись,
+а fresh reads обновляют карточку и список. Остальные поля и команды, создание
+Task и mock Board не входят; evidence и независимые reviews фиксируются в Task.
 
 - board/list/detail query model с lifecycle/stage/activity presentation;
 - schema-driven property и PriorityScheme controls;

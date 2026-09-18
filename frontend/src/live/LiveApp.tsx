@@ -9,6 +9,7 @@ import type { LiveSession } from "./session.ts";
 import { prepareProjectChange } from "./read-cache.ts";
 import { useReadLifetime } from "./use-read-lifetime.ts";
 import { ProjectReads } from "./ProjectReads.tsx";
+import { createLeaveGuard } from "./leave-guard.ts";
 
 type LiveProps = { api: LiveApi; session: LiveSession };
 
@@ -23,7 +24,7 @@ export function LiveApp({ api, session }: LiveProps) {
             {state.status === "authenticated" ? "Live connection" : "Connect to Forge"}
           </h1>
           <p className="text-sm text-muted-foreground">
-            Local, read-only Project, Task, Run and Pipeline version access. No demo data.
+            Local Project, Task, Run and Pipeline access, with draft Task editing. No demo data.
           </p>
         </header>
         {state.notice && (
@@ -85,6 +86,7 @@ function Login({ session, disabled }: { session: LiveSession; disabled: boolean 
 
 function Connection({ api, session, generation }: LiveProps & { generation: number }) {
   const queries = useQueryClient();
+  const [leaveGuard] = useState(() => createLeaveGuard((message) => window.confirm(message)));
   const [projectId, setProjectId] = useState<string | null>(null);
   const [idError, setIdError] = useState<string | null>(null);
   const projectKey = useMemo(() => ["project", generation, projectId], [generation, projectId]);
@@ -107,6 +109,7 @@ function Connection({ api, session, generation }: LiveProps & { generation: numb
     project.data?.id.toLowerCase() === projectId?.toLowerCase() ? project.data : undefined;
   const [, loadProject] = useActionState((_state: null, data: FormData) => {
     const id = data.get("projectId");
+    if ((typeof id !== "string" || id.trim() !== projectId) && !leaveGuard.canLeave()) return null;
     if (typeof id !== "string" || !UuidV7Schema.safeParse(id.trim()).success) {
       prepareProjectChange(queries, generation);
       setProjectId(null);
@@ -137,7 +140,12 @@ function Connection({ api, session, generation }: LiveProps & { generation: numb
                 ? "Connected to Forge"
                 : "Connection unavailable"}
           </p>
-          <Button variant="outline" onClick={() => void session.logout()}>
+          <Button
+            variant="outline"
+            onClick={() => {
+              if (leaveGuard.canLeave()) void session.logout();
+            }}
+          >
             Log out
           </Button>
         </div>
@@ -227,6 +235,7 @@ function Connection({ api, session, generation }: LiveProps & { generation: numb
           session={session}
           generation={generation}
           projectId={projectId}
+          leaveGuard={leaveGuard}
         />
       )}
     </>

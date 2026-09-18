@@ -7,6 +7,8 @@ import {
   PipelineVersionViewSchema,
 } from "../contracts/pipeline.ts";
 import { RunDetailViewSchema, RunListResponseSchema } from "../contracts/run.ts";
+import { sendAmendDraft } from "./amend-draft-api.ts";
+import type { DraftAttempt } from "./draft-attempt.ts";
 
 export const SessionSchema = z.object({
   token: z.string().regex(/^[0-9a-f]{64}$/),
@@ -125,6 +127,15 @@ export function createLiveApi(fetcher: typeof fetch = fetch) {
   }
 
   return {
+    amendDraft(attempt: DraftAttempt, token: string, signal: AbortSignal) {
+      return sendAmendDraft(
+        fetcher,
+        attempt,
+        token,
+        signal,
+        () => new LiveApiError("unauthorized"),
+      );
+    },
     async exchange(code: string, signal: AbortSignal) {
       return json(
         await request("/api/auth/exchange", "POST", signal, undefined, { code }),

@@ -1,4 +1,4 @@
-# Forge Control Room — local demo and live read-only views
+# Forge Control Room — local demo and live owner UI
 
 The imported React/TanStack demo uses in-memory mock services and does not connect
 to Forge Core. Its tasks, employees, metrics and management actions are not
@@ -7,12 +7,14 @@ and read-only Project access through the native Rust gateway. FRONTEND-008 adds
 the real Task list and detail card with pinned Pipeline stage. FRONTEND-009 adds
 Project-wide Run list/detail and diagnostic availability in a separate Runs
 section. FRONTEND-010 adds Pipeline versions and a read-only stage inspector.
+FRONTEND-011 adds title/description editing for existing draft Tasks through Core.
 The live entry does not load the demo shell or services; Board, Team, Pipeline
-editing, commands, SSE and body/context viewers remain future work.
+editing, other commands, SSE and body/context viewers remain future work.
 
 The demo needs no Lovable account, API keys, database, Podman services or provider
 Runs. The live screen needs a running local Core and an existing Project ID;
-it does not need provider credentials or start Runs. Acceptance results belong
+it does not need provider credentials. Editing keeps the selected Task in draft;
+Core's normal post-command dispatch of other ready work is unchanged. Acceptance results belong
 in [FRONTEND-007](../tasks/frontend/frontend-007-live-owner-gateway.md),
 [FRONTEND-008](../tasks/frontend/frontend-008-live-task-reads.md),
 [FRONTEND-009](../tasks/frontend/frontend-009-live-run-reads.md) and
@@ -83,7 +85,7 @@ epic remains open.
 Use the [backend development prerequisites](../README.md#local-development),
 including Rust 1.98.0 and `protoc`, in addition to the frontend tools above.
 Start your existing Core as its normal owner and keep its management API on a
-private Unix socket. These instructions attach a read-only UI; they do not
+private Unix socket. These instructions attach the owner UI; they do not
 start Core, create a Project, migrate a database or install Forge.
 
 From the repository root, build one target at a time:
@@ -117,7 +119,7 @@ Project ID. The card reads real `id`, `name`, `revision` and `execution_gate`;
 health alone does not prove Project access.
 
 The Project opens the **Tasks** section, which reads 20 Tasks at a time. Use
-**Previous page**, **Next page** and **Refresh tasks**; **Open TASK-…** opens its read-only detail.
+**Previous page**, **Next page** and **Refresh tasks**; **Open TASK-…** opens its detail.
 The card shows description, Definition of Done, properties, waits, and each
 artifact's ID, kind, title and creation date. Stage names come from the version
 pinned by the fresh Task detail, including an old version in a soft-deleted
@@ -125,6 +127,21 @@ Pipeline catalog. List rows show raw
 stage/priority IDs: there is no invented priority label, assignee or Run state.
 The canonical detail response still contains inline artifact bodies and metadata;
 the card does not render them or follow referenced URLs/object refs.
+
+For a draft, choose **Edit draft** to load fresh Project/Task revisions, change
+**Draft title** or **Draft description**, then **Save**. Only these two fields
+are editable. Whitespace and formatting are preserved; empty descriptions are
+allowed. A confirmed receipt displays **Saved.**; subsequent read failure does
+not undo that confirmation. **Refresh saved data** retries reads, not the command.
+
+After a conflict, **Refresh edit baseline** shows current saved values while
+retaining the fields you changed; saving again is a separate explicit action.
+If the result is unknown, **Retry same save** repeats the original request/key
+to obtain its receipt without applying the edit twice. Do not assume failure
+means nothing was saved. Local edits and the retry key are held only in memory:
+leaving warns before discarding them, and logout/closing the form does not undo
+a Core commit. After a reload, read the Task again. See
+[FRONTEND-011](../tasks/frontend/frontend-011-draft-task-edit.md) for acceptance.
 
 **Refresh task** retries a read. A failed refresh keeps the previous data marked
 stale; an initial failure does not appear as an empty list. If a cursor becomes

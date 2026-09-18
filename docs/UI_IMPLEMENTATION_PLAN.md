@@ -244,6 +244,12 @@ FRONTEND-010 аналогично начинает UI1.2 третьим разд
 definition версии immutable; policies с `null` остаются «не настроено».
 Редактор и named commands остаются будущим объёмом UI1.2.
 
+Исключение от 18 сентября: FRONTEND-011 добавляет первую command из UI0.2/UI1.3
+в существующую live Task-карточку — только title/description draft через
+`amend_draft`. Scope включает frozen retry, revision refusals, безопасный
+gateway POST и keyless proof; создание Task, Board, остальные commands и SSE
+не входят. Полные epic gates сохраняются; evidence находится в Task.
+
 Run-приёмка разделяет реальные Core reads с M0 fake execution и synthetic
 cases пяти purposes. Ни то ни другое не является новым provider proof. Browser
 limits не закрывают gap серверной Run pagination, пока Core загружает все строки

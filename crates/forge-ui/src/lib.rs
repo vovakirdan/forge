@@ -2,6 +2,13 @@
 
 mod assets;
 mod auth;
+mod command;
+#[cfg(test)]
+mod command_client_tests;
+#[cfg(test)]
+mod command_http_tests;
+#[cfg(test)]
+mod command_tests;
 pub mod control;
 mod core_client;
 #[cfg(test)]

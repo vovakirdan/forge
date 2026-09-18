@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "../components/ui/button.tsx";
 import type { TaskDetailView } from "../contracts/task.ts";
@@ -9,9 +9,11 @@ import { useReadLifetime } from "./use-read-lifetime.ts";
 import { Field } from "./Field.tsx";
 import { TaskFacts } from "./TaskFacts.tsx";
 import type { ProjectReadScope } from "./read-scope.ts";
+import { TaskDraftEditor } from "./TaskDraftEditor.tsx";
 
 export function TaskDetailPanel(scope: ProjectReadScope & { taskId: string; onClose: () => void }) {
   const { api, session, generation, projectId, taskId, onClose } = scope;
+  const [editing, setEditing] = useState(false);
   const title = useRef<HTMLHeadingElement>(null);
   const key = useMemo(
     () => readKeys.task(generation, projectId, taskId),
@@ -44,6 +46,12 @@ export function TaskDetailPanel(scope: ProjectReadScope & { taskId: string; onCl
           Task detail
         </h2>
         <div className="flex flex-wrap gap-2">
+          {!editing &&
+            detail.isSuccess &&
+            !detail.isFetching &&
+            detail.data.lifecycle === "draft" && (
+              <Button onClick={() => setEditing(true)}>Edit draft</Button>
+            )}
           <Button
             variant="outline"
             disabled={detail.isFetching}
@@ -56,6 +64,7 @@ export function TaskDetailPanel(scope: ProjectReadScope & { taskId: string; onCl
           </Button>
         </div>
       </div>
+      {editing && <TaskDraftEditor {...scope} onCancel={() => setEditing(false)} />}
       {detail.isPending && <p role="status">Loading Task detail…</p>}
       {detail.isFetching && task && (
         <p role="status">Refreshing Task detail… Previous data remains visible.</p>

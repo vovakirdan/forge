@@ -341,7 +341,7 @@ async fn browser_preserves_scoped_not_found_and_sanitizes_cursor_and_size_errors
             (
                 response(404, br#"{"error":"private missing-task details"}"#),
                 axum::http::StatusCode::NOT_FOUND,
-                serde_json::json!({"error":"not found"}),
+                serde_json::json!({"error":"not found","code":"not_found"}),
             ),
             (
                 response(
@@ -357,7 +357,7 @@ async fn browser_preserves_scoped_not_found_and_sanitizes_cursor_and_size_errors
                     br#"{"error":{"code":"unknown","message":"private error"}}"#,
                 ),
                 axum::http::StatusCode::BAD_GATEWAY,
-                serde_json::json!({"error":"invalid Core response"}),
+                serde_json::json!({"error":"invalid Core response","code":"bad_gateway"}),
             ),
             (
                 format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n", bound + 1).into_bytes(),
