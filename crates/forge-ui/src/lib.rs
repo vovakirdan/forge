@@ -13,6 +13,9 @@ pub mod control;
 mod core_client;
 #[cfg(test)]
 mod core_client_tests;
+mod create_task;
+#[cfg(test)]
+mod create_task_tests;
 mod http;
 #[cfg(test)]
 mod http_tests;

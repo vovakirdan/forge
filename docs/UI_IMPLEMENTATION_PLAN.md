@@ -261,6 +261,12 @@ priority существующей non-terminal Task через `set_task_priorit
 baseline, receipt/conflict и exact retry. Текущий Run не прерывается;
 очередью управляет Core. Это не создание Task, настройка схемы или полный gate.
 
+FRONTEND-014 продолжает UI1.3/UI0.2 созданием draft Task через `create_task`:
+явный kind и точная PipelineVersion, active priority, optional DoD, properties:{}.
+Receipt возвращает новый ID; conflict сохраняет ввод, unknown replay не создаёт
+вторую Task, failed readback не отменяет receipt. Approval, property editor,
+исполнение и конфигураторы остаются вне среза; полный epic gate не закрывается.
+
 Run-приёмка разделяет реальные Core reads с M0 fake execution и synthetic
 cases пяти purposes. Ни то ни другое не является новым provider proof. Browser
 limits не закрывают gap серверной Run pagination, пока Core загружает все строки

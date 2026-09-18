@@ -18,6 +18,7 @@ const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 
 #[derive(Clone, Copy)]
 pub(crate) enum CommandTarget {
+    CreateTask,
     AmendDraft,
     SetTaskPriority,
 }
@@ -25,6 +26,7 @@ pub(crate) enum CommandTarget {
 impl CommandTarget {
     pub(crate) fn from_browser_path(path: &str) -> Option<Self> {
         match path {
+            "/api/commands/create_task" => Some(Self::CreateTask),
             "/api/commands/amend_draft" => Some(Self::AmendDraft),
             "/api/commands/set_task_priority" => Some(Self::SetTaskPriority),
             _ => None,
@@ -33,6 +35,7 @@ impl CommandTarget {
 
     fn core_path(self) -> &'static str {
         match self {
+            Self::CreateTask => "/v1/commands/create_task",
             Self::AmendDraft => "/v1/commands/amend_draft",
             Self::SetTaskPriority => "/v1/commands/set_task_priority",
         }
@@ -81,7 +84,7 @@ impl SetTaskPriority {
     }
 
     pub(crate) fn validate_receipt(&self, bytes: &[u8]) -> Result<(), ApiError> {
-        validate_receipt(bytes, self.expected_revision, &self.payload.task_id)
+        validate_receipt(bytes, self.expected_revision, Some(&self.payload.task_id))
     }
 }
 
@@ -130,11 +133,15 @@ impl AmendDraft {
     }
 
     pub(crate) fn validate_receipt(&self, bytes: &[u8]) -> Result<(), ApiError> {
-        validate_receipt(bytes, self.expected_revision, &self.payload.task_id)
+        validate_receipt(bytes, self.expected_revision, Some(&self.payload.task_id))
     }
 }
 
-fn validate_receipt(bytes: &[u8], expected_revision: u64, task_id: &str) -> Result<(), ApiError> {
+pub(crate) fn validate_receipt(
+    bytes: &[u8],
+    expected_revision: u64,
+    task_id: Option<&str>,
+) -> Result<(), ApiError> {
     let receipt: CommandReceipt =
         serde_json::from_slice(bytes).map_err(|_| ApiError::BadGateway)?;
     if !uuid_v7(&receipt.command_id)
@@ -142,7 +149,9 @@ fn validate_receipt(bytes: &[u8], expected_revision: u64, task_id: &str) -> Resu
         || receipt.event_ids.is_empty()
         || !receipt.event_ids.iter().all(|id| uuid_v7(id))
         || !receipt.resource.as_ref().is_some_and(|resource| {
-            resource.kind == "task" && resource.id.eq_ignore_ascii_case(task_id)
+            resource.kind == "task"
+                && uuid_v7(&resource.id)
+                && task_id.is_none_or(|task_id| resource.id.eq_ignore_ascii_case(task_id))
         })
     {
         return Err(ApiError::BadGateway);
@@ -150,7 +159,7 @@ fn validate_receipt(bytes: &[u8], expected_revision: u64, task_id: &str) -> Resu
     Ok(())
 }
 
-fn uuid_v7(value: &str) -> bool {
+pub(crate) fn uuid_v7(value: &str) -> bool {
     value.len() == 36
         && uuid::Uuid::parse_str(value)
             .is_ok_and(|id| id.get_version_num() == 7 && id.get_variant() == uuid::Variant::RFC4122)
@@ -184,6 +193,15 @@ pub(crate) async fn execute(
         .await
         .map_err(|_| ApiError::TooLarge)?;
     let response = match target {
+        CommandTarget::CreateTask => {
+            let command = crate::create_task::CreateTask::parse(&body)?;
+            let response = state
+                .core
+                .command(CommandTarget::CreateTask, &key, body)
+                .await?;
+            command.validate_receipt(&response)?;
+            response
+        }
         CommandTarget::AmendDraft => {
             let command = AmendDraft::parse(&body)?;
             state.core.amend_draft(&command, &key, body).await?

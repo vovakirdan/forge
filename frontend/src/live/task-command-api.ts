@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { TaskCommandReceiptSchema, IdempotencyKeySchema } from "../contracts/task-command.ts";
 import type { TaskCommandAttempt } from "../contracts/task-command.ts";
+import type { CreateTaskAttempt } from "../contracts/create-task.ts";
 import { LiveCommandError } from "./command-error.ts";
 
 const errorSchema = z.object({ error: z.string(), code: z.string() }).strict();
@@ -27,9 +28,9 @@ async function boundedJson(response: Response): Promise<unknown> {
 
 export async function sendTaskCommand(
   fetcher: typeof fetch,
-  command: "amend_draft" | "set_task_priority",
-  attempt: TaskCommandAttempt,
-  request: { expected_revision: number; payload: { task_id: string } },
+  command: "amend_draft" | "set_task_priority" | "create_task",
+  attempt: TaskCommandAttempt | CreateTaskAttempt,
+  request: { expected_revision: number; payload: object },
   token: string,
   signal: AbortSignal,
   unauthorized: () => Error,
@@ -37,7 +38,10 @@ export async function sendTaskCommand(
   // Validate before transport; never reconstruct the immutable retry body.
   IdempotencyKeySchema.parse(attempt.key);
   if (
-    request.payload.task_id !== attempt.taskId ||
+    (command !== "create_task" &&
+      (!("taskId" in attempt) ||
+        !("task_id" in request.payload) ||
+        request.payload.task_id !== attempt.taskId)) ||
     new TextEncoder().encode(attempt.body).byteLength > 512 * 1024
   )
     throw new LiveCommandError("invalid_request");
@@ -82,7 +86,9 @@ export async function sendTaskCommand(
   if (
     response.status !== 200 ||
     !receipt.success ||
-    receipt.data.resource.id.toLowerCase() !== attempt.taskId.toLowerCase() ||
+    (command !== "create_task" &&
+      (!("taskId" in attempt) ||
+        receipt.data.resource.id.toLowerCase() !== attempt.taskId.toLowerCase())) ||
     receipt.data.project_revision !== request.expected_revision + 1
   )
     throw new LiveCommandError("outcome_unknown");

@@ -8,6 +8,7 @@ import { useReadLifetime } from "./use-read-lifetime.ts";
 import { TaskFacts } from "./TaskFacts.tsx";
 import { TaskDetailPanel } from "./TaskDetailPanel.tsx";
 import type { PriorityCatalog } from "../presentation/priority.ts";
+import { TaskCreateEditor } from "./TaskCreateEditor.tsx";
 
 export function TaskBrowser(scope: ProjectReadScope) {
   const { api, session, generation, projectId } = scope;
@@ -17,6 +18,7 @@ export function TaskBrowser(scope: ProjectReadScope) {
     previous: (string | null)[];
   }>({ cursor: null, previous: [] });
   const [taskId, setTaskId] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
   const opener = useRef<HTMLButtonElement | null>(null);
   const key = useMemo(
     () => readKeys.tasks(generation, projectId, navigation.cursor),
@@ -52,6 +54,7 @@ export function TaskBrowser(scope: ProjectReadScope) {
   }
   function navigate(cursor: string | null, previous: (string | null)[]) {
     if (!scope.leaveGuard.canLeave()) return;
+    setCreating(false);
     setTaskId(null);
     prepareReadChange(queries, key);
     setNavigation({ cursor, previous });
@@ -63,6 +66,18 @@ export function TaskBrowser(scope: ProjectReadScope) {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-lg font-semibold">Tasks</h2>
           <div className="flex flex-wrap gap-2">
+            {!creating && (
+              <Button
+                onClick={() => {
+                  if (scope.leaveGuard.canLeave()) {
+                    setTaskId(null);
+                    setCreating(true);
+                  }
+                }}
+              >
+                Create draft
+              </Button>
+            )}
             <Button
               variant="outline"
               disabled={priorities.isFetching}
@@ -129,7 +144,10 @@ export function TaskBrowser(scope: ProjectReadScope) {
                   onClick={(event) => {
                     opener.current = event.currentTarget;
                     if (taskId === task.id) document.getElementById("task-detail-title")?.focus();
-                    else if (scope.leaveGuard.canLeave()) setTaskId(task.id);
+                    else if (scope.leaveGuard.canLeave()) {
+                      setCreating(false);
+                      setTaskId(task.id);
+                    }
                   }}
                   className="w-full cursor-pointer rounded text-left font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [overflow-wrap:anywhere]"
                 >
@@ -167,7 +185,17 @@ export function TaskBrowser(scope: ProjectReadScope) {
           </Button>
         </nav>
       </section>
-      {taskId && (
+      {creating && (
+        <TaskCreateEditor
+          {...scope}
+          onCancel={() => setCreating(false)}
+          onCreated={(id) => {
+            setCreating(false);
+            setTaskId(id);
+          }}
+        />
+      )}
+      {!creating && taskId && (
         <TaskDetailPanel
           key={taskId}
           {...scope}

@@ -4,6 +4,8 @@
 mod active_runs;
 #[path = "command_conformance/compatibility.rs"]
 mod compatibility;
+#[path = "command_conformance/create_draft.rs"]
+mod create_draft;
 
 #[path = "command_conformance/atomicity.rs"]
 mod atomicity;
@@ -72,6 +74,10 @@ macro_rules! conformance_case {
 }
 
 conformance_case!(all_m0_commands, crate::commands::all_m0_commands);
+conformance_case!(
+    create_draft_receipt,
+    crate::create_draft::pinned_draft_replays_without_work
+);
 conformance_case!(
     priority_lifecycle,
     crate::priorities::lifecycle_queue_and_replay

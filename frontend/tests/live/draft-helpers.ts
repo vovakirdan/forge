@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { request as httpRequest } from "node:http";
 import type { Page } from "@playwright/test";
 import { ProjectViewSchema } from "../../src/contracts/project";
-import { TaskDetailViewSchema } from "../../src/contracts/task";
+import { TaskDetailViewSchema, TaskListResponseSchema } from "../../src/contracts/task";
 import { RunListResponseSchema } from "../../src/contracts/run";
 import { expect, type Live } from "./fixtures";
 import { loadProject } from "./task-helpers";
@@ -40,7 +40,7 @@ export type DraftRequest = {
 export async function commandClient(
   live: Live,
   options: {
-    path?: typeof commandPath | "/api/commands/set_task_priority";
+    path?: typeof commandPath | "/api/commands/set_task_priority" | "/api/commands/create_task";
     projectId?: string;
   } = {},
 ) {
@@ -64,6 +64,9 @@ export async function commandClient(
   return {
     project,
     task,
+    async tasks() {
+      return TaskListResponseSchema.parse(await get(`/api/projects/${projectId}/tasks`));
+    },
     async runs() {
       return RunListResponseSchema.parse(await get(`/api/projects/${projectId}/runs`));
     },

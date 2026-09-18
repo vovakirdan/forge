@@ -8,6 +8,8 @@ use serde_json::json;
 
 #[path = "ui_core_fixture/commands.rs"]
 mod commands;
+#[path = "ui_core_fixture/create_commands.rs"]
+mod create_commands;
 #[path = "ui_core_fixture/pipelines.rs"]
 mod pipelines;
 #[path = "ui_core_fixture/runs.rs"]
@@ -26,6 +28,7 @@ async fn main() -> Result<()> {
     let pipeline_fixture = pipelines::seed(&harness).await?;
     let command_fixture = commands::seed(&harness, "Draft command acceptance").await?;
     let priority_command_fixture = commands::seed(&harness, "Priority command acceptance").await?;
+    let create_command_fixture = create_commands::seed(&harness).await?;
     harness.start_project(project_id).await?;
     let project = harness
         .store
@@ -51,7 +54,8 @@ async fn main() -> Result<()> {
             "pipelines_project": pipeline_fixture.project,
             "other_pipelines_project": pipeline_fixture.other_project,
             "commands_project": command_fixture,
-            "priority_commands_project": priority_command_fixture
+            "priority_commands_project": priority_command_fixture,
+            "create_commands_project": create_command_fixture
         })
     );
     std::io::stdout().flush()?;

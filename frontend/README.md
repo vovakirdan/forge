@@ -10,6 +10,7 @@ section. FRONTEND-010 adds Pipeline versions and a read-only stage inspector.
 FRONTEND-011 adds title/description editing for existing draft Tasks through Core.
 FRONTEND-012 resolves Task priority names through a separate Project scheme read.
 FRONTEND-013 adds priority editing for non-terminal Tasks through Core.
+FRONTEND-014 creates draft Tasks with an explicitly selected Pipeline version.
 The live entry does not load the demo shell or services; Board, Team, Pipeline
 editing, other commands, SSE and body/context viewers remain future work.
 
@@ -170,6 +171,21 @@ local intent; logout does not undo a Core commit.
 Core may update pending work and dispatch eligible work in an open Project.
 Acceptance uses a separate stopped Project without Employees/provider Runs;
 see [FRONTEND-013](../tasks/frontend/frontend-013-task-priority-edit.md).
+
+**Create draft** replaces the Task detail/editor with a creation form. Enter a
+title, optional description/definition of done, select delivery or analysis,
+an active priority and an exact Pipeline version. Versions are paginated; neither
+latest nor default is selected automatically. The active priority default may be
+preselected. Properties remain empty; creation does not approve the Task or
+request execution. No available Pipeline means creation is unavailable.
+
+**Refresh creation baseline** preserves all fields after a conflict; submit
+again explicitly. **Retry same creation** repeats an uncertain request with its
+original bytes/key. A confirmed receipt supplies the new Task ID. If follow-up
+reads fail, **Refresh created data** retries reads only; a successful read opens
+the new Task card. Do not create a replacement Task to recover an unknown result.
+Leaving loses the in-memory attempt, so inspect the Task list before creating
+again after reload. See [FRONTEND-014](../tasks/frontend/frontend-014-create-draft-task.md).
 
 **Refresh task** retries a read. A failed refresh keeps the previous data marked
 stale; an initial failure does not appear as an empty list. If a cursor becomes

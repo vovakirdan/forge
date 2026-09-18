@@ -1,7 +1,7 @@
 # Epic UI1.3 — Task board и управляемые изменения
 
 **Milestone:** UI1 — browser interface before M4 installer
-**Статус:** `in_progress`; FRONTEND-008/011/012/013 — согласованные Task read/draft/priority срезы.
+**Статус:** `in_progress`; FRONTEND-008/011/012/013/014 — согласованные Task read/draft/priority/create срезы.
 Остальной объём blocked by `UI0.1`, `UI0.2`, `UI0.3`, `UI1.1`, `UI1.2`.
 **Зависимости:** UI0.1 model contracts, UI0.2 browser/API boundary, UI0.3 UI tooling,
 UI1.1 Projects/Employees и UI1.2 PipelineVersion.
@@ -87,7 +87,10 @@ Task и mock Board не входят; evidence и независимые reviews
 - [FRONTEND-013](../../tasks/frontend/frontend-013-task-priority-edit.md): выбор
   active priority через `set_task_priority`, fresh baseline, conflict/retry;
   без конфигуратора схемы, изменения lifecycle/stage или прерывания Run;
-- draft/create/approve/priority/cancel command forms и receipt conflicts;
+- [FRONTEND-014](../../tasks/frontend/frontend-014-create-draft-task.md): создание
+  draft с точным Pipeline pin, active priority, receipt/conflict/exact retry;
+  без approval, property editor и допуска к исполнению;
+- остальные draft/approve/cancel command forms и receipt conflicts;
 - dependency graph/read panels и management command interactions;
 - event-driven refresh/accessibility tests для waits, terminal states и empty boards.
 

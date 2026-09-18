@@ -1,7 +1,7 @@
 # ADR: локальная browser boundary
 
 **Дата:** 18 сентября 2026
-**Статус:** target принят; FRONTEND-007 — owner gateway, FRONTEND-008–010/012 — reads; FRONTEND-011/013 — draft/priority commands (приёмка в Task)
+**Статус:** target принят; FRONTEND-007 — owner gateway, FRONTEND-008–010/012 — reads; FRONTEND-011/013/014 — draft text/priority/create commands (приёмка в Task)
 **Область:** local-owner Control Room; remote control и Tauri отложены
 
 ## 1. Решение и уровень доказательства
@@ -31,7 +31,8 @@ Pipeline version list и read-only stage inspector. Это ранний срез
 [FRONTEND-011](../tasks/frontend/frontend-011-draft-task-edit.md) добавляет
 первую мутацию — title/description draft Task через `amend_draft`.
 [FRONTEND-013](../tasks/frontend/frontend-013-task-priority-edit.md) добавляет
-`set_task_priority`. Остальные команды и SSE остаются закрытыми;
+`set_task_priority`, а [FRONTEND-014](../tasks/frontend/frontend-014-create-draft-task.md) —
+создание draft через `create_task`. Остальные команды и SSE остаются закрытыми;
 эти срезы не закрывают весь UI0.2/UI1.3.
 
 | Вариант | Решение |
@@ -200,6 +201,39 @@ List показывает raw stage ID без fan-out. Неизвестная с
 и metadata приходят внутри канонического detail, но не рендерятся. Object refs
 и URL не открываются и не загружаются автоматически. UI не выводит
 Run activity, Employee ownership или priority labels из отсутствующих данных.
+
+### Draft creation command (FRONTEND-014)
+
+Третий mutation path — `POST /api/commands/create_task`, без query. Envelope:
+`project_id`, `expected_revision`; payload: `title`, `description`, optional
+`definition_of_done`, `kind`, `pipeline_version_id`, `priority`, `properties:{}`.
+Принимаются только delivery/analysis и точная версия. Browser-срез не разрешает
+альтернативный pipeline_id, непустые properties, actor, Task ID или lifecycle.
+Core по-прежнему владеет policy и созданием ID/key. Существующие guards и limits
+сохраняются. Title/description/DoD проверяются по ограничениям Core.
+
+Create receipt содержит новый UUIDv7 Task; для amend/priority сохраняется
+сравнение с исходным Task ID. UUIDv7 command/events, applied/replayed и исходная
+Project revision + 1 проверяются для всех трёх commands. Unknown outcome
+сохраняет body/key; replay не превращается в повторное создание.
+
+Форма получает fresh PriorityScheme для revision и active/default priority.
+Pipeline выбирается явно из страниц по 20, без скрытой загрузки всех страниц
+или автоматического latest/default. Выбранный detail перечитывается отдельно;
+удаление и несовместимый kind блокируют создание. Project scope задаётся endpoint
+и окончательно проверяется Core. Conflict сохраняет все поля; refresh baseline
+и следующая отправка — отдельные действия.
+
+После receipt UI знает созданный ID, обновляет Project/list и читает новую Task.
+Ошибка чтения не отменяет создание и предлагает только повтор reads. После
+успешного readback открывается карточка. Ввод и retry key живут в памяти формы;
+уход предупреждает об их потере, logout/scope change отбрасывают поздние ответы.
+После потери локальной попытки сначала проверяют canonical список Task; новый
+key не используется как «восстановление» неизвестного результата.
+
+Draft не получает approval/очередь/Run. DoD и обязательные свойства могут быть
+заполнены позже; этот срез не обещает готовности к исполнению. Общий postcommit
+dispatch не меняется; keyless proof работает на stopped Project без Employees.
 
 ### Priority command (FRONTEND-013)
 
