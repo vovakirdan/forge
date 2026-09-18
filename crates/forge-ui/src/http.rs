@@ -167,7 +167,9 @@ async fn guarded_dispatch(state: &HttpState, request: Request<Body>) -> Result<R
             state.sessions.logout(token)?;
             return Ok(StatusCode::NO_CONTENT.into_response());
         }
-        if request.method() == Method::POST && path == "/api/commands/amend_draft" {
+        if let Some(target) = crate::command::CommandTarget::from_browser_path(path)
+            && request.method() == Method::POST
+        {
             if request.uri().query().is_some() {
                 return Err(ApiError::NotFound);
             }
@@ -175,7 +177,7 @@ async fn guarded_dispatch(state: &HttpState, request: Request<Body>) -> Result<R
                 return Err(ApiError::Forbidden);
             }
             state.sessions.authorize(bearer(headers)?)?;
-            return crate::command::amend_draft(state, request).await;
+            return crate::command::execute(state, request, target).await;
         }
         if request.method() != Method::GET {
             return Err(ApiError::NotFound);

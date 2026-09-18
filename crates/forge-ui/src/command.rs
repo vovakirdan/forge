@@ -1,4 +1,4 @@
-//! The single browser mutation contract, independent of the wider Core command catalog.
+//! Explicit browser mutation contracts, independent of the wider Core command catalog.
 
 use axum::{
     body::{Body, to_bytes},
@@ -15,6 +15,75 @@ use crate::http::{ApiError, HttpState, single_header};
 pub(crate) const BODY_LIMIT: usize = 512 * 1024;
 pub(crate) const RECEIPT_LIMIT: usize = 64 * 1024;
 const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
+
+#[derive(Clone, Copy)]
+pub(crate) enum CommandTarget {
+    AmendDraft,
+    SetTaskPriority,
+}
+
+impl CommandTarget {
+    pub(crate) fn from_browser_path(path: &str) -> Option<Self> {
+        match path {
+            "/api/commands/amend_draft" => Some(Self::AmendDraft),
+            "/api/commands/set_task_priority" => Some(Self::SetTaskPriority),
+            _ => None,
+        }
+    }
+
+    fn core_path(self) -> &'static str {
+        match self {
+            Self::AmendDraft => "/v1/commands/amend_draft",
+            Self::SetTaskPriority => "/v1/commands/set_task_priority",
+        }
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct SetTaskPriority {
+    project_id: String,
+    expected_revision: u64,
+    payload: PriorityPayload,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PriorityPayload {
+    task_id: String,
+    expected_task_revision: u64,
+    priority: String,
+}
+
+impl SetTaskPriority {
+    pub(crate) fn parse(bytes: &[u8]) -> Result<Self, ApiError> {
+        let value: Self = serde_json::from_slice(bytes).map_err(|_| ApiError::BadRequest)?;
+        if !uuid_v7(&value.project_id)
+            || !uuid_v7(&value.payload.task_id)
+            || !(1..MAX_SAFE_INTEGER).contains(&value.expected_revision)
+            || !(1..MAX_SAFE_INTEGER).contains(&value.payload.expected_task_revision)
+            || !(1..=64).contains(&value.payload.priority.len())
+            || !value
+                .payload
+                .priority
+                .as_bytes()
+                .first()
+                .is_some_and(u8::is_ascii_lowercase)
+            || !value
+                .payload
+                .priority
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
+        {
+            return Err(ApiError::BadRequest);
+        }
+        Ok(value)
+    }
+
+    pub(crate) fn validate_receipt(&self, bytes: &[u8]) -> Result<(), ApiError> {
+        validate_receipt(bytes, self.expected_revision, &self.payload.task_id)
+    }
+}
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -61,20 +130,24 @@ impl AmendDraft {
     }
 
     pub(crate) fn validate_receipt(&self, bytes: &[u8]) -> Result<(), ApiError> {
-        let receipt: CommandReceipt =
-            serde_json::from_slice(bytes).map_err(|_| ApiError::BadGateway)?;
-        if !uuid_v7(&receipt.command_id)
-            || receipt.project_revision != self.expected_revision + 1
-            || receipt.event_ids.is_empty()
-            || !receipt.event_ids.iter().all(|id| uuid_v7(id))
-            || !receipt.resource.as_ref().is_some_and(|resource| {
-                resource.kind == "task" && resource.id.eq_ignore_ascii_case(&self.payload.task_id)
-            })
-        {
-            return Err(ApiError::BadGateway);
-        }
-        Ok(())
+        validate_receipt(bytes, self.expected_revision, &self.payload.task_id)
     }
+}
+
+fn validate_receipt(bytes: &[u8], expected_revision: u64, task_id: &str) -> Result<(), ApiError> {
+    let receipt: CommandReceipt =
+        serde_json::from_slice(bytes).map_err(|_| ApiError::BadGateway)?;
+    if !uuid_v7(&receipt.command_id)
+        || receipt.project_revision != expected_revision + 1
+        || receipt.event_ids.is_empty()
+        || !receipt.event_ids.iter().all(|id| uuid_v7(id))
+        || !receipt.resource.as_ref().is_some_and(|resource| {
+            resource.kind == "task" && resource.id.eq_ignore_ascii_case(task_id)
+        })
+    {
+        return Err(ApiError::BadGateway);
+    }
+    Ok(())
 }
 
 fn uuid_v7(value: &str) -> bool {
@@ -83,9 +156,10 @@ fn uuid_v7(value: &str) -> bool {
             .is_ok_and(|id| id.get_version_num() == 7 && id.get_variant() == uuid::Variant::RFC4122)
 }
 
-pub(crate) async fn amend_draft(
+pub(crate) async fn execute(
     state: &HttpState,
     request: Request<Body>,
+    target: CommandTarget,
 ) -> Result<Response, ApiError> {
     if !single_header(request.headers(), header::CONTENT_TYPE).is_some_and(|value| {
         value.eq_ignore_ascii_case("application/json")
@@ -109,8 +183,16 @@ pub(crate) async fn amend_draft(
     let body = to_bytes(request.into_body(), BODY_LIMIT)
         .await
         .map_err(|_| ApiError::TooLarge)?;
-    let command = AmendDraft::parse(&body)?;
-    let response = state.core.amend_draft(&command, &key, body).await?;
+    let response = match target {
+        CommandTarget::AmendDraft => {
+            let command = AmendDraft::parse(&body)?;
+            state.core.amend_draft(&command, &key, body).await?
+        }
+        CommandTarget::SetTaskPriority => {
+            let command = SetTaskPriority::parse(&body)?;
+            state.core.set_task_priority(&command, &key, body).await?
+        }
+    };
     Ok(([(header::CONTENT_TYPE, "application/json")], response).into_response())
 }
 
@@ -121,9 +203,33 @@ impl crate::core_client::CoreClient {
         key: &str,
         body: Bytes,
     ) -> Result<Bytes, ApiError> {
+        let bytes = self.command(CommandTarget::AmendDraft, key, body).await?;
+        command.validate_receipt(&bytes)?;
+        Ok(bytes)
+    }
+
+    pub(crate) async fn set_task_priority(
+        &self,
+        command: &SetTaskPriority,
+        key: &str,
+        body: Bytes,
+    ) -> Result<Bytes, ApiError> {
+        let bytes = self
+            .command(CommandTarget::SetTaskPriority, key, body)
+            .await?;
+        command.validate_receipt(&bytes)?;
+        Ok(bytes)
+    }
+
+    async fn command(
+        &self,
+        target: CommandTarget,
+        key: &str,
+        body: Bytes,
+    ) -> Result<Bytes, ApiError> {
         let request = Request::builder()
             .method("POST")
-            .uri("/v1/commands/amend_draft")
+            .uri(target.core_path())
             .header(header::HOST, "localhost")
             .header(header::ACCEPT, "application/json")
             .header(header::CONTENT_TYPE, "application/json")
@@ -135,7 +241,6 @@ impl crate::core_client::CoreClient {
             return Err(ApiError::BadGateway);
         }
         if status == StatusCode::OK {
-            command.validate_receipt(&bytes)?;
             return Ok(bytes);
         }
         let error: ErrorResponse =

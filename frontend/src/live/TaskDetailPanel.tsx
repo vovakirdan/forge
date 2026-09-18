@@ -11,6 +11,8 @@ import { Field } from "./Field.tsx";
 import { TaskFacts } from "./TaskFacts.tsx";
 import type { ProjectReadScope } from "./read-scope.ts";
 import { TaskDraftEditor } from "./TaskDraftEditor.tsx";
+import { TaskPriorityEditor } from "./TaskPriorityEditor.tsx";
+import { canChangePriority } from "./priority-attempt.ts";
 
 export function TaskDetailPanel(
   scope: ProjectReadScope & {
@@ -20,7 +22,7 @@ export function TaskDetailPanel(
   },
 ) {
   const { api, session, generation, projectId, taskId, onClose } = scope;
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState<"draft" | "priority" | null>(null);
   const title = useRef<HTMLHeadingElement>(null);
   const key = useMemo(
     () => readKeys.task(generation, projectId, taskId),
@@ -57,7 +59,13 @@ export function TaskDetailPanel(
             detail.isSuccess &&
             !detail.isFetching &&
             detail.data.lifecycle === "draft" && (
-              <Button onClick={() => setEditing(true)}>Edit draft</Button>
+              <Button onClick={() => setEditing("draft")}>Edit draft</Button>
+            )}
+          {!editing &&
+            detail.isSuccess &&
+            !detail.isFetching &&
+            canChangePriority(detail.data.lifecycle) && (
+              <Button onClick={() => setEditing("priority")}>Change priority</Button>
             )}
           <Button
             variant="outline"
@@ -71,7 +79,10 @@ export function TaskDetailPanel(
           </Button>
         </div>
       </div>
-      {editing && <TaskDraftEditor {...scope} onCancel={() => setEditing(false)} />}
+      {editing === "draft" && <TaskDraftEditor {...scope} onCancel={() => setEditing(null)} />}
+      {editing === "priority" && (
+        <TaskPriorityEditor {...scope} onCancel={() => setEditing(null)} />
+      )}
       {detail.isPending && <p role="status">Loading Task detail…</p>}
       {detail.isFetching && task && (
         <p role="status">Refreshing Task detail… Previous data remains visible.</p>

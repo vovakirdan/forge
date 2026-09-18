@@ -24,7 +24,8 @@ async fn main() -> Result<()> {
     harness.attach_fake_supervisor().await?;
     let run_fixture = runs::seed(&harness).await?;
     let pipeline_fixture = pipelines::seed(&harness).await?;
-    let command_fixture = commands::seed(&harness).await?;
+    let command_fixture = commands::seed(&harness, "Draft command acceptance").await?;
+    let priority_command_fixture = commands::seed(&harness, "Priority command acceptance").await?;
     harness.start_project(project_id).await?;
     let project = harness
         .store
@@ -49,7 +50,8 @@ async fn main() -> Result<()> {
             "other_runs_project": run_fixture.other_project,
             "pipelines_project": pipeline_fixture.project,
             "other_pipelines_project": pipeline_fixture.other_project,
-            "commands_project": command_fixture
+            "commands_project": command_fixture,
+            "priority_commands_project": priority_command_fixture
         })
     );
     std::io::stdout().flush()?;

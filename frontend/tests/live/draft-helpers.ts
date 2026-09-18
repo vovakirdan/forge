@@ -37,9 +37,15 @@ export type DraftRequest = {
   };
 };
 
-export async function commandClient(live: Live) {
+export async function commandClient(
+  live: Live,
+  options: {
+    path?: typeof commandPath | "/api/commands/set_task_priority";
+    projectId?: string;
+  } = {},
+) {
   const token = await live.bearer();
-  const projectId = live.core.commands_project.id;
+  const projectId = options.projectId ?? live.core.commands_project.id;
   async function get(path: string) {
     try {
       const response = await fetch(`${live.origin}${path}`, {
@@ -78,7 +84,7 @@ export async function commandClient(live: Live) {
         const fail = () =>
           reject(new Error("Command acceptance POST failed; raw diagnostics withheld"));
         const request = httpRequest(
-          `${live.origin}${commandPath}`,
+          `${live.origin}${options.path ?? commandPath}`,
           {
             method: "POST",
             signal: AbortSignal.timeout(6000),

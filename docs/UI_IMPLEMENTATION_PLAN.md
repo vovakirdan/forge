@@ -256,6 +256,11 @@ mutations не расширяются. Это частичное закрыти�
 редактор схемы и не полный gate UI1.1. Core пока создаёт три стандартных
 уровня; 1/10/retired fixtures остаются явно synthetic.
 
+FRONTEND-013 добавляет ранний command-срез UI1.3/UI0.2: назначение active
+priority существующей non-terminal Task через `set_task_priority` с fresh
+baseline, receipt/conflict и exact retry. Текущий Run не прерывается;
+очередью управляет Core. Это не создание Task, настройка схемы или полный gate.
+
 Run-приёмка разделяет реальные Core reads с M0 fake execution и synthetic
 cases пяти purposes. Ни то ни другое не является новым provider proof. Browser
 limits не закрывают gap серверной Run pagination, пока Core загружает все строки

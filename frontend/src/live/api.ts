@@ -10,6 +10,8 @@ import {
 import { RunDetailViewSchema, RunListResponseSchema } from "../contracts/run.ts";
 import { sendAmendDraft } from "./amend-draft-api.ts";
 import type { DraftAttempt } from "./draft-attempt.ts";
+import { sendSetTaskPriority } from "./set-task-priority-api.ts";
+import type { TaskCommandAttempt } from "../contracts/task-command.ts";
 
 export const SessionSchema = z.object({
   token: z.string().regex(/^[0-9a-f]{64}$/),
@@ -128,6 +130,15 @@ export function createLiveApi(fetcher: typeof fetch = fetch) {
   }
 
   return {
+    setTaskPriority(attempt: TaskCommandAttempt, token: string, signal: AbortSignal) {
+      return sendSetTaskPriority(
+        fetcher,
+        attempt,
+        token,
+        signal,
+        () => new LiveApiError("unauthorized"),
+      );
+    },
     amendDraft(attempt: DraftAttempt, token: string, signal: AbortSignal) {
       return sendAmendDraft(
         fetcher,

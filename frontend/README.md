@@ -9,13 +9,15 @@ Project-wide Run list/detail and diagnostic availability in a separate Runs
 section. FRONTEND-010 adds Pipeline versions and a read-only stage inspector.
 FRONTEND-011 adds title/description editing for existing draft Tasks through Core.
 FRONTEND-012 resolves Task priority names through a separate Project scheme read.
+FRONTEND-013 adds priority editing for non-terminal Tasks through Core.
 The live entry does not load the demo shell or services; Board, Team, Pipeline
 editing, other commands, SSE and body/context viewers remain future work.
 
 The demo needs no Lovable account, API keys, database, Podman services or provider
 Runs. The live screen needs a running local Core and an existing Project ID;
-it does not need provider credentials. Editing keeps the selected Task in draft;
-Core's normal post-command dispatch of other ready work is unchanged. Acceptance results belong
+it does not need provider credentials. Text editing keeps the Task in draft;
+priority editing preserves its lifecycle/stage and does not interrupt an existing Run.
+Core's normal post-command dispatch is unchanged. Acceptance results belong
 in [FRONTEND-007](../tasks/frontend/frontend-007-live-owner-gateway.md),
 [FRONTEND-008](../tasks/frontend/frontend-008-live-task-reads.md),
 [FRONTEND-009](../tasks/frontend/frontend-009-live-run-reads.md) and
@@ -153,6 +155,21 @@ means nothing was saved. Local edits and the retry key are held only in memory:
 leaving warns before discarding them, and logout/closing the form does not undo
 a Core commit. After a reload, read the Task again. See
 [FRONTEND-011](../tasks/frontend/frontend-011-draft-task-edit.md) for acceptance.
+
+For a non-terminal Task, **Change priority** opens a fresh Task/catalog baseline.
+Choose an active level and **Save priority**; unchanged values send no command.
+Only one editor is open at a time. Unknown/retired current IDs remain visible
+but cannot be assigned; no default is substituted. A failed catalog read blocks
+the editor's save, not the Task card.
+
+After a conflict, **Refresh priority baseline** keeps your selected ID. If the
+level is no longer active, choose another before saving explicitly. Unknown
+delivery uses **Retry same save** with the original bytes/key; confirmed saves
+use **Refresh saved data** for read failures. Leaving warns before discarding
+local intent; logout does not undo a Core commit.
+Core may update pending work and dispatch eligible work in an open Project.
+Acceptance uses a separate stopped Project without Employees/provider Runs;
+see [FRONTEND-013](../tasks/frontend/frontend-013-task-priority-edit.md).
 
 **Refresh task** retries a read. A failed refresh keeps the previous data marked
 stale; an initial failure does not appear as an empty list. If a cursor becomes

@@ -8,6 +8,8 @@ Draft Task titles/descriptions can be edited through Core with revision checks
 and idempotent retry; see [draft editing](tasks/frontend/frontend-011-draft-task-edit.md).
 Task priority names come from a separate Project scheme read, with raw IDs and
 explicit unavailable/stale states; see [priority reads](tasks/frontend/frontend-012-project-priorities.md).
+Non-terminal Task priorities can be changed through Core with revision checks;
+see [priority editing](tasks/frontend/frontend-013-task-priority-edit.md).
 Diagnostics show availability and loaded counts, not raw logs or bodies. See the
 [live UI runbook](frontend/README.md#live-owner-ui-frontend-007).
 Acceptance is tracked separately for [Run reads](tasks/frontend/frontend-009-live-run-reads.md)

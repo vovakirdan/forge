@@ -1,7 +1,7 @@
 # ADR: локальная browser boundary
 
 **Дата:** 18 сентября 2026
-**Статус:** target принят; FRONTEND-007 — owner gateway, FRONTEND-008–010/012 — reads; FRONTEND-011 — draft command-срез (приёмка в Task)
+**Статус:** target принят; FRONTEND-007 — owner gateway, FRONTEND-008–010/012 — reads; FRONTEND-011/013 — draft/priority commands (приёмка в Task)
 **Область:** local-owner Control Room; remote control и Tauri отложены
 
 ## 1. Решение и уровень доказательства
@@ -29,8 +29,10 @@ Project-wide список/карточку Run с ограниченной ди�
 Pipeline version list и read-only stage inspector. Это ранний срез UI1.2,
 не editor или закрытие gate; его evidence фиксируется в отдельной Task.
 [FRONTEND-011](../tasks/frontend/frontend-011-draft-task-edit.md) добавляет
-первую мутацию — title/description draft Task через `amend_draft`. Остальные
-команды и SSE остаются закрытыми; этот срез не закрывает весь UI0.2/UI1.3.
+первую мутацию — title/description draft Task через `amend_draft`.
+[FRONTEND-013](../tasks/frontend/frontend-013-task-priority-edit.md) добавляет
+`set_task_priority`. Остальные команды и SSE остаются закрытыми;
+эти срезы не закрывают весь UI0.2/UI1.3.
 
 | Вариант | Решение |
 |---|---|
@@ -134,7 +136,7 @@ Project GET. В дальнейшем каждый method/path добавляет
 
 ### Draft command (FRONTEND-011)
 
-Единственный mutation path: `POST /api/commands/amend_draft`, без query.
+Первый mutation path: `POST /api/commands/amend_draft`, без query.
 Gateway отправляет исходное проверенное тело на фиксированный Core path
 `/v1/commands/amend_draft`; браузер не выбирает URL, actor или произвольные
 forwarded headers. Exact Origin и session обязательны до Core connection.
@@ -198,6 +200,29 @@ List показывает raw stage ID без fan-out. Неизвестная с
 и metadata приходят внутри канонического detail, но не рендерятся. Object refs
 и URL не открываются и не загружаются автоматически. UI не выводит
 Run activity, Employee ownership или priority labels из отсутствующих данных.
+
+### Priority command (FRONTEND-013)
+
+Второй mutation path — `POST /api/commands/set_task_priority`, без query.
+Он использует те же guards, bounded transport и receipt validation, но отдельный
+strict request: `project_id`, `expected_revision`, payload с `task_id`,
+`expected_task_revision`, `priority` (stable level ID). Произвольные команды,
+actor, headers и Core URLs не допускаются.
+
+Редактор загружает свежие Task и PriorityScheme; envelope revision берётся из
+`scheme.project_revision`. Одновременно открыт только draft или priority editor.
+Выбор ограничен active levels для non-terminal Task; порядок каталога сохраняется,
+unknown/retired ID не заменяется default. Неизменённый выбор не отправляется.
+
+Conflict сохраняет выбранный ID; отдельный refresh baseline не является Save.
+Недопустимый после refresh выбор остаётся видимым, но блокирует Save. Unknown
+outcome повторяет только исходные bytes/key. Receipt подтверждает запись;
+последующие reads обновляют Project/Task/list/catalog независимо от этого факта.
+Scope/leave guards и отсутствие durable offline replay сохраняются.
+
+Доменная команда не меняет lifecycle/stage и не прерывает активный Run/lease.
+Core может обновить ожидающую работу; обычный post-commit dispatch сохраняется.
+Browser proof использует отдельный stopped Project, без Employees/платных Runs.
 
 ### Project priority reads (FRONTEND-012)
 

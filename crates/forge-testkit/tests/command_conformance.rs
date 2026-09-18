@@ -35,6 +35,8 @@ mod manager_constraints;
 mod manager_resume;
 #[path = "command_conformance/pipelines.rs"]
 mod pipelines;
+#[path = "command_conformance/priorities.rs"]
+mod priorities;
 #[path = "command_conformance/priority_scheme_http.rs"]
 mod priority_scheme_http;
 #[path = "command_conformance/production.rs"]
@@ -70,6 +72,14 @@ macro_rules! conformance_case {
 }
 
 conformance_case!(all_m0_commands, crate::commands::all_m0_commands);
+conformance_case!(
+    priority_lifecycle,
+    crate::priorities::lifecycle_queue_and_replay
+);
+conformance_case!(
+    priority_active_run,
+    crate::priorities::active_run_is_unchanged
+);
 conformance_case!(
     git_source_policy,
     crate::source_policy::future_policy_atomicity

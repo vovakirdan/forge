@@ -6,8 +6,7 @@ use forge_protocol::wire::CommandName;
 use forge_testkit::m0::{M0Harness, single_stage_pipeline};
 use serde_json::{Value, json};
 
-pub async fn seed(harness: &M0Harness) -> Result<Value> {
-    let name = "Draft command acceptance";
+pub async fn seed(harness: &M0Harness, name: &str) -> Result<Value> {
     let project = harness.create_project(name).await?;
     let version = harness
         .create_pipeline(project, single_stage_pipeline())

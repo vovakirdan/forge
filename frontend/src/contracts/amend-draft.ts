@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { RevisionSchema, UuidV7Schema } from "./common.ts";
+import { TaskCommandReceiptSchema } from "./task-command.ts";
+export { IdempotencyKeySchema } from "./task-command.ts";
 
 // Rust strings contain Unicode scalar values, not isolated UTF-16 surrogates.
 const scalarString = z
@@ -28,17 +30,6 @@ export const AmendDraftRequestSchema = z
       .strict(),
   })
   .strict();
-export const IdempotencyKeySchema = z
-  .string()
-  .regex(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
-export const AmendDraftReceiptSchema = z
-  .object({
-    command_id: UuidV7Schema,
-    status: z.enum(["applied", "replayed"]),
-    project_revision: RevisionSchema,
-    event_ids: z.array(UuidV7Schema).min(1),
-    resource: z.object({ kind: z.literal("task"), id: UuidV7Schema }).strict(),
-  })
-  .strict();
+export const AmendDraftReceiptSchema = TaskCommandReceiptSchema;
 export type AmendDraftRequest = z.infer<typeof AmendDraftRequestSchema>;
 export type AmendDraftReceipt = z.infer<typeof AmendDraftReceiptSchema>;
