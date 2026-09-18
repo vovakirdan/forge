@@ -12,7 +12,7 @@ import {
   type CancellationBaseline,
 } from "./cancellation-attempt.ts";
 import type { ProjectReadScope } from "./read-scope.ts";
-import { readKeys } from "./read-cache.ts";
+import { readKeys, invalidateProjectDependencies } from "./read-cache.ts";
 import { useReadLifetime } from "./use-read-lifetime.ts";
 
 type CancellationProps = ProjectReadScope & {
@@ -123,6 +123,8 @@ function CancellationForm(scope: CancellationProps & { initial: CancellationBase
   }
   async function refreshCancelled(receipt: TaskCommandReceipt, controller: AbortController) {
     setState({ status: "cancelled", receipt, refreshing: true, refreshFailed: false });
+    // Invalidate on the receipt, even when the independent Task readback fails.
+    void invalidateProjectDependencies(queries, generation, projectId);
     try {
       // A cancellation receipt does not prove observed Run termination.
       const [project, task] = await Promise.all([

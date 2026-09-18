@@ -14,6 +14,8 @@ mod cancellation_commands;
 mod commands;
 #[path = "ui_core_fixture/create_commands.rs"]
 mod create_commands;
+#[path = "ui_core_fixture/dependency_reads.rs"]
+mod dependency_reads;
 #[path = "ui_core_fixture/pipelines.rs"]
 mod pipelines;
 #[path = "ui_core_fixture/runs.rs"]
@@ -35,6 +37,7 @@ async fn main() -> Result<()> {
     let create_command_fixture = create_commands::seed(&harness).await?;
     let approval_command_fixture = approval_commands::seed(&harness).await?;
     let cancellation_command_fixture = cancellation_commands::seed(&harness).await?;
+    let dependency_read_fixture = dependency_reads::seed(&harness).await?;
     harness.start_project(project_id).await?;
     let project = harness
         .store
@@ -44,28 +47,33 @@ async fn main() -> Result<()> {
     let api = LocalHttpApi::start(harness.core.clone())?;
     // Only non-secret fixture coordinates cross stdout. The browser gateway
     // process receives these paths, never the database/NATS environment.
-    println!(
-        "{}",
-        json!({
-            "core_socket": api.socket(),
-            "project_id": project_id,
-            "project_name": name,
-            "revision": project.revision(),
-            "execution_gate": "open",
-            "tasks": fixture.tasks,
-            "second_project": fixture.second_project,
-            "empty_project": fixture.empty_project,
-            "runs_project": run_fixture.project,
-            "other_runs_project": run_fixture.other_project,
-            "pipelines_project": pipeline_fixture.project,
-            "other_pipelines_project": pipeline_fixture.other_project,
-            "commands_project": command_fixture,
-            "priority_commands_project": priority_command_fixture,
-            "create_commands_project": create_command_fixture,
-            "approval_commands_project": approval_command_fixture,
-            "cancellation_commands_project": cancellation_command_fixture
-        })
+    let readiness = json!({
+        "core_socket": api.socket(),
+        "project_id": project_id,
+        "project_name": name,
+        "revision": project.revision(),
+        "execution_gate": "open",
+        "tasks": fixture.tasks,
+        "second_project": fixture.second_project,
+        "empty_project": fixture.empty_project,
+        "runs_project": run_fixture.project,
+        "other_runs_project": run_fixture.other_project,
+        "pipelines_project": pipeline_fixture.project,
+        "other_pipelines_project": pipeline_fixture.other_project,
+        "commands_project": command_fixture,
+        "priority_commands_project": priority_command_fixture,
+        "create_commands_project": create_command_fixture,
+        "approval_commands_project": approval_command_fixture,
+        "cancellation_commands_project": cancellation_command_fixture,
+        "dependency_reads_project": dependency_read_fixture
+    })
+    .to_string();
+    // The browser's firstLine transport admits at most 8 KiB, including newline.
+    anyhow::ensure!(
+        readiness.len() < 8192,
+        "browser fixture readiness exceeds 8 KiB"
     );
+    println!("{readiness}");
     std::io::stdout().flush()?;
     let mut signal = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
     let (input_finished, input) = tokio::sync::oneshot::channel();

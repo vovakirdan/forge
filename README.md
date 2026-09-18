@@ -19,6 +19,9 @@ Approval leaves the Project execution gate unchanged, but an open gate may start
 Tasks can be cancelled with an explicitly selected Project reason and optional
 note; see [Task cancellation](tasks/frontend/frontend-016-task-cancellation.md).
 Cancellation requests graceful stop; it does not prove the executor has stopped.
+Task dependency reads show both directions and allow navigation between related
+Tasks; see [dependency reads](tasks/frontend/frontend-017-task-dependency-reads.md).
+Condition satisfaction is separate from Task readiness; editing links is deferred.
 Diagnostics show availability and loaded counts, not raw logs or bodies. See the
 [live UI runbook](frontend/README.md#live-owner-ui-frontend-007).
 Acceptance is tracked separately for [Run reads](tasks/frontend/frontend-009-live-run-reads.md)

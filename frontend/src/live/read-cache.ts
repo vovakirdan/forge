@@ -1,6 +1,14 @@
 import type { QueryClient, QueryKey } from "@tanstack/react-query";
+import type { DependencyDirection } from "../contracts/task-dependencies.ts";
 
 export const readKeys = {
+  dependencies: (
+    generation: number,
+    project: string,
+    task: string,
+    direction: DependencyDirection,
+    cursor: string | null,
+  ) => ["live", generation, project, "dependencies", task, direction, cursor] as const,
   priorityScheme: (generation: number, project: string) =>
     ["live", generation, project, "priority-scheme"] as const,
   tasks: (generation: number, project: string, cursor: string | null) =>
@@ -18,6 +26,15 @@ export const readKeys = {
   run: (generation: number, project: string, run: string) =>
     ["live", generation, project, "run", run] as const,
 };
+
+/** Accepted cancellation can change either side of any dependency in this Project. */
+export function invalidateProjectDependencies(
+  client: QueryClient,
+  generation: number,
+  project: string,
+) {
+  return client.invalidateQueries({ queryKey: ["live", generation, project, "dependencies"] });
+}
 
 /** Committed scope cleanup owns removal; do not remove a still-observed navigation key. */
 export function discardRead(client: QueryClient, key: QueryKey) {

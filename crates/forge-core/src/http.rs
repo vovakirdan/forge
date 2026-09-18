@@ -3,6 +3,7 @@
 mod cancellation_reasons;
 mod candidate_review;
 mod communication;
+mod dependency_reads;
 mod error;
 mod file_snapshots;
 mod finding;

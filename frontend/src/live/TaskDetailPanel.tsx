@@ -17,11 +17,14 @@ import { TaskApprovalPanel } from "./TaskApprovalPanel.tsx";
 import { TaskCancellationPanel } from "./TaskCancellationPanel.tsx";
 import { TaskCancellationFacts } from "./TaskCancellationFacts.tsx";
 import { canCancelTask } from "./cancellation-attempt.ts";
+import { TaskDependencies } from "./TaskDependencies.tsx";
 
 export function TaskDetailPanel(
   scope: ProjectReadScope & {
     taskId: string;
     onClose: () => void;
+    onOpenRelated: (taskId: string) => void;
+    onBack: (() => void) | undefined;
     priorities: PriorityCatalog;
   },
 ) {
@@ -61,6 +64,11 @@ export function TaskDetailPanel(
           Task detail
         </h2>
         <div className="flex flex-wrap gap-2">
+          {scope.onBack && (
+            <Button variant="outline" onClick={scope.onBack}>
+              Back to previous task
+            </Button>
+          )}
           {!editing &&
             detail.isSuccess &&
             !detail.isFetching &&
@@ -146,6 +154,7 @@ export function TaskDetailPanel(
             </p>
           </section>
           <TaskProperties task={task} />
+          <TaskDependencies {...scope} />
           <TaskWaits task={task} />
           <TaskArtifacts task={task} />
         </>

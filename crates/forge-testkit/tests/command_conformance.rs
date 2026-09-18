@@ -25,6 +25,8 @@ mod commands;
 mod communication;
 #[path = "command_conformance/communication_http.rs"]
 mod communication_http;
+#[path = "command_conformance/dependency_reads.rs"]
+mod dependency_reads;
 #[path = "command_conformance/employee_capacity.rs"]
 mod employee_capacity;
 #[path = "command_conformance/employees.rs"]

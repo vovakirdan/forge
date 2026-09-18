@@ -9,6 +9,7 @@ export * from "./project.ts";
 export * from "./priority-scheme.ts";
 export * from "./properties.ts";
 export * from "./task.ts";
+export * from "./task-dependencies.ts";
 export * from "./pipeline.ts";
 export * from "./stage-policy.ts";
 export * from "./resolve-task-stage.ts";

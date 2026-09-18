@@ -315,6 +315,48 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /v1/projects/{projectId}/tasks/{taskId}/dependencies/{direction}:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+      - $ref: '#/components/parameters/TaskId'
+      - $ref: '#/components/parameters/PageCursor'
+      - name: direction
+        in: path
+        required: true
+        schema:
+          type: string
+          enum: [blocked_by, blocks]
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+    get:
+      tags: [tasks]
+      operationId: listTaskDependencies
+      summary: Read dependencies and related Tasks in either direction.
+      description: >-
+        Read-only coherent snapshot, sorted by related Task ID. Cursor is scoped to
+        Project, Task and direction; removed or wrong-scope cursor returns cursor_invalid.
+        Condition state is not Task readiness. Cancelled blockers do not satisfy task_done.
+      responses:
+        '200':
+          description: Bounded dependency page. Final page omits next_cursor.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskDependencyListResponse'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/CursorInvalid'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+
   /v1/projects/{projectId}/tasks/{taskId}/git-source-policy:
     parameters:
       - $ref: '#/components/parameters/ProjectId'
@@ -2602,6 +2644,49 @@ components:
           $ref: '#/components/schemas/ActorReference'
         created_at:
           $ref: '#/components/schemas/Rfc3339Timestamp'
+
+    TaskDependencyListResponse:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        next_cursor:
+          type: string
+        items:
+          type: array
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/TaskDependencyView'
+
+    TaskDependencyView:
+      type: object
+      additionalProperties: false
+      required: [blocker_task_id, blocked_task_id, required_condition, related_task, condition_state]
+      properties:
+        blocker_task_id:
+          $ref: '#/components/schemas/UuidV7'
+        blocked_task_id:
+          $ref: '#/components/schemas/UuidV7'
+        required_condition:
+          type: string
+          enum: [task_done]
+        condition_state:
+          type: string
+          enum: [pending, satisfied, blocker_cancelled]
+        related_task:
+          type: object
+          additionalProperties: false
+          required: [id, key, title, lifecycle]
+          properties:
+            id:
+              $ref: '#/components/schemas/UuidV7'
+            key:
+              type: string
+            title:
+              type: string
+            lifecycle:
+              type: string
+              enum: [draft, ready, in_progress, waiting, done, cancelled]
 
     TaskListResponse:
       type: object

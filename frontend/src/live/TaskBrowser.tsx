@@ -18,6 +18,7 @@ export function TaskBrowser(scope: ProjectReadScope) {
     previous: (string | null)[];
   }>({ cursor: null, previous: [] });
   const [taskId, setTaskId] = useState<string | null>(null);
+  const [taskHistory, setTaskHistory] = useState<string[]>([]);
   const [creating, setCreating] = useState(false);
   const opener = useRef<HTMLButtonElement | null>(null);
   const key = useMemo(
@@ -50,12 +51,14 @@ export function TaskBrowser(scope: ProjectReadScope) {
   function closeTask() {
     if (!scope.leaveGuard.canLeave()) return;
     setTaskId(null);
+    setTaskHistory([]);
     if (opener.current?.isConnected) opener.current.focus();
   }
   function navigate(cursor: string | null, previous: (string | null)[]) {
     if (!scope.leaveGuard.canLeave()) return;
     setCreating(false);
     setTaskId(null);
+    setTaskHistory([]);
     prepareReadChange(queries, key);
     setNavigation({ cursor, previous });
   }
@@ -71,6 +74,7 @@ export function TaskBrowser(scope: ProjectReadScope) {
                 onClick={() => {
                   if (scope.leaveGuard.canLeave()) {
                     setTaskId(null);
+                    setTaskHistory([]);
                     setCreating(true);
                   }
                 }}
@@ -142,10 +146,11 @@ export function TaskBrowser(scope: ProjectReadScope) {
                   aria-label={`Open ${task.key}`}
                   aria-controls="task-detail"
                   onClick={(event) => {
-                    opener.current = event.currentTarget;
                     if (taskId === task.id) document.getElementById("task-detail-title")?.focus();
                     else if (scope.leaveGuard.canLeave()) {
+                      opener.current = event.currentTarget;
                       setCreating(false);
+                      setTaskHistory([]);
                       setTaskId(task.id);
                     }
                   }}
@@ -191,6 +196,8 @@ export function TaskBrowser(scope: ProjectReadScope) {
           onCancel={() => setCreating(false)}
           onCreated={(id) => {
             setCreating(false);
+            setTaskHistory([]);
+            opener.current = null;
             setTaskId(id);
           }}
         />
@@ -202,6 +209,23 @@ export function TaskBrowser(scope: ProjectReadScope) {
           taskId={taskId}
           priorities={priorityCatalog}
           onClose={closeTask}
+          onOpenRelated={(id) => {
+            if (!scope.leaveGuard.canLeave()) return;
+            setTaskHistory([...taskHistory, taskId]);
+            setTaskId(id);
+          }}
+          onBack={
+            taskHistory.length === 0
+              ? undefined
+              : () => {
+                  if (!scope.leaveGuard.canLeave()) return;
+                  const previous = taskHistory.at(-1);
+                  if (previous) {
+                    setTaskHistory(taskHistory.slice(0, -1));
+                    setTaskId(previous);
+                  }
+                }
+          }
         />
       )}
     </>

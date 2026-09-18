@@ -220,6 +220,18 @@ Once a receipt is accepted, retrying failed reads sends no additional cancel
 command. Configuring reasons, reopening Tasks and stop/resume controls are not
 part of [FRONTEND-016](../tasks/frontend/frontend-016-task-cancellation.md).
 
+The Task card reads dependencies in two independent sections: **Depends on**
+and **Blocks**. Each shows related Task identity, lifecycle and Core's condition
+assessment. A satisfied `task_done` condition does not mean that all waits are
+resolved or the Task can run. Cancelled blockers do not satisfy the condition.
+
+Open a related Task even when it is outside the current list page, then use
+**Back to previous task** to return. The list page remains unchanged; closing
+the card restores focus to the original list opener when available. Navigation
+respects unsaved edits. Refresh and pagination are explicit; dependencies are
+not created or removed here. See
+[FRONTEND-017](../tasks/frontend/frontend-017-task-dependency-reads.md).
+
 **Refresh task** retries a read. A failed refresh keeps the previous data marked
 stale; an initial failure does not appear as an empty list. If a cursor becomes
 invalid, use **Restart pagination**. An oversized response reports the interface

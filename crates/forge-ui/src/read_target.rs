@@ -43,6 +43,21 @@ impl ReadTarget {
                 let project = uuid_v7(project)?;
                 target.path = format!("/v1/projects/{project}/cancellation-reasons");
             }
+            [
+                project,
+                "tasks",
+                task,
+                "dependencies",
+                direction @ ("blocked_by" | "blocks"),
+            ] => {
+                let project = uuid_v7(project)?;
+                let task = uuid_v7(task)?;
+                target.path = format!(
+                    "/v1/projects/{project}/tasks/{task}/dependencies/{direction}?{}",
+                    pagination(query)?
+                );
+                target.cursor_conflict = true;
+            }
             [project, resource @ ("tasks" | "pipelines" | "runs")] => {
                 let project = uuid_v7(project)?;
                 target.path = format!("/v1/projects/{project}/{resource}?{}", pagination(query)?);

@@ -1,7 +1,7 @@
 # ADR: локальная browser boundary
 
 **Дата:** 18 сентября 2026
-**Статус:** target принят; FRONTEND-007 — owner gateway, FRONTEND-008–010/012 — reads; FRONTEND-011/013–016 — draft/priority/create/approve/cancel commands (приёмка в Task)
+**Статус:** target принят; FRONTEND-007 — owner gateway, FRONTEND-008–010/012/017 — reads; FRONTEND-011/013–016 — draft/priority/create/approve/cancel commands (приёмка в Task)
 **Область:** local-owner Control Room; remote control и Tauri отложены
 
 ## 1. Решение и уровень доказательства
@@ -37,6 +37,15 @@ Pipeline version list и read-only stage inspector. Это ранний срез
 [FRONTEND-016](../tasks/frontend/frontend-016-task-cancellation.md) добавляет
 каталог причин, `cancel_task` и cancellation metadata. Остальные команды и SSE остаются закрытыми;
 эти срезы не закрывают весь UI0.2/UI1.3.
+
+[FRONTEND-017](../tasks/frontend/frontend-017-task-dependency-reads.md) добавляет
+read-only routes `/api/projects/{project}/tasks/{task}/dependencies/{direction}`
+для `blocked_by` и `blocks`. Страницы ограничены 100 записями (default 20),
+cursor scoped по Project/Task/direction. Core читает canonical связь и обе Task
+в согласованном snapshot; browser не разбирает текст wait conditions.
+`condition_state` описывает только условие `task_done`, не готовность к запуску.
+Переходы между Task соблюдают leave guard и session lifetime. Create/remove
+dependency commands остаются закрытыми на browser boundary.
 
 | Вариант | Решение |
 |---|---|

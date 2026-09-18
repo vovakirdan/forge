@@ -1,7 +1,7 @@
 # Epic UI1.3 — Task board и управляемые изменения
 
 **Milestone:** UI1 — browser interface before M4 installer
-**Статус:** `in_progress`; FRONTEND-008/011–016 — согласованные Task read и management срезы.
+**Статус:** `in_progress`; FRONTEND-008/011–017 — согласованные Task read и management срезы.
 Остальной объём blocked by `UI0.1`, `UI0.2`, `UI0.3`, `UI1.1`, `UI1.2`.
 **Зависимости:** UI0.1 model contracts, UI0.2 browser/API boundary, UI0.3 UI tooling,
 UI1.1 Projects/Employees и UI1.2 PipelineVersion.
@@ -99,7 +99,10 @@ Task и mock Board не входят; evidence и независимые reviews
 - [FRONTEND-016](../../tasks/frontend/frontend-016-task-cancellation.md): каталог
   причин, явная отмена через Core и cancellation readback; без настройки каталога
   и отдельных execution controls;
-- dependency graph/read panels и management command interactions;
+- [FRONTEND-017](../../tasks/frontend/frontend-017-task-dependency-reads.md):
+  `blocked_by`/`blocks` read panels с независимыми страницами, condition state
+  и переходами к связанным Task/назад; без графа или mutation commands;
+- dependency graph и management command interactions — последующие срезы;
 - event-driven refresh/accessibility tests для waits, terminal states и empty boards.
 
 ## Exit gate

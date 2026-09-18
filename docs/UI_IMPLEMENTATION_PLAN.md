@@ -278,6 +278,12 @@ FRONTEND-016 продолжает UI1.3/UI0.2: project cancellation catalog, о�
 от readback и от физической остановки Run. Настройка каталога, property editor,
 execution controls и полные epic gates остаются вне среза; evidence — в Task.
 
+[FRONTEND-017](../tasks/frontend/frontend-017-task-dependency-reads.md) добавляет
+read-only зависимости в обоих направлениях и локальные переходы между Task.
+Оценку условия `task_done` вычисляет Core; выполненная связь не означает,
+что у зависимой Task нет других ожиданий. Создание/удаление связей, граф и
+stage/artifact conditions остаются отдельными срезами.
+
 Run-приёмка разделяет реальные Core reads с M0 fake execution и synthetic
 cases пяти purposes. Ни то ни другое не является новым provider proof. Browser
 limits не закрывают gap серверной Run pagination, пока Core загружает все строки

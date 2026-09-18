@@ -17,6 +17,11 @@ import { sendCreateTask } from "./create-task-api.ts";
 import { sendApproveTask } from "./approve-task-api.ts";
 import { sendCancelTask } from "./cancel-task-api.ts";
 import { CancellationReasonsViewSchema } from "../contracts/cancellation-reasons.ts";
+import {
+  DependencyDirectionSchema,
+  TaskDependencyListResponseSchema,
+  type DependencyDirection,
+} from "../contracts/task-dependencies.ts";
 
 export const SessionSchema = z.object({
   token: z.string().regex(/^[0-9a-f]{64}$/),
@@ -135,6 +140,47 @@ export function createLiveApi(fetcher: typeof fetch = fetch) {
   }
 
   return {
+    async taskDependencies(
+      projectId: string,
+      taskId: string,
+      direction: DependencyDirection,
+      cursor: string | null,
+      token: string,
+      signal: AbortSignal,
+    ) {
+      identifiers(projectId, taskId);
+      if (!DependencyDirectionSchema.safeParse(direction).success)
+        throw new LiveApiError("invalid_id");
+      const search = new URLSearchParams({ limit: "20" });
+      if (cursor !== null) search.set("cursor", cursor);
+      const value = await json(
+        await request(
+          `/api/projects/${projectId}/tasks/${taskId}/dependencies/${direction}?${search}`,
+          "GET",
+          signal,
+          token,
+        ),
+        TaskDependencyListResponseSchema,
+      );
+      const relatedIds = new Set<string>();
+      if (
+        value.items.length > 20 ||
+        value.items.some((item) => {
+          const selected = direction === "blocked_by" ? item.blocked_task_id : item.blocker_task_id;
+          const related = direction === "blocked_by" ? item.blocker_task_id : item.blocked_task_id;
+          const relatedId = related.toLowerCase();
+          const invalid =
+            selected.toLowerCase() !== taskId.toLowerCase() ||
+            relatedId !== item.related_task.id.toLowerCase() ||
+            relatedId === taskId.toLowerCase() ||
+            relatedIds.has(relatedId);
+          relatedIds.add(relatedId);
+          return invalid;
+        })
+      )
+        throw new LiveApiError("invalid_response");
+      return value;
+    },
     cancelTask(attempt: TaskCommandAttempt, token: string, signal: AbortSignal) {
       return sendCancelTask(
         fetcher,

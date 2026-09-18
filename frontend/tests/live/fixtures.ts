@@ -14,6 +14,11 @@ const CommandProjectSchema = z.object({
   drafts: z.array(z.object({ id: z.string().uuid(), key: z.string() })).length(12),
   cancelled_id: z.string().uuid(),
 });
+const DependencyTaskSchema = z.object({
+  id: z.string().uuid(),
+  key: z.string(),
+  title: z.string(),
+});
 const CoreFixtureSchema = z.object({
   core_socket: z.string(),
   project_id: z.string().uuid(),
@@ -44,6 +49,16 @@ const CoreFixtureSchema = z.object({
   }),
   empty_project: z.object({ id: z.string().uuid(), name: z.string() }),
   commands_project: CommandProjectSchema,
+  dependency_reads_project: z.object({
+    id: z.string().uuid(),
+    name: z.string(),
+    root: DependencyTaskSchema,
+    empty: DependencyTaskSchema,
+    cancellation_blocker: DependencyTaskSchema,
+    cancellation_dependent: DependencyTaskSchema,
+    first_blocker: DependencyTaskSchema,
+    last_blocked: DependencyTaskSchema,
+  }),
   priority_commands_project: CommandProjectSchema,
   cancellation_commands_project: CommandProjectSchema.extend({
     ready_id: z.string().uuid(),

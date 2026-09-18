@@ -7,6 +7,37 @@ const PROJECT: &str = "01988000-0000-7000-8000-000000000001";
 const TASK: &str = "01988000-0000-7000-8000-000000000002";
 
 #[test]
+fn dependency_reads_are_direction_scoped_and_paginated() {
+    for direction in ["blocked_by", "blocks"] {
+        let path = format!("/api/projects/{PROJECT}/tasks/{TASK}/dependencies/{direction}");
+        let target = ReadTarget::parse(&path, None).expect("allowed");
+        assert_eq!(
+            target.path,
+            format!("/v1/projects/{PROJECT}/tasks/{TASK}/dependencies/{direction}?limit=20")
+        );
+        assert!(target.cursor_conflict);
+        assert_eq!(target.body_limit, CORE_BODY_LIMIT);
+        for query in [
+            "limit=0",
+            "limit=101",
+            "limit=1&limit=2",
+            "cursor=",
+            "after=x",
+            "cursor=x&cursor=y",
+        ] {
+            assert!(ReadTarget::parse(&path, Some(query)).is_err());
+        }
+    }
+    for path in [
+        format!("/api/projects/{PROJECT}/tasks/{TASK}/dependencies"),
+        format!("/api/projects/{PROJECT}/tasks/{TASK}/dependencies/unknown"),
+        format!("/api/projects/{PROJECT}/tasks/not-a-task/dependencies/blocks"),
+    ] {
+        assert!(ReadTarget::parse(&path, None).is_err());
+    }
+}
+
+#[test]
 fn cancellation_catalog_rejects_queries_subpaths_and_invalid_scope() {
     let path = format!("/api/projects/{PROJECT}/cancellation-reasons");
     for query in ["", "limit=1", "actor=human", "retired=false"] {

@@ -57,6 +57,7 @@ pub fn router(core: CoreService) -> Router {
         .merge(super::project_hooks::routes())
         .merge(super::priority_scheme::routes())
         .merge(super::cancellation_reasons::routes())
+        .merge(super::dependency_reads::routes())
         .merge(super::knowledge::routes())
         .merge(super::memory::routes())
         .merge(super::system_jobs::routes())

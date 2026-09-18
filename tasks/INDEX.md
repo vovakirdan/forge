@@ -20,10 +20,15 @@
 | [FRONTEND-014](frontend/frontend-014-create-draft-task.md) | UI1.3 / UI0.2 | P0 | done | FRONTEND-010–013; command-срез согласован | Создание draft с точным Pipeline pin и безопасным replay; 104 live browser tests, evidence в Task |
 | [FRONTEND-015](frontend/frontend-015-draft-dod-approval.md) | UI1.3 / UI0.2 | P0 | done | FRONTEND-011–014; command-срез согласован | DoD edit и явный approval с consent/retry/readback; 121 live browser tests, evidence в Task |
 | [FRONTEND-016](frontend/frontend-016-task-cancellation.md) | UI1.3 / UI0.2 | P0 | done | FRONTEND-008, FRONTEND-011–015; command-срез согласован | Каталог причин, явная отмена и readback; 134 live browser tests PASS |
+| [FRONTEND-017](frontend/frontend-017-task-dependency-reads.md) | UI1.3 / UI0.2 | P0 | done | FRONTEND-008/016; read-only срез согласован | Обе стороны зависимости, оценка условия и переходы между Task; 142 live browser tests PASS |
 
 ## Порядок и параллельность
 
-FRONTEND-001–016 завершены в своих согласованных границах. FRONTEND-012 добавила
+FRONTEND-017 завершила согласованный read-only срез:
+[зависимости и переходы между Task](frontend/frontend-017-task-dependency-reads.md).
+Создание и удаление связей будут отдельной Task после него.
+
+FRONTEND-001–017 завершены в своих согласованных границах. FRONTEND-012 добавила
 чтение приоритетов проекта перед будущим созданием Task; существующие
 milestone/epic gates сохраняются. FRONTEND-013 добавляет изменение приоритета
 существующей Task через `set_task_priority`. FRONTEND-014 добавляет создание
@@ -63,7 +68,7 @@ FRONTEND-013 использует этот каталог для выбора ac
 У FRONTEND-001 нет Task dependencies. Проверки install/build/dev выполняются
 последовательно: общий `node_modules`, generated routes и порт 5173 исключают
 параллельную валидацию в той же копии. То же ограничение действует для
-FRONTEND-002/003/004/005/006/007/008/009/010/011/012/013/014/015/016: install, browser/static/live/contract/presentation tests,
+FRONTEND-002/003/004/005/006/007/008/009/010/011/012/013/014/015/016/017: install, browser/static/live/contract/presentation tests,
 typecheck, lint и build запускаются по очереди. Browser harness владеет
 портом 4173; static harness — портом 4174;
 ручной demo на 5173 не используется тестами.
