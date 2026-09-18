@@ -19,6 +19,7 @@ const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 #[derive(Clone, Copy)]
 pub(crate) enum CommandTarget {
     CreateTask,
+    ApproveTask,
     AmendDraft,
     SetTaskPriority,
 }
@@ -27,6 +28,7 @@ impl CommandTarget {
     pub(crate) fn from_browser_path(path: &str) -> Option<Self> {
         match path {
             "/api/commands/create_task" => Some(Self::CreateTask),
+            "/api/commands/approve_task" => Some(Self::ApproveTask),
             "/api/commands/amend_draft" => Some(Self::AmendDraft),
             "/api/commands/set_task_priority" => Some(Self::SetTaskPriority),
             _ => None,
@@ -36,6 +38,7 @@ impl CommandTarget {
     fn core_path(self) -> &'static str {
         match self {
             Self::CreateTask => "/v1/commands/create_task",
+            Self::ApproveTask => "/v1/commands/approve_task",
             Self::AmendDraft => "/v1/commands/amend_draft",
             Self::SetTaskPriority => "/v1/commands/set_task_priority",
         }
@@ -107,10 +110,18 @@ struct DraftPayload {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct TextPatch {
+    #[serde(default, deserialize_with = "present_nullable_string")]
+    definition_of_done: Option<Option<String>>,
     #[serde(default, deserialize_with = "present_string")]
     title: Option<String>,
     #[serde(default, deserialize_with = "present_string")]
     description: Option<String>,
+}
+
+fn present_nullable_string<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<Option<String>>, D::Error> {
+    Option::<String>::deserialize(deserializer).map(Some)
 }
 
 fn present_string<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<String>, D::Error> {
@@ -120,12 +131,33 @@ fn present_string<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<S
 
 impl AmendDraft {
     pub(crate) fn parse(bytes: &[u8]) -> Result<Self, ApiError> {
+        let shape: serde_json::Value =
+            serde_json::from_slice(bytes).map_err(|_| ApiError::BadRequest)?;
+        if !shape.is_object()
+            || !shape
+                .get("payload")
+                .is_some_and(serde_json::Value::is_object)
+            || !shape
+                .pointer("/payload/patch")
+                .is_some_and(serde_json::Value::is_object)
+        {
+            return Err(ApiError::BadRequest);
+        }
         let value: Self = serde_json::from_slice(bytes).map_err(|_| ApiError::BadRequest)?;
         if !uuid_v7(&value.project_id)
             || !uuid_v7(&value.payload.task_id)
             || !(1..MAX_SAFE_INTEGER).contains(&value.expected_revision)
             || !(1..MAX_SAFE_INTEGER).contains(&value.payload.expected_task_revision)
-            || (value.payload.patch.title.is_none() && value.payload.patch.description.is_none())
+            || (value.payload.patch.title.is_none()
+                && value.payload.patch.description.is_none()
+                && value.payload.patch.definition_of_done.is_none())
+            || value
+                .payload
+                .patch
+                .definition_of_done
+                .as_ref()
+                .and_then(Option::as_ref)
+                .is_some_and(|text| text.trim().is_empty() || text.chars().count() > 20_000)
         {
             return Err(ApiError::BadRequest);
         }
@@ -193,6 +225,15 @@ pub(crate) async fn execute(
         .await
         .map_err(|_| ApiError::TooLarge)?;
     let response = match target {
+        CommandTarget::ApproveTask => {
+            let command = crate::approve_task::ApproveTask::parse(&body)?;
+            let response = state
+                .core
+                .command(CommandTarget::ApproveTask, &key, body)
+                .await?;
+            command.validate_receipt(&response)?;
+            response
+        }
         CommandTarget::CreateTask => {
             let command = crate::create_task::CreateTask::parse(&body)?;
             let response = state

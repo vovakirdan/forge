@@ -32,7 +32,8 @@ Pipeline version list и read-only stage inspector. Это ранний срез
 первую мутацию — title/description draft Task через `amend_draft`.
 [FRONTEND-013](../tasks/frontend/frontend-013-task-priority-edit.md) добавляет
 `set_task_priority`, а [FRONTEND-014](../tasks/frontend/frontend-014-create-draft-task.md) —
-создание draft через `create_task`. Остальные команды и SSE остаются закрытыми;
+создание draft через `create_task`. [FRONTEND-015](../tasks/frontend/frontend-015-draft-dod-approval.md)
+расширяет amend DoD и добавляет отдельный `approve_task`. Остальные команды и SSE остаются закрытыми;
 эти срезы не закрывают весь UI0.2/UI1.3.
 
 | Вариант | Решение |
@@ -143,8 +144,12 @@ Gateway отправляет исходное проверенное тело н
 forwarded headers. Exact Origin и session обязательны до Core connection.
 
 Envelope: `project_id`, `expected_revision`, `payload` с `task_id`,
-`expected_task_revision`, `patch`. Patch содержит хотя бы одно поле `title`
-или `description`, только строки; null и неизвестные поля отклоняются.
+`expected_task_revision`, `patch`. Patch содержит хотя бы одно поле `title`,
+`description` или `definition_of_done` (FRONTEND-015). Title/description — строки;
+DoD — непустая строка до 20 000 Unicode scalar values либо null для очистки.
+Отсутствующее поле сохраняется, неизвестные поля отклоняются. Application parser
+явно различает missing и null; clear-only patch допустим. Пустое поле DoD в UI
+означает null. Save не допускает Task к исполнению.
 IDs — UUIDv7; положительные revisions должны оставлять место для безопасного
 JS-integer increment. `Idempotency-Key` — один непустой header до 128 bytes;
 live client создаёт UUIDv4 для каждой новой попытки Save.
@@ -174,6 +179,27 @@ Receipt проверяется на applied/replayed, Task resource identity, UU
 Keyless acceptance использует отдельный stopped Project без Employees/ready
 работы. Lost-response test теряет ответ после настоящего commit, а не заменяет
 результат mock-success. Полные результаты и ограничения фиксируются в Task.
+
+### Explicit draft approval (FRONTEND-015)
+
+`POST /api/commands/approve_task` отправляет существующий Core command.
+Envelope: project_id, expected_revision, payload {task_id, expected_task_revision}.
+Идентичные session/Origin/Host, strict payload, idempotency и body/receipt limits
+защищают этот путь. Receipt должен ссылаться на выбранную Task и Project revision + 1.
+
+Отдельная панель читает свежие Project/Task/pinned Pipeline и показывает
+сохранённые title/DoD, pin и gate. Пользователь подтверждает допуск к исполнению:
+при открытом gate работа может начаться; сама команда gate не открывает.
+Без DoD подтверждение блокируется и предлагается editor. Properties, WorkSurface,
+entry executor и зависимости проверяет Core. Soft-deleted, но уже закреплённая
+версия не исключается из approval. Сохранение и approval — разные команды.
+
+Conflict требует fresh baseline и повторного подтверждения; unknown outcome
+сохраняет исходные body/key для exact retry. Accepted receipt и readback разделены;
+ошибка чтения после approval допускает только GET retry. Итоговый lifecycle и
+Task revision читаются из Core, а не выводятся как ready/revision + 1: human,
+external и зависимости могут ждать, system entry — находиться в работе.
+Единственная открытая панель подчиняется общим leave/session/scope guards.
 
 ### Scoped Task reads (FRONTEND-008)
 

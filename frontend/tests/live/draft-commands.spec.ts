@@ -183,8 +183,10 @@ test("rejected mutation boundary requests do not change canonical Task", async (
     { Host: "evil.invalid" },
     { Authorization: "Bearer invalid" },
   ]) {
-    const response = await client.post(body, randomUUID(), headers);
-    expect([401, 403]).toContain(response.status);
+    await test.step(`reject ${Object.keys(headers)[0]} boundary`, async () => {
+      const response = await client.post(body, randomUUID(), headers);
+      expect([401, 403]).toContain(response.status);
+    });
   }
   for (const invalid of [
     { ...body, actor: "human" },
@@ -194,14 +196,20 @@ test("rejected mutation boundary requests do not change canonical Task", async (
   ])
     expect((await client.post(invalid)).status).toBe(400);
   expect((await client.post(body, "x".repeat(129))).status).toBe(400);
-  expect(
-    (
-      await client.post({
-        ...body,
-        payload: { ...body.payload, patch: { description: "x".repeat(512 * 1024) } },
-      })
-    ).status,
-  ).toBe(413);
+  await test.step("reject oversized declared request before body upload", async () => {
+    expect(
+      (
+        await client.post(
+          {
+            ...body,
+            payload: { ...body.payload, patch: { description: "x".repeat(512 * 1024) } },
+          },
+          randomUUID(),
+          { Expect: "100-continue" },
+        )
+      ).status,
+    ).toBe(413);
+  });
   expect((await client.task(draft.id)).revision).toBe(body.payload.expected_task_revision);
   expect((await client.project()).revision).toBe(body.expected_revision);
 });

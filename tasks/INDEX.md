@@ -18,14 +18,17 @@
 | [FRONTEND-012](frontend/frontend-012-project-priorities.md) | UI0.1 / UI1.1 / UI1.3 | P0 | done | FRONTEND-008/011; read-срез согласован | Canonical PriorityScheme read и названия приоритетов в Task; 73 live browser / 55 live unit tests, evidence в Task |
 | [FRONTEND-013](frontend/frontend-013-task-priority-edit.md) | UI1.3 / UI0.2 | P0 | done | FRONTEND-011/012; command-срез согласован | Изменение приоритета через Core; conflict/exact retry, 86 live browser tests; evidence в Task |
 | [FRONTEND-014](frontend/frontend-014-create-draft-task.md) | UI1.3 / UI0.2 | P0 | done | FRONTEND-010–013; command-срез согласован | Создание draft с точным Pipeline pin и безопасным replay; 104 live browser tests, evidence в Task |
+| [FRONTEND-015](frontend/frontend-015-draft-dod-approval.md) | UI1.3 / UI0.2 | P0 | done | FRONTEND-011–014; command-срез согласован | DoD edit и явный approval с consent/retry/readback; 121 live browser tests, evidence в Task |
 
 ## Порядок и параллельность
 
-FRONTEND-001–014 завершены в своих согласованных границах. FRONTEND-012 добавила
+FRONTEND-001–015 завершены в своих согласованных границах. FRONTEND-012 добавила
 чтение приоритетов проекта перед будущим созданием Task; существующие
 milestone/epic gates сохраняются. FRONTEND-013 добавляет изменение приоритета
 существующей Task через `set_task_priority`. FRONTEND-014 добавляет создание
-черновика без approval/исполнения и без property editor. Следующая Task не выбрана.
+черновика без approval/исполнения и без property editor. FRONTEND-015 добавляет
+DoD edit и отдельный approval сохранённого черновика; property editor не входит.
+Следующая Task не выбрана.
 
 Baseline локального запуска FRONTEND-001 проверен. FRONTEND-002 завершила первый
 read-contract срез [UI0.1](../docs/epics/ui0-e1-domain-contracts.md), не весь epic.
@@ -58,7 +61,7 @@ FRONTEND-013 использует этот каталог для выбора ac
 У FRONTEND-001 нет Task dependencies. Проверки install/build/dev выполняются
 последовательно: общий `node_modules`, generated routes и порт 5173 исключают
 параллельную валидацию в той же копии. То же ограничение действует для
-FRONTEND-002/003/004/005/006/007/008/009/010/011/012/013/014: install, browser/static/live/contract/presentation tests,
+FRONTEND-002/003/004/005/006/007/008/009/010/011/012/013/014/015: install, browser/static/live/contract/presentation tests,
 typecheck, lint и build запускаются по очереди. Browser harness владеет
 портом 4173; static harness — портом 4174;
 ручной demo на 5173 не используется тестами.

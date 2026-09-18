@@ -282,7 +282,7 @@ pub struct DraftTaskPatch {
     #[serde(default)]
     pub description: Option<String>,
     /// Replacement Definition of Done; null explicitly clears it.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "present_nullable_text")]
     pub definition_of_done: Option<Option<String>>,
     /// Optional replacement priority applied by Core after the amended intent.
     #[serde(default)]
@@ -290,6 +290,13 @@ pub struct DraftTaskPatch {
     /// Optional replacement typed properties.
     #[serde(default)]
     pub properties: Option<Map<String, Value>>,
+}
+
+fn present_nullable_text<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<Option<String>>, D::Error> {
+    // Missing uses the field default; a present null is an explicit clearing edit.
+    Option::<String>::deserialize(deserializer).map(Some)
 }
 
 impl DraftTaskPatch {

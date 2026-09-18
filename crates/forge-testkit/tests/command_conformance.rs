@@ -7,6 +7,8 @@ mod compatibility;
 #[path = "command_conformance/create_draft.rs"]
 mod create_draft;
 
+#[path = "command_conformance/approval.rs"]
+mod approval;
 #[path = "command_conformance/atomicity.rs"]
 mod atomicity;
 #[path = "command_conformance/boundary.rs"]
@@ -74,6 +76,10 @@ macro_rules! conformance_case {
 }
 
 conformance_case!(all_m0_commands, crate::commands::all_m0_commands);
+conformance_case!(
+    draft_approval,
+    crate::approval::dod_edits_and_pipeline_approval
+);
 conformance_case!(
     create_draft_receipt,
     crate::create_draft::pinned_draft_replays_without_work

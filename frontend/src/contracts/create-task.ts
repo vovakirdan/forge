@@ -1,10 +1,11 @@
 import { z } from "zod";
 import { RevisionSchema, StableKeySchema, TaskKindSchema, UuidV7Schema } from "./common.ts";
-import { DraftDescriptionSchema, DraftTitleSchema } from "./amend-draft.ts";
-
-export const DraftDefinitionOfDoneSchema = DraftDescriptionSchema.refine(
-  (value) => !/^\p{White_Space}*$/u.test(value),
-).refine((value) => Array.from(value).length <= 20_000);
+import {
+  DraftDescriptionSchema,
+  DraftTitleSchema,
+  DraftDefinitionOfDoneSchema,
+} from "./amend-draft.ts";
+export { DraftDefinitionOfDoneSchema } from "./amend-draft.ts";
 export const CreateTaskRequestSchema = z
   .object({
     project_id: UuidV7Schema,

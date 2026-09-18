@@ -13,6 +13,7 @@ import type { ProjectReadScope } from "./read-scope.ts";
 import { TaskDraftEditor } from "./TaskDraftEditor.tsx";
 import { TaskPriorityEditor } from "./TaskPriorityEditor.tsx";
 import { canChangePriority } from "./priority-attempt.ts";
+import { TaskApprovalPanel } from "./TaskApprovalPanel.tsx";
 
 export function TaskDetailPanel(
   scope: ProjectReadScope & {
@@ -22,7 +23,7 @@ export function TaskDetailPanel(
   },
 ) {
   const { api, session, generation, projectId, taskId, onClose } = scope;
-  const [editing, setEditing] = useState<"draft" | "priority" | null>(null);
+  const [editing, setEditing] = useState<"draft" | "priority" | "approval" | null>(null);
   const title = useRef<HTMLHeadingElement>(null);
   const key = useMemo(
     () => readKeys.task(generation, projectId, taskId),
@@ -59,7 +60,10 @@ export function TaskDetailPanel(
             detail.isSuccess &&
             !detail.isFetching &&
             detail.data.lifecycle === "draft" && (
-              <Button onClick={() => setEditing("draft")}>Edit draft</Button>
+              <>
+                <Button onClick={() => setEditing("draft")}>Edit draft</Button>
+                <Button onClick={() => setEditing("approval")}>Approve draft</Button>
+              </>
             )}
           {!editing &&
             detail.isSuccess &&
@@ -82,6 +86,13 @@ export function TaskDetailPanel(
       {editing === "draft" && <TaskDraftEditor {...scope} onCancel={() => setEditing(null)} />}
       {editing === "priority" && (
         <TaskPriorityEditor {...scope} onCancel={() => setEditing(null)} />
+      )}
+      {editing === "approval" && (
+        <TaskApprovalPanel
+          {...scope}
+          onCancel={() => setEditing(null)}
+          onEdit={() => setEditing("draft")}
+        />
       )}
       {detail.isPending && <p role="status">Loading Task detail…</p>}
       {detail.isFetching && task && (

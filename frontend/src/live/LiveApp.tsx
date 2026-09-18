@@ -107,7 +107,7 @@ function Connection({ api, session, generation }: LiveProps & { generation: numb
   useReadLifetime(projectKey);
   const currentProject =
     project.data?.id.toLowerCase() === projectId?.toLowerCase() ? project.data : undefined;
-  const [, loadProject] = useActionState((_state: null, data: FormData) => {
+  function loadProject(data: FormData) {
     const id = data.get("projectId");
     if ((typeof id !== "string" || id.trim() !== projectId) && !leaveGuard.canLeave()) return null;
     if (typeof id !== "string" || !UuidV7Schema.safeParse(id.trim()).success) {
@@ -124,7 +124,7 @@ function Connection({ api, session, generation }: LiveProps & { generation: numb
       }
     }
     return null;
-  }, null);
+  }
 
   return (
     <>
@@ -164,7 +164,15 @@ function Connection({ api, session, generation }: LiveProps & { generation: numb
           </>
         )}
       </section>
-      <form action={loadProject} className="space-y-4 rounded-xl border border-border bg-card p-6">
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          // Scope changes must unmount/abort a pending command immediately,
+          // not wait for that command's async React transition to settle.
+          loadProject(new FormData(event.currentTarget));
+        }}
+        className="space-y-4 rounded-xl border border-border bg-card p-6"
+      >
         <label htmlFor="project-id" className="text-sm font-medium">
           Project ID
         </label>

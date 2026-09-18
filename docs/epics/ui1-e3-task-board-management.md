@@ -90,7 +90,10 @@ Task и mock Board не входят; evidence и независимые reviews
 - [FRONTEND-014](../../tasks/frontend/frontend-014-create-draft-task.md): создание
   draft с точным Pipeline pin, active priority, receipt/conflict/exact retry;
   без approval, property editor и допуска к исполнению;
-- остальные draft/approve/cancel command forms и receipt conflicts;
+- [FRONTEND-015](../../tasks/frontend/frontend-015-draft-dod-approval.md): DoD edit
+  и отдельный approval сохранённого draft, fresh pin/gate, explicit consent,
+  conflict/retry/readback; без property editor или изменения execution gate;
+- остальные draft/cancel command forms и receipt conflicts;
 - dependency graph/read panels и management command interactions;
 - event-driven refresh/accessibility tests для waits, terminal states и empty boards.
 

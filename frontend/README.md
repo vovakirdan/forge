@@ -11,6 +11,7 @@ FRONTEND-011 adds title/description editing for existing draft Tasks through Cor
 FRONTEND-012 resolves Task priority names through a separate Project scheme read.
 FRONTEND-013 adds priority editing for non-terminal Tasks through Core.
 FRONTEND-014 creates draft Tasks with an explicitly selected Pipeline version.
+FRONTEND-015 edits draft DoD and separately approves saved drafts through Core.
 The live entry does not load the demo shell or services; Board, Team, Pipeline
 editing, other commands, SSE and body/context viewers remain future work.
 
@@ -186,6 +187,23 @@ reads fail, **Refresh created data** retries reads only; a successful read opens
 the new Task card. Do not create a replacement Task to recover an unknown result.
 Leaving loses the in-memory attempt, so inspect the Task list before creating
 again after reload. See [FRONTEND-014](../tasks/frontend/frontend-014-create-draft-task.md).
+
+**Edit draft** also sets, replaces or clears **Draft definition of done**.
+An empty field clears it; saved nonempty text has a 20,000 Unicode-character
+limit. Saving keeps the Task in draft and sends only changed fields.
+
+**Approve draft** is a separate action. Review the saved title/DoD, exact pinned
+Pipeline and Project execution gate, check **I understand approval permits
+execution**, then **Confirm approval**. Missing DoD offers an edit path. Core
+checks the remaining readiness conditions; having DoD alone does not promise
+success. Approval does not open the gate, but work may start if it is already open.
+
+After a refusal, **Refresh approval baseline** requires a new confirmation.
+**Retry same approval** repeats an unknown attempt unchanged. **Approved.**
+confirms the receipt; **Refresh approved data** retries failed reads without
+sending another approval. The resulting lifecycle comes from Core and may be
+ready, waiting or in_progress. Leaving or logging out cannot undo a committed
+approval. See [FRONTEND-015](../tasks/frontend/frontend-015-draft-dod-approval.md).
 
 **Refresh task** retries a read. A failed refresh keeps the previous data marked
 stale; an initial failure does not appear as an empty list. If a cursor becomes

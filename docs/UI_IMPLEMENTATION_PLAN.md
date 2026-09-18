@@ -267,6 +267,12 @@ Receipt возвращает новый ID; conflict сохраняет ввод
 вторую Task, failed readback не отменяет receipt. Approval, property editor,
 исполнение и конфигураторы остаются вне среза; полный epic gate не закрывается.
 
+FRONTEND-015 продолжает UI1.3/UI0.2: DoD edit через `amend_draft` и отдельный
+`approve_task` с новым явным подтверждением после conflict. UI показывает
+сохранённый pin и gate, не меняет gate и не предполагает ready после approval.
+Приёмка проходит без провайдеров; properties/cancel/execution controls и полные
+epic gates остаются за пределами среза. Evidence — в отдельной Task.
+
 Run-приёмка разделяет реальные Core reads с M0 fake execution и synthetic
 cases пяти purposes. Ни то ни другое не является новым provider proof. Browser
 limits не закрывают gap серверной Run pagination, пока Core загружает все строки

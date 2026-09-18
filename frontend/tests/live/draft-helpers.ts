@@ -33,14 +33,18 @@ export type DraftRequest = {
   payload: {
     task_id: string;
     expected_task_revision: number;
-    patch: { title?: string; description?: string };
+    patch: { title?: string; description?: string; definition_of_done?: string | null };
   };
 };
 
 export async function commandClient(
   live: Live,
   options: {
-    path?: typeof commandPath | "/api/commands/set_task_priority" | "/api/commands/create_task";
+    path?:
+      | typeof commandPath
+      | "/api/commands/set_task_priority"
+      | "/api/commands/create_task"
+      | "/api/commands/approve_task";
     projectId?: string;
   } = {},
 ) {
@@ -84,8 +88,17 @@ export async function commandClient(
       // directly so the hostile-Host probe really sends the intended header.
       const serialized = JSON.stringify(body);
       return new Promise<Response>((resolve, reject) => {
-        const fail = () =>
-          reject(new Error("Command acceptance POST failed; raw diagnostics withheld"));
+        const fail = (error?: unknown) => {
+          const code = error instanceof Error && "code" in error ? error.code : null;
+          const category =
+            typeof code === "string" &&
+            ["ECONNRESET", "EPIPE", "ECONNREFUSED", "ETIMEDOUT", "ABORT_ERR"].includes(code)
+              ? code
+              : "other";
+          reject(
+            new Error(`Command acceptance POST failed (${category}); raw diagnostics withheld`),
+          );
+        };
         const request = httpRequest(
           `${live.origin}${options.path ?? commandPath}`,
           {
@@ -117,7 +130,12 @@ export async function commandClient(
           },
         );
         request.on("error", fail);
-        request.end(serialized);
+        if (headers["Expect"] === "100-continue") {
+          // Header-limit probes must receive the early refusal without racing
+          // an unread body upload against the server's connection close.
+          request.once("continue", () => request.end(serialized));
+          request.flushHeaders();
+        } else request.end(serialized);
       });
     },
   };

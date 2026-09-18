@@ -28,7 +28,7 @@ async function boundedJson(response: Response): Promise<unknown> {
 
 export async function sendTaskCommand(
   fetcher: typeof fetch,
-  command: "amend_draft" | "set_task_priority" | "create_task",
+  command: "amend_draft" | "set_task_priority" | "create_task" | "approve_task",
   attempt: TaskCommandAttempt | CreateTaskAttempt,
   request: { expected_revision: number; payload: object },
   token: string,

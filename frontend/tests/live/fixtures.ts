@@ -45,6 +45,18 @@ const CoreFixtureSchema = z.object({
   empty_project: z.object({ id: z.string().uuid(), name: z.string() }),
   commands_project: CommandProjectSchema,
   priority_commands_project: CommandProjectSchema,
+  approval_commands_project: z.object({
+    id: z.string().uuid(),
+    name: z.string(),
+    drafts: z.array(z.object({ id: z.string().uuid(), key: z.string() })).length(12),
+    pipeline_version_id: z.string().uuid(),
+    without_dod_id: z.string().uuid(),
+    human_id: z.string().uuid(),
+    external_id: z.string().uuid(),
+    dependency_id: z.string().uuid(),
+    blocker_id: z.string().uuid(),
+    deleted_pipeline_task_id: z.string().uuid(),
+  }),
   create_commands_project: z.object({
     id: z.string().uuid(),
     name: z.string(),

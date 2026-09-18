@@ -6,6 +6,8 @@ use anyhow::{Context, Result};
 use forge_testkit::m0::{LocalHttpApi, M0Harness};
 use serde_json::json;
 
+#[path = "ui_core_fixture/approval_commands.rs"]
+mod approval_commands;
 #[path = "ui_core_fixture/commands.rs"]
 mod commands;
 #[path = "ui_core_fixture/create_commands.rs"]
@@ -29,6 +31,7 @@ async fn main() -> Result<()> {
     let command_fixture = commands::seed(&harness, "Draft command acceptance").await?;
     let priority_command_fixture = commands::seed(&harness, "Priority command acceptance").await?;
     let create_command_fixture = create_commands::seed(&harness).await?;
+    let approval_command_fixture = approval_commands::seed(&harness).await?;
     harness.start_project(project_id).await?;
     let project = harness
         .store
@@ -55,7 +58,8 @@ async fn main() -> Result<()> {
             "other_pipelines_project": pipeline_fixture.other_project,
             "commands_project": command_fixture,
             "priority_commands_project": priority_command_fixture,
-            "create_commands_project": create_command_fixture
+            "create_commands_project": create_command_fixture,
+            "approval_commands_project": approval_command_fixture
         })
     );
     std::io::stdout().flush()?;

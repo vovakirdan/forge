@@ -13,10 +13,22 @@ export const DraftTitleSchema = scalarString
 export const DraftDescriptionSchema = scalarString.refine(
   (value) => Array.from(value).length <= 50_000,
 );
+export const DraftDefinitionOfDoneSchema = scalarString
+  .refine((value) => !/^\p{White_Space}*$/u.test(value))
+  .refine((value) => Array.from(value).length <= 20_000);
 export const DraftPatchSchema = z
-  .object({ title: DraftTitleSchema.optional(), description: DraftDescriptionSchema.optional() })
+  .object({
+    title: DraftTitleSchema.optional(),
+    description: DraftDescriptionSchema.optional(),
+    definition_of_done: DraftDefinitionOfDoneSchema.nullable().optional(),
+  })
   .strict()
-  .refine((value) => value.title !== undefined || value.description !== undefined);
+  .refine(
+    (value) =>
+      value.title !== undefined ||
+      value.description !== undefined ||
+      value.definition_of_done !== undefined,
+  );
 export const AmendDraftRequestSchema = z
   .object({
     project_id: UuidV7Schema,

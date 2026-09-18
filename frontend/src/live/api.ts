@@ -14,6 +14,7 @@ import { sendSetTaskPriority } from "./set-task-priority-api.ts";
 import type { TaskCommandAttempt } from "../contracts/task-command.ts";
 import type { CreateTaskAttempt } from "../contracts/create-task.ts";
 import { sendCreateTask } from "./create-task-api.ts";
+import { sendApproveTask } from "./approve-task-api.ts";
 
 export const SessionSchema = z.object({
   token: z.string().regex(/^[0-9a-f]{64}$/),
@@ -132,6 +133,15 @@ export function createLiveApi(fetcher: typeof fetch = fetch) {
   }
 
   return {
+    approveTask(attempt: TaskCommandAttempt, token: string, signal: AbortSignal) {
+      return sendApproveTask(
+        fetcher,
+        attempt,
+        token,
+        signal,
+        () => new LiveApiError("unauthorized"),
+      );
+    },
     createTask(attempt: CreateTaskAttempt, token: string, signal: AbortSignal) {
       return sendCreateTask(
         fetcher,

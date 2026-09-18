@@ -1,13 +1,22 @@
-import { useActionState, useEffect, useMemo, useRef, useState } from "react";
+import { startTransition, useActionState, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "../components/ui/button.tsx";
 import { Input } from "../components/ui/input.tsx";
 import { Textarea } from "../components/ui/textarea.tsx";
-import { DraftTitleSchema, DraftDescriptionSchema } from "../contracts/amend-draft.ts";
+import {
+  DraftTitleSchema,
+  DraftDescriptionSchema,
+  DraftDefinitionOfDoneSchema,
+} from "../contracts/amend-draft.ts";
 import type { AmendDraftReceipt } from "../contracts/amend-draft.ts";
 import { describeApiError } from "./api.ts";
 import { describeCommandError, LiveCommandError } from "./command-error.ts";
-import { createDraftAttempt, draftChanged, rebaseDraftFields } from "./draft-attempt.ts";
+import {
+  createDraftAttempt,
+  draftChanged,
+  rebaseDraftFields,
+  normalizeDraftDoD,
+} from "./draft-attempt.ts";
 import type { DraftAttempt, DraftBaseline, DraftFields } from "./draft-attempt.ts";
 import type { ProjectReadScope } from "./read-scope.ts";
 import { readKeys } from "./read-cache.ts";
@@ -73,6 +82,7 @@ function DraftForm(scope: EditorProps & { initial: DraftBaseline }) {
   const [fields, setFields] = useState<DraftFields>({
     title: baseline.task.title,
     description: baseline.task.description,
+    definition_of_done: baseline.task.definition_of_done ?? "",
   });
   const [state, setState] = useState<SaveState>({ status: "editing" });
   const [refreshing, setRefreshing] = useState(false);
@@ -123,6 +133,7 @@ function DraftForm(scope: EditorProps & { initial: DraftBaseline }) {
       if (!stillCurrent(controller)) return;
       queries.setQueryData(["project", generation, projectId], current.project);
       queries.setQueryData(readKeys.task(generation, projectId, taskId), current.task);
+      setBaseline(current);
       await queries.invalidateQueries(
         { queryKey: ["live", generation, projectId, "tasks"] },
         { throwOnError: true },
@@ -181,21 +192,31 @@ function DraftForm(scope: EditorProps & { initial: DraftBaseline }) {
   }
   const titleValid = DraftTitleSchema.safeParse(fields.title).success;
   const descriptionValid = DraftDescriptionSchema.safeParse(fields.description).success;
+  const dodValid = DraftDefinitionOfDoneSchema.nullable().safeParse(
+    normalizeDraftDoD(fields.definition_of_done),
+  ).success;
   const revisionSupported =
     baseline.project.revision < Number.MAX_SAFE_INTEGER &&
     baseline.task.revision < Number.MAX_SAFE_INTEGER;
   const editable =
     state.status === "editing" && baseline.task.lifecycle === "draft" && revisionSupported;
-  const canSave = editable && changed && titleValid && descriptionValid;
+  const canSave = editable && changed && titleValid && descriptionValid && dodValid;
   const [, save, actionPending] = useActionState(async (_previous: null) => {
     if (canSave) await submit(createDraftAttempt(baseline, fields));
     return null;
   }, null);
 
   return (
-    <form action={save} className="space-y-3">
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        startTransition(save);
+      }}
+      className="space-y-3"
+    >
       <p className="text-xs text-muted-foreground">
-        Only title and description change. This Task stays a draft.
+        Only title, description and definition of done change. This Task stays a draft; saving does
+        not approve it.
       </p>
       <p className="text-xs">
         Edit baseline: Project revision {baseline.project.revision}, Task revision{" "}
@@ -210,6 +231,10 @@ function DraftForm(scope: EditorProps & { initial: DraftBaseline }) {
             <dt>Saved description</dt>
             <dd className="whitespace-pre-wrap [overflow-wrap:anywhere]">
               {baseline.task.description || "No description."}
+            </dd>
+            <dt>Saved definition of done</dt>
+            <dd className="whitespace-pre-wrap [overflow-wrap:anywhere]">
+              {baseline.task.definition_of_done ?? "Not provided."}
             </dd>
           </dl>
           <p className="text-xs">
@@ -255,6 +280,21 @@ function DraftForm(scope: EditorProps & { initial: DraftBaseline }) {
         <p id="draft-description-help" className="text-xs">
           Optional; at most 50,000 Unicode characters.{" "}
           {descriptionValid ? "" : "Description exceeds the limit or contains invalid Unicode."}
+        </p>
+      </div>
+      <div className="space-y-2">
+        <label htmlFor="draft-dod">Draft definition of done</label>
+        <Textarea
+          id="draft-dod"
+          value={fields.definition_of_done ?? ""}
+          disabled={!editable || actionPending}
+          onChange={(event) => setFields({ ...fields, definition_of_done: event.target.value })}
+          aria-invalid={!dodValid}
+          aria-describedby="draft-dod-help"
+        />
+        <p id="draft-dod-help" className="text-xs">
+          Optional for a draft; blank clears the saved value. At most 20,000 Unicode characters.{" "}
+          {dodValid ? "" : "Definition of done exceeds the limit or contains invalid Unicode."}
         </p>
       </div>
       {state.status === "sending" && <p role="status">Saving draft…</p>}

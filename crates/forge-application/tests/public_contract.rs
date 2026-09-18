@@ -219,3 +219,17 @@ fn external_outcome_parser_rejects_metadata_beyond_the_shared_entry_budget() {
         })
     ));
 }
+#[test]
+fn draft_dod_patch_distinguishes_missing_null_and_text() {
+    use forge_application::DraftTaskPatch;
+    let missing: DraftTaskPatch =
+        serde_json::from_value(serde_json::json!({"title":"Keep DoD"})).unwrap();
+    assert_eq!(missing.definition_of_done, None);
+    let clear: DraftTaskPatch =
+        serde_json::from_value(serde_json::json!({"definition_of_done":null})).unwrap();
+    assert_eq!(clear.definition_of_done, Some(None));
+    assert!(clear.validate_nonempty().is_ok());
+    let text: DraftTaskPatch =
+        serde_json::from_value(serde_json::json!({"definition_of_done":"Acceptance"})).unwrap();
+    assert_eq!(text.definition_of_done, Some(Some("Acceptance".to_owned())));
+}

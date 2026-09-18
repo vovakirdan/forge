@@ -13,6 +13,9 @@ see [priority editing](tasks/frontend/frontend-013-task-priority-edit.md).
 New Tasks can be created as drafts with an exact Pipeline version and safe retry;
 see [draft creation](tasks/frontend/frontend-014-create-draft-task.md). Creation
 does not approve the Task or request execution.
+Draft DoD can be saved or cleared, then the saved Task can be explicitly approved;
+see [DoD and approval](tasks/frontend/frontend-015-draft-dod-approval.md).
+Approval leaves the Project execution gate unchanged, but an open gate may start work.
 Diagnostics show availability and loaded counts, not raw logs or bodies. See the
 [live UI runbook](frontend/README.md#live-owner-ui-frontend-007).
 Acceptance is tracked separately for [Run reads](tasks/frontend/frontend-009-live-run-reads.md)
