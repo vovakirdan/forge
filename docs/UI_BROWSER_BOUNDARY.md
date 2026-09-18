@@ -1,7 +1,7 @@
 # ADR: локальная browser boundary
 
 **Дата:** 18 сентября 2026
-**Статус:** target принят; FRONTEND-007 — owner gateway, FRONTEND-008–010 — reads; FRONTEND-011 — draft command-срез (приёмка в Task)
+**Статус:** target принят; FRONTEND-007 — owner gateway, FRONTEND-008–010/012 — reads; FRONTEND-011 — draft command-срез (приёмка в Task)
 **Область:** local-owner Control Room; remote control и Tauri отложены
 
 ## 1. Решение и уровень доказательства
@@ -198,6 +198,31 @@ List показывает raw stage ID без fan-out. Неизвестная с
 и metadata приходят внутри канонического detail, но не рендерятся. Object refs
 и URL не открываются и не загружаются автоматически. UI не выводит
 Run activity, Employee ownership или priority labels из отсутствующих данных.
+
+### Project priority reads (FRONTEND-012)
+
+`GET /api/projects/{project_id}/priority-scheme` обращается к новому Core
+`GET /v1/projects/{project_id}/priority-scheme`. Это отдельный allowlisted GET,
+без query, с UUIDv7, прежними owner/session/Host/Origin guards, timeout и
+лимитом 64 KiB. Превышение лимита не превращается в частичный каталог.
+
+Явный DTO содержит `project_id`, `project_revision`, `default_level_id` и
+`levels` (`id`, `display_name`, `rank`, `retired`) из одного Project snapshot.
+ProjectView не расширяется, storage representation наружу не передаётся.
+Default должен существовать и быть активным; уровни уникальны, ranks — signed
+i32, отрицательные и одинаковые значения допустимы. ID ответа проверяется
+против запроса. Revision схемы — Project revision этого чтения, не новая сущность;
+она не обязана совпадать с отдельно загруженным ProjectView.
+
+Один scoped query обслуживает список и detail Task. Names выводятся как текст,
+рядом с исходным ID; retired отмечается явно. Ошибка или unknown ID не подставляет
+default. При failed refresh прежние names отмечаются stale, доступно ручное
+обновление. Ошибка каталога не закрывает Task/draft editor. Scope cleanup и
+generation fencing прежние; нет per-Task запросов, сортировки или invented colors.
+
+Это priority-часть `project-task-catalogs`, не конфигуратор схемы. Настоящий Core
+использует default-three, custom/retired cases проверяются отдельно на synthetic
+responses. Evidence — в [Task](../tasks/frontend/frontend-012-project-priorities.md).
 
 ### Scoped Run reads (FRONTEND-009)
 

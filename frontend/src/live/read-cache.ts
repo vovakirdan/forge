@@ -1,6 +1,8 @@
 import type { QueryClient, QueryKey } from "@tanstack/react-query";
 
 export const readKeys = {
+  priorityScheme: (generation: number, project: string) =>
+    ["live", generation, project, "priority-scheme"] as const,
   tasks: (generation: number, project: string, cursor: string | null) =>
     ["live", generation, project, "tasks", cursor] as const,
   task: (generation: number, project: string, task: string) =>

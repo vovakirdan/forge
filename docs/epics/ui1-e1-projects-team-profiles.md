@@ -1,7 +1,8 @@
 # Epic UI1.1 — Projects, команда и профили Employee
 
 **Milestone:** UI1 — browser interface before M4 installer
-**Статус:** `planned`; blocked by `UI0.1`, `UI0.2`, `UI0.3`.
+**Статус:** `in_progress`; ранний priority read FRONTEND-012 согласован отдельно,
+полные зависимости UI0.1/UI0.2/UI0.3 и exit gate сохраняются.
 **Зависимости:** UI0.1 model contracts, UI0.2 browser/API boundary, UI0.3 UI tooling.
 **Контракты:** ../2026-09-03-employee-domain-model.md,
 ../2026-09-03-system-manager-domain-model.md, ../2026-09-11-m3-specs.md и
@@ -64,6 +65,11 @@ Skip требует reason, actor и receipt; legacy bypass остаётся о�
 - M3 onboarding и M2 provider profiles остаются backend contracts, не UI gates.
 
 ## Направления будущей декомпозиции
+
+[FRONTEND-012](../../tasks/frontend/frontend-012-project-priorities.md) добавляет
+отдельный read схемы приоритетов проекта, без расширения ProjectView. Он нужен
+для названий в Task и будущего выбора при создании; настройка схемы, остальные
+каталоги, Project list и Team не входят. Отказ каталога не блокирует control read.
 
 - project switcher, scope-aware cache и safe Project metadata;
 - Employee list/profile с lifecycle, capacity и Run history projections;

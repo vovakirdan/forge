@@ -80,6 +80,9 @@ title/description edit существующей draft Task через `amend_dra
 Task и mock Board не входят; evidence и независимые reviews фиксируются в Task.
 
 - board/list/detail query model с lifecycle/stage/activity presentation;
+- [FRONTEND-012](../../tasks/frontend/frontend-012-project-priorities.md): names
+  из PriorityScheme в списке/detail, raw ID и retired/stale/unavailable состояния;
+  без изменения приоритета, сортировки Task или полного подключения Board;
 - schema-driven property и PriorityScheme controls;
 - draft/create/approve/priority/cancel command forms и receipt conflicts;
 - dependency graph/read panels и management command interactions;

@@ -22,6 +22,12 @@ fn scoped_reads_have_fixed_paths_limits_and_cursor_policy() {
             false,
         ),
         (
+            format!("/api/projects/{PROJECT}/priority-scheme"),
+            format!("/v1/projects/{PROJECT}/priority-scheme"),
+            CORE_BODY_LIMIT,
+            false,
+        ),
+        (
             format!("/api/projects/{PROJECT}/tasks"),
             format!("/v1/projects/{PROJECT}/tasks?limit=20"),
             CORE_BODY_LIMIT,
@@ -138,6 +144,7 @@ fn only_allowlisted_lists_accept_queries_and_other_resources_stay_closed() {
     for path in [
         "/api/health".into(),
         format!("/api/projects/{PROJECT}"),
+        format!("/api/projects/{PROJECT}/priority-scheme"),
         format!("/api/projects/{PROJECT}/tasks/{TASK}"),
         format!("/api/projects/{PROJECT}/pipelines/{TASK}"),
         format!("/api/projects/{PROJECT}/pipelines/"),
@@ -170,6 +177,7 @@ fn new_routes_require_both_identifiers_to_be_uuidv7() {
     ] {
         for path in [
             format!("/api/projects/{invalid}/tasks"),
+            format!("/api/projects/{invalid}/priority-scheme"),
             format!("/api/projects/{invalid}/tasks/{TASK}"),
             format!("/api/projects/{PROJECT}/tasks/{invalid}"),
             format!("/api/projects/{PROJECT}/pipelines/{invalid}"),
@@ -184,6 +192,23 @@ fn new_routes_require_both_identifiers_to_be_uuidv7() {
                 "{path}"
             );
         }
+    }
+}
+
+#[test]
+fn priority_scheme_has_no_queries_subresources_or_trailing_slash() {
+    let path = format!("/api/projects/{PROJECT}/priority-scheme");
+    for query in ["", "limit=1", "cursor=a", "actor=owner", "retired=false"] {
+        assert!(matches!(
+            ReadTarget::parse(&path, Some(query)),
+            Err(ApiError::NotFound)
+        ));
+    }
+    for suffix in ["/", "/normal", "/levels", "/settings"] {
+        assert!(matches!(
+            ReadTarget::parse(&format!("{path}{suffix}"), None),
+            Err(ApiError::NotFound)
+        ));
     }
 }
 

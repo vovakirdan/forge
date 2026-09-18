@@ -65,6 +65,7 @@ test("Project change drops every Project/Task/Pipeline read of the session but p
   client.setQueryData(readKeys.tasks(1, "old", null), { items: [] });
   client.setQueryData(readKeys.task(1, "old", "task"), {});
   client.setQueryData(readKeys.pipeline(1, "old", "task", "pin"), {});
+  client.setQueryData(readKeys.priorityScheme(1, "old"), {});
   prepareProjectChange(client, 1);
   assert.deepEqual(
     client
@@ -73,6 +74,21 @@ test("Project change drops every Project/Task/Pipeline read of the session but p
       .map((query) => query.queryKey),
     [["health", 1]],
   );
+});
+
+test("priority catalog has one project/session key and independent refresh cleanup", () => {
+  const client = new QueryClient();
+  const key = readKeys.priorityScheme(2, "project");
+  assert.deepEqual(key, ["live", 2, "project", "priority-scheme"]);
+  assert.notDeepEqual(key, readKeys.priorityScheme(3, "project"));
+  assert.notDeepEqual(key, readKeys.priorityScheme(2, "other"));
+  const tasks = readKeys.tasks(2, "project", null);
+  client.setQueryData(key, { levels: [] });
+  client.setQueryData(tasks, { items: [] });
+  discardRead(client, key);
+  assert.equal(client.getQueryData(key), undefined);
+  assert.deepEqual(client.getQueryData(tasks), { items: [] });
+  client.clear();
 });
 
 test("Project navigation does not recreate an observed old query during an intermediate render", async (context) => {

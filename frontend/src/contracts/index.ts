@@ -1,6 +1,7 @@
 export * from "./common.ts";
 export * from "./amend-draft.ts";
 export * from "./project.ts";
+export * from "./priority-scheme.ts";
 export * from "./properties.ts";
 export * from "./task.ts";
 export * from "./pipeline.ts";

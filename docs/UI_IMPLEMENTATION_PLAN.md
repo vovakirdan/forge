@@ -1,7 +1,7 @@
 # Forge: Control Room implementation plan
 
 **Дата:** 11 сентября 2026
-**Статус:** UI0.1/UI0.2/UI0.3/UI1.2/UI1.3/UI2.1 in_progress; остальные epics planned; milestones не закрыты
+**Статус:** UI0.1/UI0.2/UI0.3/UI1.1/UI1.2/UI1.3/UI2.1 in_progress; остальные epics planned; milestones не закрыты
 **Иерархия:** Milestone → Epic → будущие Task
 **Baseline:** backend `1439211`; frontend — неизменённый импорт пользовательского UI
 
@@ -249,6 +249,12 @@ definition версии immutable; policies с `null` остаются «не н
 `amend_draft`. Scope включает frozen retry, revision refusals, безопасный
 gateway POST и keyless proof; создание Task, Board, остальные commands и SSE
 не входят. Полные epic gates сохраняются; evidence находится в Task.
+
+Следом согласован FRONTEND-012: отдельный canonical PriorityScheme read
+UI0.1/UI1.1 и названия приоритетов в live Task UI1.3. ProjectView и Task
+mutations не расширяются. Это частичное закрытие `project-task-catalogs`, не
+редактор схемы и не полный gate UI1.1. Core пока создаёт три стандартных
+уровня; 1/10/retired fixtures остаются явно synthetic.
 
 Run-приёмка разделяет реальные Core reads с M0 fake execution и synthetic
 cases пяти purposes. Ни то ни другое не является новым provider proof. Browser

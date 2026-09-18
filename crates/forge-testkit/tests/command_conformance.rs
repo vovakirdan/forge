@@ -35,6 +35,8 @@ mod manager_constraints;
 mod manager_resume;
 #[path = "command_conformance/pipelines.rs"]
 mod pipelines;
+#[path = "command_conformance/priority_scheme_http.rs"]
+mod priority_scheme_http;
 #[path = "command_conformance/production.rs"]
 mod production;
 #[path = "command_conformance/repositories.rs"]

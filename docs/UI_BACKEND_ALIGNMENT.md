@@ -181,7 +181,7 @@ safe integers JavaScript. Никаких coercion, defaults или перехо�
 
 | Gap | Что отсутствует / расходится | Дальнейшая работа |
 |---|---|---|
-| `project-task-catalogs` | Project read не отдаёт PriorityScheme, TaskPropertySchema, CancellationReasonCatalog | UI0.1 согласует contracts; UI1.1 открывает Project reads. До этого нет ранжирования priority и schema-driven форм |
+| `project-task-catalogs` | FRONTEND-012 добавляет отдельный PriorityScheme GET; TaskPropertySchema и CancellationReasonCatalog ещё отсутствуют | Priority read/labels — частичное закрытие; schema-driven forms и настройка каталогов остаются UI0.1/UI1.1 |
 | `task-cancellation-read` | Task read не содержит reason/note | UI1.3 read projection; `cancelled` сейчас не позволяет показать reason, нельзя подставлять `unspecified` |
 | `task-intent-history-read` | Нет labels/rationale/scope/source/creator/created_at/execution-spec revision/stage visit | Уточнение UI0.1 и scoped reads UI1.3; не реконструировать из title или fixtures |
 | `pipeline-board-layout` | Нет board column order/config; stages обходятся как map | UI1.2/UI1.3 согласуют display layout, не трактуя порядок массива как transitions |
@@ -189,8 +189,10 @@ safe integers JavaScript. Никаких coercion, defaults или перехо�
 | `openapi-task-key` | Regex `^TASK-[1-9][0-9]*$` не принимает реальный formatter `TASK-{:03}` → `TASK-001` | UI0.2 синхронизирует OpenAPI; этот read layer принимает непустой opaque key |
 | `openapi-required-fields` | OpenAPI считает optional Task `current_stage_id/updated_at`, Wait `detail/source_stage_id`, Stage `acceptance_policy/system_action`; serializer выводит их всегда | UI0.2 синхронизирует required lists; frontend следует фактическому serializer |
 
-Fixtures с одним/десятью уровнями полного Project-каталога и cancelled с доступной
-причиной остаются следующей частью UI0.1 после согласования соответствующих reads.
+Обновление 18 сентября: FRONTEND-012 добавляет synthetic fixtures приоритетов
+с одним/десятью уровнями и retired references; Core proof использует его
+стандартные три уровня. Cancelled с доступной причиной остаётся следующей
+частью UI0.1 после согласования соответствующего read.
 Отсутствие поля — неизвестное значение, а не ноль, пустой каталог или отсутствие
 сущности. JSON `u64` за пределом safe integer отклоняется клиентом; новый wire-формат
 чисел этим срезом не вводится.

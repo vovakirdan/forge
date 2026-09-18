@@ -261,6 +261,13 @@ async fn task_routes_reject_invalid_queries_ids_methods_and_bodies_before_core()
     let project = "01988000-0000-7000-8000-000000000001";
     for (method, suffix, expected) in [
         ("GET", "tasks?limit=0", StatusCode::BAD_REQUEST),
+        ("GET", "priority-scheme?", StatusCode::NOT_FOUND),
+        ("GET", "priority-scheme?limit=1", StatusCode::NOT_FOUND),
+        ("GET", "priority-scheme?actor=owner", StatusCode::NOT_FOUND),
+        ("GET", "priority-scheme/normal", StatusCode::NOT_FOUND),
+        ("POST", "priority-scheme", StatusCode::NOT_FOUND),
+        ("DELETE", "priority-scheme", StatusCode::NOT_FOUND),
+        ("OPTIONS", "priority-scheme", StatusCode::NOT_FOUND),
         ("GET", "tasks?limit=1&limit=2", StatusCode::BAD_REQUEST),
         ("GET", "tasks?cursor=a&cursor=b", StatusCode::BAD_REQUEST),
         ("GET", "tasks?actor=owner", StatusCode::BAD_REQUEST),
@@ -304,17 +311,19 @@ async fn task_routes_reject_invalid_queries_ids_methods_and_bodies_before_core()
         .await;
         assert_eq!(response.status(), expected, "{method} {suffix}");
     }
-    for (header, value) in [("content-length", "1"), ("transfer-encoding", "chunked")] {
-        let response = handle(
-            State(state.clone()),
-            request("GET", &format!("/api/projects/{project}/tasks?limit=20"))
-                .header("authorization", format!("Bearer {}", session.token))
-                .header(header, value)
-                .body(Body::from("x"))
-                .unwrap(),
-        )
-        .await;
-        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    for suffix in ["tasks?limit=20", "priority-scheme"] {
+        for (header, value) in [("content-length", "1"), ("transfer-encoding", "chunked")] {
+            let response = handle(
+                State(state.clone()),
+                request("GET", &format!("/api/projects/{project}/{suffix}"))
+                    .header("authorization", format!("Bearer {}", session.token))
+                    .header(header, value)
+                    .body(Body::from("x"))
+                    .unwrap(),
+            )
+            .await;
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        }
     }
 }
 

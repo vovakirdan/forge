@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { UuidV7Schema, TimestampSchema } from "../contracts/common.ts";
 import { ProjectViewSchema } from "../contracts/project.ts";
+import { PrioritySchemeViewSchema } from "../contracts/priority-scheme.ts";
 import { TaskDetailViewSchema, TaskListResponseSchema } from "../contracts/task.ts";
 import {
   PipelineVersionListResponseSchema,
@@ -167,6 +168,16 @@ export function createLiveApi(fetcher: typeof fetch = fetch) {
         TaskListResponseSchema,
       );
       if (value.items.length > 20) throw new LiveApiError("invalid_response");
+      return value;
+    },
+    async priorityScheme(projectId: string, token: string, signal: AbortSignal) {
+      identifiers(projectId);
+      const value = await json(
+        await request(`/api/projects/${projectId}/priority-scheme`, "GET", signal, token),
+        PrioritySchemeViewSchema,
+      );
+      if (value.project_id.toLowerCase() !== projectId.toLowerCase())
+        throw new LiveApiError("invalid_response");
       return value;
     },
     async task(projectId: string, taskId: string, token: string, signal: AbortSignal) {

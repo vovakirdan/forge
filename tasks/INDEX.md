@@ -15,12 +15,13 @@
 | [FRONTEND-009](frontend/frontend-009-live-run-reads.md) | UI2.1 / UI0.2 | P0 | done | FRONTEND-003/005/008; ранний read-only срез согласован | Project Runs: список/карточка, независимые состояния и diagnostic availability; 35 live browser / 36 live unit tests, evidence в Task |
 | [FRONTEND-010](frontend/frontend-010-live-pipeline-reads.md) | UI1.2 / UI0.2 | P0 | done | FRONTEND-002/008/009; ранний read-only срез согласован | Версии Pipeline и typed stage inspector; 51 live browser / 42 live unit tests, evidence в Task |
 | [FRONTEND-011](frontend/frontend-011-draft-task-edit.md) | UI0.2 / UI1.3 | P0 | done | FRONTEND-007–010; первый command-срез согласован | Название/описание draft через Core, конфликты и безопасный retry; 61 live browser / 51 live unit tests, evidence в Task |
+| [FRONTEND-012](frontend/frontend-012-project-priorities.md) | UI0.1 / UI1.1 / UI1.3 | P0 | done | FRONTEND-008/011; read-срез согласован | Canonical PriorityScheme read и названия приоритетов в Task; 73 live browser / 55 live unit tests, evidence в Task |
 
 ## Порядок и параллельность
 
-FRONTEND-001–011 завершены в своих согласованных границах. Следующий небольшой
-срез предстоит выбрать и оформить отдельно; существующие milestone/epic gates
-сохраняются.
+FRONTEND-001–012 завершены в своих согласованных границах. FRONTEND-012 добавила
+чтение приоритетов проекта перед будущим созданием Task; существующие
+milestone/epic gates сохраняются. Следующий срез выбирается отдельно.
 
 Baseline локального запуска FRONTEND-001 проверен. FRONTEND-002 завершила первый
 read-contract срез [UI0.1](../docs/epics/ui0-e1-domain-contracts.md), не весь epic.
@@ -43,12 +44,15 @@ FRONTEND-010 добавляет просмотр версий Pipeline и stage 
 FRONTEND-011 добавляет первую command из UI0.2/UI1.3: редактирование
 названия/описания существующей draft Task с receipt, conflict и manual retry.
 CreateTask, прочие изменения Task и подключение mock Board сюда не входят.
+FRONTEND-012 закрывает priority-часть gap `project-task-catalogs`: отдельный
+read и названия в Task. Настройка схемы, properties и cancellation catalogs
+остаются следующими шагами; synthetic custom схемы не означают их реализацию.
 Это порядок эпиков, не заранее созданные дополнительные Task.
 
 У FRONTEND-001 нет Task dependencies. Проверки install/build/dev выполняются
 последовательно: общий `node_modules`, generated routes и порт 5173 исключают
 параллельную валидацию в той же копии. То же ограничение действует для
-FRONTEND-002/003/004/005/006/007/008/009/010/011: install, browser/static/live/contract/presentation tests,
+FRONTEND-002/003/004/005/006/007/008/009/010/011/012: install, browser/static/live/contract/presentation tests,
 typecheck, lint и build запускаются по очереди. Browser harness владеет
 портом 4173; static harness — портом 4174;
 ручной demo на 5173 не используется тестами.

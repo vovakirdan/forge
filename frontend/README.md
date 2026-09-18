@@ -8,6 +8,7 @@ the real Task list and detail card with pinned Pipeline stage. FRONTEND-009 adds
 Project-wide Run list/detail and diagnostic availability in a separate Runs
 section. FRONTEND-010 adds Pipeline versions and a read-only stage inspector.
 FRONTEND-011 adds title/description editing for existing draft Tasks through Core.
+FRONTEND-012 resolves Task priority names through a separate Project scheme read.
 The live entry does not load the demo shell or services; Board, Team, Pipeline
 editing, other commands, SSE and body/context viewers remain future work.
 
@@ -123,10 +124,20 @@ The Project opens the **Tasks** section, which reads 20 Tasks at a time. Use
 The card shows description, Definition of Done, properties, waits, and each
 artifact's ID, kind, title and creation date. Stage names come from the version
 pinned by the fresh Task detail, including an old version in a soft-deleted
-Pipeline catalog. List rows show raw
-stage/priority IDs: there is no invented priority label, assignee or Run state.
+Pipeline catalog. List rows show raw stage/priority IDs. Priority names come from
+the Project's canonical scheme, not a fixed browser enum; assignee and Run state
+are not inferred from Task lifecycle.
 The canonical detail response still contains inline artifact bodies and metadata;
 the card does not render them or follow referenced URLs/object refs.
+
+**Refresh priorities** reloads the shared catalog for the list and detail.
+Retired levels remain visible with a marker. If a name cannot be resolved, the
+raw ID remains visible; the default level is never substituted. Failed refresh
+keeps previous names marked stale and does not block Task reads or draft editing.
+This is a read-only catalog: Core currently creates a standard three-level scheme
+and has no configuration command. One/ten-level and retired-reference browser
+fixtures are explicitly synthetic. See
+[FRONTEND-012](../tasks/frontend/frontend-012-project-priorities.md) for evidence.
 
 For a draft, choose **Edit draft** to load fresh Project/Task revisions, change
 **Draft title** or **Draft description**, then **Save**. Only these two fields

@@ -35,6 +35,10 @@ impl ReadTarget {
                 let project = uuid::Uuid::parse_str(project).map_err(|_| ApiError::NotFound)?;
                 target.path = format!("/v1/projects/{project}");
             }
+            [project, "priority-scheme"] if query.is_none() => {
+                let project = uuid_v7(project)?;
+                target.path = format!("/v1/projects/{project}/priority-scheme");
+            }
             [project, resource @ ("tasks" | "pipelines" | "runs")] => {
                 let project = uuid_v7(project)?;
                 target.path = format!("/v1/projects/{project}/{resource}?{}", pagination(query)?);

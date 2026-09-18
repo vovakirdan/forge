@@ -7,6 +7,7 @@ import { prepareReadChange, readKeys } from "./read-cache.ts";
 import { useReadLifetime } from "./use-read-lifetime.ts";
 import { TaskFacts } from "./TaskFacts.tsx";
 import { TaskDetailPanel } from "./TaskDetailPanel.tsx";
+import type { PriorityCatalog } from "../presentation/priority.ts";
 
 export function TaskBrowser(scope: ProjectReadScope) {
   const { api, session, generation, projectId } = scope;
@@ -30,6 +31,20 @@ export function TaskBrowser(scope: ProjectReadScope) {
     retry: false,
   });
   useReadLifetime(key);
+  const priorityKey = useMemo(
+    () => readKeys.priorityScheme(generation, projectId),
+    [generation, projectId],
+  );
+  const priorities = useQuery({
+    queryKey: priorityKey,
+    queryFn: ({ signal }) =>
+      session.request(generation, (token) => api.priorityScheme(projectId, token, signal)),
+    retry: false,
+  });
+  useReadLifetime(priorityKey);
+  const priorityCatalog: PriorityCatalog = priorities.data
+    ? { status: "loaded", scheme: priorities.data, stale: priorities.isError }
+    : { status: priorities.isPending ? "loading" : "unavailable" };
   function closeTask() {
     if (!scope.leaveGuard.canLeave()) return;
     setTaskId(null);
@@ -47,17 +62,36 @@ export function TaskBrowser(scope: ProjectReadScope) {
       <section aria-label="Tasks" className="space-y-4 rounded-xl border border-border bg-card p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-lg font-semibold">Tasks</h2>
-          <Button
-            variant="outline"
-            disabled={tasks.isFetching}
-            onClick={() => void tasks.refetch()}
-          >
-            Refresh tasks
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              disabled={priorities.isFetching}
+              onClick={() => void priorities.refetch()}
+            >
+              Refresh priorities
+            </Button>
+            <Button
+              variant="outline"
+              disabled={tasks.isFetching}
+              onClick={() => void tasks.refetch()}
+            >
+              Refresh tasks
+            </Button>
+          </div>
         </div>
         <p className="text-xs text-muted-foreground">
           Up to 20 Tasks per page; draft titles and descriptions can be edited in Task detail.
         </p>
+        {priorities.isPending && <p role="status">Loading priorities…</p>}
+        {priorities.isFetching && priorities.data && (
+          <p role="status">Refreshing priorities… Previous catalog remains visible.</p>
+        )}
+        {priorities.isError && (
+          <p role="alert">
+            {priorities.data ? "Showing stale priorities. " : "Priority names unavailable. "}
+            {describeApiError(priorities.error)}
+          </p>
+        )}
         {tasks.isPending && <p role="status">Loading tasks…</p>}
         {tasks.isFetching && items && (
           <p role="status">Refreshing tasks… Previous data remains visible.</p>
@@ -101,7 +135,7 @@ export function TaskBrowser(scope: ProjectReadScope) {
                 >
                   {task.key} — {task.title}
                 </button>
-                <TaskFacts task={task} />
+                <TaskFacts task={task} priorities={priorityCatalog} />
               </li>
             ))}
           </ul>
@@ -133,7 +167,15 @@ export function TaskBrowser(scope: ProjectReadScope) {
           </Button>
         </nav>
       </section>
-      {taskId && <TaskDetailPanel key={taskId} {...scope} taskId={taskId} onClose={closeTask} />}
+      {taskId && (
+        <TaskDetailPanel
+          key={taskId}
+          {...scope}
+          taskId={taskId}
+          priorities={priorityCatalog}
+          onClose={closeTask}
+        />
+      )}
     </>
   );
 }

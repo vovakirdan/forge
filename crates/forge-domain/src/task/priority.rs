@@ -178,6 +178,11 @@ impl PriorityScheme {
         &self.default_level_id
     }
 
+    /// Returns all levels, including retired entries, in stable identifier order.
+    pub fn levels(&self) -> impl ExactSizeIterator<Item = &PriorityLevel> {
+        self.levels.values()
+    }
+
     /// Returns a level by stable identifier.
     #[must_use]
     pub fn get(&self, level_id: &PriorityLevelId) -> Option<&PriorityLevel> {
@@ -392,6 +397,34 @@ mod tests {
         let scheme = PriorityScheme::default_three_levels().expect("valid built-in scheme");
 
         assert_eq!(scheme.default_level_id().as_str(), "normal");
+    }
+
+    #[test]
+    fn levels_borrow_all_entries_in_identifier_order_without_rank_sorting() {
+        for count in [1, 3, 10] {
+            let entries = (0..count).rev().map(|index| {
+                let mut level = super::PriorityLevel::new(
+                    PriorityLevelId::new(format!("level_{index}")).unwrap(),
+                    format!("Уровень {index}"),
+                    if index < 2 { -10 } else { 42 },
+                )
+                .unwrap();
+                if index == 1 {
+                    level.retire();
+                }
+                level
+            });
+            let scheme =
+                PriorityScheme::new(entries, PriorityLevelId::new("level_0").unwrap()).unwrap();
+            assert_eq!(scheme.levels().len(), count);
+            for (index, level) in scheme.levels().enumerate() {
+                assert_eq!(level.id().as_str(), format!("level_{index}"));
+                assert_eq!(level.display_name(), format!("Уровень {index}"));
+                assert_eq!(level.rank(), if index < 2 { -10 } else { 42 });
+                assert_eq!(level.is_retired(), index == 1);
+                assert!(std::ptr::eq(level, scheme.get(level.id()).unwrap()));
+            }
+        }
     }
 
     #[test]

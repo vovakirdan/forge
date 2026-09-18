@@ -18,6 +18,11 @@ pure Task/Run presentation поверх этих DTO, сохраняя неза�
 FRONTEND-005 проверена 18 presentation tests, прежними 47 contract tests,
 семью browser tests, typecheck/lint/build и независимыми spec/quality reviews.
 
+[FRONTEND-012](../../tasks/frontend/frontend-012-project-priorities.md) добавляет
+контракт PriorityScheme и resolver названий без изменения stored Task priority.
+Project scope, retired, unknown и stale различаются. Это priority-часть каталога,
+не новый command настройки схемы; полная приёмка эпика остаётся впереди.
+
 ## Цель
 
 Сделать модель Control Room точной проекцией Forge, сохранив визуальный каркас

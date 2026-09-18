@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Button } from "../components/ui/button.tsx";
 import type { TaskDetailView } from "../contracts/task.ts";
 import { presentTaskDetail } from "../presentation/task.ts";
+import type { PriorityCatalog } from "../presentation/priority.ts";
 import { describeApiError } from "./api.ts";
 import { readKeys } from "./read-cache.ts";
 import { useReadLifetime } from "./use-read-lifetime.ts";
@@ -11,7 +12,13 @@ import { TaskFacts } from "./TaskFacts.tsx";
 import type { ProjectReadScope } from "./read-scope.ts";
 import { TaskDraftEditor } from "./TaskDraftEditor.tsx";
 
-export function TaskDetailPanel(scope: ProjectReadScope & { taskId: string; onClose: () => void }) {
+export function TaskDetailPanel(
+  scope: ProjectReadScope & {
+    taskId: string;
+    onClose: () => void;
+    priorities: PriorityCatalog;
+  },
+) {
   const { api, session, generation, projectId, taskId, onClose } = scope;
   const [editing, setEditing] = useState(false);
   const title = useRef<HTMLHeadingElement>(null);
@@ -77,7 +84,7 @@ export function TaskDetailPanel(scope: ProjectReadScope & { taskId: string; onCl
       )}
       {task && (
         <>
-          <TaskFacts task={task} detail />
+          <TaskFacts task={task} priorities={scope.priorities} detail />
           {detail.isSuccess && !detail.isFetching && task.current_stage_id !== null ? (
             <PinnedStage
               key={`${task.pipeline_version_id}:${task.revision}`}

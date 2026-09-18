@@ -10,6 +10,7 @@ mod git_source_policy;
 mod handlers;
 mod knowledge;
 mod memory;
+mod priority_scheme;
 mod project_hooks;
 mod reads;
 mod system_jobs;

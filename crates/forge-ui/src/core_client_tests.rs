@@ -125,6 +125,7 @@ async fn unauthorized_or_cross_origin_browser_never_connects_to_existing_core_so
     let session = state.sessions.exchange(&code.code).unwrap();
     for path in [
         "/api/health",
+        "/api/projects/01988000-0000-7000-8000-000000000001/priority-scheme",
         "/api/projects/01988000-0000-7000-8000-000000000001/tasks?limit=20",
         "/api/projects/01988000-0000-7000-8000-000000000001/tasks/01988000-0000-7000-8000-000000000002",
         "/api/projects/01988000-0000-7000-8000-000000000001/pipelines?limit=20",
@@ -180,14 +181,64 @@ async fn unauthorized_or_cross_origin_browser_never_connects_to_existing_core_so
 
 #[tokio::test]
 async fn stalled_upstream_is_cancelled_by_total_deadline() {
-    let (_dir, client, server) = fake_core(Vec::new(), Duration::from_secs(60)).await;
-    let start = tokio::time::Instant::now();
-    assert!(matches!(
-        client.read(&health()).await,
-        Err(ApiError::Timeout)
-    ));
-    assert!(start.elapsed() < Duration::from_secs(7));
-    server.abort();
+    for target in [
+        health(),
+        ReadTarget::parse(
+            "/api/projects/01988000-0000-7000-8000-000000000001/priority-scheme",
+            None,
+        )
+        .unwrap(),
+    ] {
+        let (_dir, client, server) = fake_core(Vec::new(), Duration::from_secs(60)).await;
+        let start = tokio::time::Instant::now();
+        assert!(matches!(client.read(&target).await, Err(ApiError::Timeout)));
+        assert!(start.elapsed() < Duration::from_secs(7));
+        server.abort();
+    }
+}
+
+#[tokio::test]
+async fn priority_scheme_errors_are_explicit_and_hide_upstream_details() {
+    let path = "/api/projects/01988000-0000-7000-8000-000000000001/priority-scheme";
+    for (upstream, status, code) in [
+        (
+            response(404, br#"{"private":"missing-project"}"#),
+            axum::http::StatusCode::NOT_FOUND,
+            "not_found",
+        ),
+        (
+            response(503, br#"{"private":"database-details"}"#),
+            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+            "unavailable",
+        ),
+        (
+            response(200, b"not-json-private"),
+            axum::http::StatusCode::BAD_GATEWAY,
+            "bad_gateway",
+        ),
+        (
+            format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n",
+                CORE_BODY_LIMIT + 1
+            )
+            .into_bytes(),
+            axum::http::StatusCode::BAD_GATEWAY,
+            "response_too_large",
+        ),
+    ] {
+        let (result, _) = browser_read(path, upstream).await;
+        assert_eq!(result.status(), status);
+        let bytes = axum::body::to_bytes(result.into_body(), 1024)
+            .await
+            .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(body["code"], code);
+        assert!(
+            !String::from_utf8(bytes.to_vec())
+                .unwrap()
+                .contains("private")
+        );
+    }
 }
 
 fn response(status: u16, body: &[u8]) -> Vec<u8> {
@@ -197,10 +248,11 @@ fn response(status: u16, body: &[u8]) -> Vec<u8> {
     ].concat()
 }
 
-fn scoped_targets() -> [ReadTarget; 6] {
+fn scoped_targets() -> [ReadTarget; 7] {
     let project = "01988000-0000-7000-8000-000000000001";
     let item = "01988000-0000-7000-8000-000000000002";
     [
+        ReadTarget::parse(&format!("/api/projects/{project}/priority-scheme"), None).unwrap(),
         ReadTarget::parse(&format!("/api/projects/{project}/tasks"), None).unwrap(),
         ReadTarget::parse(&format!("/api/projects/{project}/tasks/{item}"), None).unwrap(),
         ReadTarget::parse(&format!("/api/projects/{project}/pipelines"), None).unwrap(),
@@ -300,6 +352,7 @@ async fn browser_scoped_reads_forward_only_scoped_path_and_safe_query() {
         "01988000-0000-7000-8000-000000000003",
     ] {
         for suffix in [
+            "priority-scheme",
             "tasks?cursor=a%26actor%3Downer%2Bb&limit=2",
             "tasks/01988000-0000-7000-8000-000000000002",
             "pipelines?cursor=a%26actor%3Downer%2Bb&limit=2",
