@@ -106,8 +106,10 @@ test("unsent dependency selection is scoped and guarded on a narrow screen", asy
     if (request.url().endsWith("/api/commands/create_dependency")) posts++;
   });
   page.once("dialog", (dialog) => dialog.dismiss());
-  await page.getByLabel("Project ID", { exact: true }).fill(live.core.empty_project.id);
-  await page.getByRole("button", { name: "Load project", exact: true }).click();
+  await page
+    .getByRole("list", { name: "Projects" })
+    .getByRole("button", { name: new RegExp(live.core.empty_project.id) })
+    .click();
   await expect(editor).toBeVisible();
   page.once("dialog", (dialog) => dialog.accept());
   await loadProject(page, live.core.empty_project.id);

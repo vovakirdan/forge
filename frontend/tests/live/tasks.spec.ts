@@ -148,8 +148,7 @@ test("Task refresh offline preserves stale data and retry recovers; the card wor
     /^Failed to load resource: net::ERR_INTERNET_DISCONNECTED$/,
     async () => {
       // Refreshing the same Project must not destroy the already selected Task.
-      await page.getByLabel("Project ID", { exact: true }).fill(live.core.project_id);
-      await page.getByRole("button", { name: "Load project", exact: true }).click();
+      await page.getByRole("button", { name: "Refresh project", exact: true }).click();
       await expect(page.getByRole("region", { name: "Project error", exact: true })).toContainText(
         /stale/i,
       );

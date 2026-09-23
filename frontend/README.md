@@ -16,12 +16,13 @@ FRONTEND-016 cancels non-terminal Tasks with a Project reason and shows the
 saved cancellation metadata; it does not add separate Run execution controls.
 FRONTEND-017 reads both directions of Task dependencies and opens related Tasks.
 FRONTEND-018 creates and removes `task_done` links through Core in the live Task card.
+FRONTEND-019 lists Projects from Core and selects one without entering its ID.
 The live entry does not load the demo shell or services; Board, Team, Pipeline
 editing, other commands, SSE and body/context viewers remain future work.
 
 The demo needs no Lovable account, API keys, database, Podman services or provider
-Runs. The live screen needs a running local Core and an existing Project ID;
-it does not need provider credentials. Text editing keeps the Task in draft;
+Runs. The live screen needs a running local Core; Project access requires an
+existing Project. It does not need provider credentials. Text editing keeps the Task in draft;
 priority editing preserves its lifecycle/stage and does not interrupt an existing Run.
 Core's normal post-command dispatch is unchanged. Acceptance results belong
 in [FRONTEND-007](../tasks/frontend/frontend-007-live-owner-gateway.md),
@@ -123,9 +124,16 @@ The current Cargo executable is `forge-cli`, even though its help calls the
 command `forge`. Login requires stdin/stdout on the owner's controlling TTY;
 do not pipe, redirect, capture or journal its output, or run it through the
 non-TTY check wrapper below. It prints the origin, one-time code and expiry to
-the terminal. Paste the code into the live screen, then enter an existing UUIDv7
-Project ID. The card reads real `id`, `name`, `revision` and `execution_gate`;
+the terminal. Paste the code into the live screen, then choose a Project from the
+paginated list. The card reads real `id`, `name`, `revision` and `execution_gate`;
 health alone does not prove Project access.
+
+The Project selector shows 20 Projects per page. Use **Next Projects** and
+**Previous Projects** to browse, **Refresh Projects** to update the list, and
+**Refresh project** to reread the selected Project. A failed list read shows an
+error and retry action; it never supplies demo Projects. Switching Projects
+checks for unsaved edits and clears the previous Project's reads. The selection
+is local to the current login and is cleared on reload or logout.
 
 The Project opens the **Tasks** section, which reads 20 Tasks at a time. Use
 **Previous page**, **Next page** and **Refresh tasks**; **Open TASK-…** opens its detail.

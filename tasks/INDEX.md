@@ -22,13 +22,15 @@
 | [FRONTEND-016](frontend/frontend-016-task-cancellation.md) | UI1.3 / UI0.2 | P0 | done | FRONTEND-008, FRONTEND-011–015; command-срез согласован | Каталог причин, явная отмена и readback; 134 live browser tests PASS |
 | [FRONTEND-017](frontend/frontend-017-task-dependency-reads.md) | UI1.3 / UI0.2 | P0 | done | FRONTEND-008/016; read-only срез согласован | Обе стороны зависимости, оценка условия и переходы между Task; 142 live browser tests PASS |
 | [FRONTEND-018](frontend/frontend-018-task-dependency-commands.md) | UI1.3 / UI0.2 | P0 | done | FRONTEND-017 | Создание/удаление task_done связей через Core с выбором Task из страниц Project; 145 live browser tests PASS |
+| [FRONTEND-019](frontend/frontend-019-project-selector.md) | UI1.1 / UI0.2 | P0 | done | FRONTEND-007/018 | Safe Project list и выбор вместо ручного UUID; 148 live browser tests PASS |
 
 ## Порядок и параллельность
 
 FRONTEND-017 завершила чтение и переходы между Task. FRONTEND-018 завершила
-создание и удаление связей через Core поверх этого просмотра.
+создание и удаление связей через Core поверх этого просмотра. FRONTEND-019
+добавила выбор Project из Core list вместо ручного UUID.
 
-FRONTEND-001–018 завершены в своих согласованных границах. FRONTEND-012 добавила
+FRONTEND-001–019 завершены в своих согласованных границах. FRONTEND-012 добавила
 чтение приоритетов проекта перед будущим созданием Task; существующие
 milestone/epic gates сохраняются. FRONTEND-013 добавляет изменение приоритета
 существующей Task через `set_task_priority`. FRONTEND-014 добавляет создание

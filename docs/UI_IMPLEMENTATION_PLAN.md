@@ -289,6 +289,10 @@ stage/artifact conditions остаются отдельными срезами.
 Core commands. Кандидат выбирается из постраничного Project Task list;
 граф, поиск по ключу и иные условия связи остаются за пределами среза.
 
+[FRONTEND-019](../tasks/frontend/frontend-019-project-selector.md) добавляет
+страничный safe Project list в Core и owner gateway и выбор Project в live UI.
+Ручной ввод ID больше не требуется; Team и настройка Project остаются отдельно.
+
 Run-приёмка разделяет реальные Core reads с M0 fake execution и synthetic
 cases пяти purposes. Ни то ни другое не является новым provider proof. Browser
 limits не закрывают gap серверной Run pagination, пока Core загружает все строки

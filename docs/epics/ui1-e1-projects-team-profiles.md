@@ -1,7 +1,8 @@
 # Epic UI1.1 — Projects, команда и профили Employee
 
 **Milestone:** UI1 — browser interface before M4 installer
-**Статус:** `in_progress`; ранний priority read FRONTEND-012 согласован отдельно,
+**Статус:** `in_progress`; priority read FRONTEND-012 и Project selector
+FRONTEND-019 завершены как отдельные срезы,
 полные зависимости UI0.1/UI0.2/UI0.3 и exit gate сохраняются.
 **Зависимости:** UI0.1 model contracts, UI0.2 browser/API boundary, UI0.3 UI tooling.
 **Контракты:** ../2026-09-03-employee-domain-model.md,
@@ -71,7 +72,11 @@ Skip требует reason, actor и receipt; legacy bypass остаётся о�
 для названий в Task и будущего выбора при создании; настройка схемы, остальные
 каталоги, Project list и Team не входят. Отказ каталога не блокирует control read.
 
-- project switcher, scope-aware cache и safe Project metadata;
+[FRONTEND-019](../../tasks/frontend/frontend-019-project-selector.md) добавляет
+safe Project list с постраничным выбором в live UI. Это не Employee catalog,
+настройка Project или закрытие полного UI1.1 gate.
+
+- Project settings и более полная safe config metadata;
 - Employee list/profile с lifecycle, capacity и Run history projections;
 - hire/configuration forms и receipt/conflict presentation;
 - onboarding status/request/retry/skip и four-lane readiness view;

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { UuidV7Schema, TimestampSchema } from "../contracts/common.ts";
-import { ProjectViewSchema } from "../contracts/project.ts";
+import { ProjectListResponseSchema, ProjectViewSchema } from "../contracts/project.ts";
 import { PrioritySchemeViewSchema } from "../contracts/priority-scheme.ts";
 import { TaskDetailViewSchema, TaskListResponseSchema } from "../contracts/task.ts";
 import {
@@ -259,6 +259,20 @@ export function createLiveApi(fetcher: typeof fetch = fetch) {
     },
     async health(token: string, signal: AbortSignal) {
       return json(await request("/api/health", "GET", signal, token), HealthSchema);
+    },
+    async projects(cursor: string | null, token: string, signal: AbortSignal) {
+      const search = new URLSearchParams({ limit: "20" });
+      if (cursor !== null) search.set("cursor", cursor);
+      const value = await json(
+        await request(`/api/projects?${search}`, "GET", signal, token),
+        ProjectListResponseSchema,
+      );
+      if (
+        value.items.length > 20 ||
+        new Set(value.items.map((item) => item.id)).size !== value.items.length
+      )
+        throw new LiveApiError("invalid_response");
+      return value;
     },
     async project(id: string, token: string, signal: AbortSignal) {
       identifiers(id);

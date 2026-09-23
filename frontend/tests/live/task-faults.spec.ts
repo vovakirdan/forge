@@ -46,8 +46,10 @@ test("synthetic list failure is not an empty Project and a successful retry rest
   await live.allowConsoleErrors(
     /^Failed to load resource: the server responded with a status of 503 \(Service Unavailable\)$/,
     async () => {
-      await page.getByLabel("Project ID", { exact: true }).fill(live.core.project_id);
-      await page.getByRole("button", { name: "Load project", exact: true }).click();
+      await page
+        .getByRole("list", { name: "Projects" })
+        .getByRole("button", { name: new RegExp(live.core.project_id) })
+        .click();
       await expect(
         page.getByRole("region", { name: "Tasks", exact: true }).getByRole("alert"),
       ).toBeVisible();

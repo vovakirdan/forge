@@ -2,9 +2,31 @@ import type { Page } from "@playwright/test";
 import { expect, type Live } from "./fixtures";
 
 export async function loadProject(page: Page, projectId: string) {
-  await page.getByLabel("Project ID", { exact: true }).fill(projectId);
-  await page.getByRole("button", { name: "Load project", exact: true }).click();
-  await expect(page.getByRole("region", { name: "Project", exact: true })).toContainText(projectId);
+  const picker = page.getByRole("region", { name: "Project selector" });
+  const list = picker.getByRole("list", { name: "Projects" });
+  const previous = picker.getByRole("button", { name: "Previous Projects" });
+  for (let pageNumber = 0; pageNumber < 10; pageNumber++) {
+    await expect(list).toBeVisible();
+    if (await previous.isDisabled()) break;
+    await previous.click();
+    await expect(list).toBeVisible();
+  }
+  for (let pageNumber = 0; pageNumber < 10; pageNumber++) {
+    await expect(list).toBeVisible();
+    const choice = list.getByRole("button", { name: new RegExp(projectId) });
+    if (await choice.count()) {
+      await choice.click();
+      await expect(page.getByRole("region", { name: "Project", exact: true })).toContainText(
+        projectId,
+      );
+      return;
+    }
+    const next = picker.getByRole("button", { name: "Next Projects" });
+    await expect(next).toBeEnabled();
+    await next.click();
+    await expect(picker).toContainText(`Page ${pageNumber + 2}`);
+  }
+  throw new Error("Project is absent from the first ten pages");
 }
 
 export async function openTasks(page: Page, live: Live) {

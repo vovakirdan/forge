@@ -209,6 +209,26 @@ paths:
         '503':
           $ref: '#/components/responses/Unavailable'
 
+  /v1/projects:
+    parameters:
+      - $ref: '#/components/parameters/PageCursor'
+      - $ref: '#/components/parameters/PageLimit'
+    get:
+      tags: [projects]
+      operationId: listProjects
+      summary: List safe Project control projections in stable ID order.
+      responses:
+        '200':
+          description: A bounded page of canonical Projects.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectListResponse'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
   /v1/projects/{projectId}:
     parameters:
       - $ref: '#/components/parameters/ProjectId'
@@ -2409,6 +2429,19 @@ components:
         api_version:
           type: string
           const: v1
+
+    ProjectListResponse:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProjectView'
+        next_cursor:
+          type: string
+          description: Omitted on the final page.
 
     ProjectView:
       type: object

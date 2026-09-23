@@ -25,6 +25,11 @@ impl ReadTarget {
             target.path = "/v1/health".into();
             return Ok(target);
         }
+        if path == "/api/projects" {
+            target.path = format!("/v1/projects?{}", pagination(query)?);
+            target.cursor_conflict = true;
+            return Ok(target);
+        }
         let tail = path
             .strip_prefix("/api/projects/")
             .ok_or(ApiError::NotFound)?;

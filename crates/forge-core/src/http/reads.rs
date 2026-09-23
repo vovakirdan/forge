@@ -17,6 +17,10 @@ pub(crate) struct PipelineVersionRead {
 }
 
 impl CoreService {
+    pub(crate) async fn read_projects(&self) -> Result<Vec<Project>, CoreError> {
+        Ok(self.store().list_projects().await?)
+    }
+
     pub(crate) async fn read_employee_threads(
         &self,
         project_id: ProjectId,

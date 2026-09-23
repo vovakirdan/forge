@@ -86,6 +86,23 @@ test("malformed responses and Project IDs fail closed without echoing values", a
   });
 });
 
+test("Project catalog requests bounded pages and rejects duplicate or oversized results", async () => {
+  const calls: string[] = [];
+  const project = { id, name: "Safe Project", revision: 1, execution_gate: "stopped" };
+  const api = createLiveApi(async (input) => {
+    calls.push(String(input));
+    return Response.json({ items: [project], next_cursor: id });
+  });
+  const signal = new AbortController().signal;
+  assert.equal((await api.projects(null, "token", signal)).items[0]?.id, id);
+  await api.projects("page marker", "token", signal);
+  assert.deepEqual(calls, ["/api/projects?limit=20", "/api/projects?limit=20&cursor=page+marker"]);
+  for (const items of [[project, project], Array(21).fill(project)]) {
+    const invalid = createLiveApi(async () => Response.json({ items }));
+    await assert.rejects(invalid.projects(null, "token", signal), { kind: "invalid_response" });
+  }
+});
+
 test("aborted requests stay cancelled and mismatched Project responses are not accepted", async () => {
   const cancelled = new AbortController();
   cancelled.abort();

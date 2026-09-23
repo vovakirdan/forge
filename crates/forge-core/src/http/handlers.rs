@@ -39,6 +39,7 @@ pub fn router(core: CoreService) -> Router {
         .route("/metrics", get(crate::observability::http::metrics))
         .route("/v1/health", get(health))
         .route("/v1/commands/{name}", post(execute_command))
+        .route("/v1/projects", get(list_projects))
         .route("/v1/projects/{project_id}", get(get_project))
         .route("/v1/projects/{project_id}/tasks", get(list_tasks))
         .route("/v1/projects/{project_id}/tasks/{task_id}", get(get_task))
@@ -109,6 +110,29 @@ async fn get_project(
     Ok(json_response(
         StatusCode::OK,
         project_view(&project),
+        &request_id,
+    ))
+}
+
+async fn list_projects(
+    State(core): State<CoreService>,
+    query: Result<Query<PageQuery>, axum::extract::rejection::QueryRejection>,
+) -> Result<Response, HttpError> {
+    let request_id = request_id();
+    let query = page_query(query, &request_id)?;
+    let projects = core
+        .read_projects()
+        .await
+        .map_err(|error| HttpError::from_core(request_id.clone(), error))?;
+    let page = paginate(projects, &query, &request_id, |project| {
+        project.id().to_string()
+    })?;
+    Ok(json_response(
+        StatusCode::OK,
+        ListView {
+            items: page.items.iter().map(project_view).collect::<Vec<_>>(),
+            next_cursor: page.next_cursor,
+        },
         &request_id,
     ))
 }

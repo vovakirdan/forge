@@ -27,7 +27,7 @@ Project-wide Run reads, FRONTEND-010 — Pipeline versions и stage inspector.
 
 | Область | Frontend baseline | Backend baseline / gap | Направление |
 |---|---|---|---|
-| Projects / Overview | Selector, metrics, risks, current goal | Project detail есть; нет list/full config/aggregate dashboard | UI1.1, UI2.1, UI3.3 |
+| Projects / Overview | Selector, metrics, risks, current goal | Safe list/detail есть; нет full config/aggregate dashboard | UI1.1, UI2.1, UI3.3 |
 | Task / Board | Fixed stages/priorities, assignee, artifacts, findings | Task commands/detail есть; нужны schema/dependency/constraint/schedule/handoff views | UI0.1, UI1.3, UI1.4, UI2.3 |
 | Team / Hire | Один manager/current Run, fixed engines, toast hire | Catalog mutations/runtime есть; нет Employee list/detail/profile reads | UI1.1 |
 | Pipeline | Local editable stages/save | Immutable versions/default/soft-delete, graph/acceptance есть | UI1.2 |
@@ -185,7 +185,7 @@ safe integers JavaScript. Никаких coercion, defaults или перехо�
 | `task-cancellation-read` | Task read не содержит reason/note | UI1.3 read projection; `cancelled` сейчас не позволяет показать reason, нельзя подставлять `unspecified` |
 | `task-intent-history-read` | Нет labels/rationale/scope/source/creator/created_at/execution-spec revision/stage visit | Уточнение UI0.1 и scoped reads UI1.3; не реконструировать из title или fixtures |
 | `pipeline-board-layout` | Нет board column order/config; stages обходятся как map | UI1.2/UI1.3 согласуют display layout, не трактуя порядок массива как transitions |
-| `project-list-read` | Нет Project list endpoint | UI1.1, не подмена списком из mockDb |
+| `project-list-read` | FRONTEND-019 добавляет safe Project list с pagination | UI1.1 закрывает только выбор Project; Team и настройка остаются отдельно |
 | `openapi-task-key` | Regex `^TASK-[1-9][0-9]*$` не принимает реальный formatter `TASK-{:03}` → `TASK-001` | UI0.2 синхронизирует OpenAPI; этот read layer принимает непустой opaque key |
 | `openapi-required-fields` | OpenAPI считает optional Task `current_stage_id/updated_at`, Wait `detail/source_stage_id`, Stage `acceptance_policy/system_action`; serializer выводит их всегда | UI0.2 синхронизирует required lists; frontend следует фактическому serializer |
 

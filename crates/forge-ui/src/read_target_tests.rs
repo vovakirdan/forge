@@ -7,6 +7,28 @@ const PROJECT: &str = "01988000-0000-7000-8000-000000000001";
 const TASK: &str = "01988000-0000-7000-8000-000000000002";
 
 #[test]
+fn project_catalog_is_only_a_bounded_paginated_read() {
+    let target = ReadTarget::parse("/api/projects", None).unwrap();
+    assert_eq!(target.path, "/v1/projects?limit=20");
+    assert_eq!(target.body_limit, CORE_BODY_LIMIT);
+    assert!(target.cursor_conflict);
+    let next = ReadTarget::parse("/api/projects", Some("limit=20&cursor=abc%26def")).unwrap();
+    assert_eq!(next.path, "/v1/projects?limit=20&cursor=abc%26def");
+    for query in [
+        "limit=0",
+        "limit=101",
+        "cursor=",
+        "actor=owner",
+        "limit=2&limit=3",
+    ] {
+        assert!(ReadTarget::parse("/api/projects", Some(query)).is_err());
+    }
+    for path in ["/api/projects/", "/api/projects/all"] {
+        assert!(ReadTarget::parse(path, None).is_err());
+    }
+}
+
+#[test]
 fn dependency_reads_are_direction_scoped_and_paginated() {
     for direction in ["blocked_by", "blocks"] {
         let path = format!("/api/projects/{PROJECT}/tasks/{TASK}/dependencies/{direction}");

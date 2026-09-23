@@ -15,3 +15,12 @@ export const ProjectViewSchema = preserveWireValue(
 );
 
 export type ProjectView = z.infer<typeof ProjectViewSchema>;
+
+export const ProjectListResponseSchema = preserveWireValue(
+  z
+    .object({
+      items: z.array(ProjectViewSchema),
+      next_cursor: z.string().optional(),
+    })
+    .passthrough(),
+);

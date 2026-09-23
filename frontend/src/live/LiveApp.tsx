@@ -2,13 +2,13 @@ import { useActionState, useMemo, useRef, useState, useSyncExternalStore } from 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "../components/ui/button.tsx";
 import { Input } from "../components/ui/input.tsx";
-import { UuidV7Schema } from "../contracts/common.ts";
 import { describeApiError } from "./api.ts";
 import type { LiveApi } from "./api.ts";
 import type { LiveSession } from "./session.ts";
 import { prepareProjectChange } from "./read-cache.ts";
 import { useReadLifetime } from "./use-read-lifetime.ts";
 import { ProjectReads } from "./ProjectReads.tsx";
+import { ProjectPicker } from "./ProjectPicker.tsx";
 import { createLeaveGuard } from "./leave-guard.ts";
 
 type LiveProps = { api: LiveApi; session: LiveSession };
@@ -88,7 +88,6 @@ function Connection({ api, session, generation }: LiveProps & { generation: numb
   const queries = useQueryClient();
   const [leaveGuard] = useState(() => createLeaveGuard((message) => window.confirm(message)));
   const [projectId, setProjectId] = useState<string | null>(null);
-  const [idError, setIdError] = useState<string | null>(null);
   const projectKey = useMemo(() => ["project", generation, projectId], [generation, projectId]);
   const health = useQuery({
     queryKey: ["health", generation],
@@ -107,23 +106,14 @@ function Connection({ api, session, generation }: LiveProps & { generation: numb
   useReadLifetime(projectKey);
   const currentProject =
     project.data?.id.toLowerCase() === projectId?.toLowerCase() ? project.data : undefined;
-  function loadProject(data: FormData) {
-    const id = data.get("projectId");
-    if ((typeof id !== "string" || id.trim() !== projectId) && !leaveGuard.canLeave()) return null;
-    if (typeof id !== "string" || !UuidV7Schema.safeParse(id.trim()).success) {
-      prepareProjectChange(queries, generation);
-      setProjectId(null);
-      setIdError("Enter a valid UUIDv7 Project ID.");
-    } else {
-      setIdError(null);
-      const next = id.trim();
-      if (next === projectId) void project.refetch();
-      else {
-        prepareProjectChange(queries, generation);
-        setProjectId(next);
-      }
+  function selectProject(next: string) {
+    if (next === projectId) {
+      void project.refetch();
+      return;
     }
-    return null;
+    if (!leaveGuard.canLeave()) return;
+    prepareProjectChange(queries, generation);
+    setProjectId(next);
   }
 
   return (
@@ -164,32 +154,13 @@ function Connection({ api, session, generation }: LiveProps & { generation: numb
           </>
         )}
       </section>
-      <form
-        onSubmit={(event) => {
-          event.preventDefault();
-          // Scope changes must unmount/abort a pending command immediately,
-          // not wait for that command's async React transition to settle.
-          loadProject(new FormData(event.currentTarget));
-        }}
-        className="space-y-4 rounded-xl border border-border bg-card p-6"
-      >
-        <label htmlFor="project-id" className="text-sm font-medium">
-          Project ID
-        </label>
-        <Input
-          id="project-id"
-          name="projectId"
-          required
-          autoComplete="off"
-          aria-describedby={idError ? "project-id-error" : undefined}
-        />
-        {idError && (
-          <p id="project-id-error" role="alert" className="text-sm">
-            {idError}
-          </p>
-        )}
-        <Button type="submit">Load project</Button>
-      </form>
+      <ProjectPicker
+        api={api}
+        session={session}
+        generation={generation}
+        selectedId={projectId}
+        onSelect={selectProject}
+      />
       {projectId && project.isPending && (
         <p role="status" className="text-sm">
           Loading Project…
@@ -223,7 +194,16 @@ function Connection({ api, session, generation }: LiveProps & { generation: numb
           aria-label="Project"
           className="space-y-4 rounded-xl border border-border bg-card p-6"
         >
-          <h2 className="text-lg font-semibold">Project</h2>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="text-lg font-semibold">Project</h2>
+            <Button
+              variant="outline"
+              disabled={project.isFetching}
+              onClick={() => void project.refetch()}
+            >
+              Refresh project
+            </Button>
+          </div>
           <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-6 gap-y-3 text-sm">
             <dt className="text-muted-foreground">ID</dt>
             <dd className="break-all font-mono">{currentProject.id}</dd>

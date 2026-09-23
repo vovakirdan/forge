@@ -1,6 +1,6 @@
 //! Read-only projections used by Core-owned local transports.
 
-use forge_domain::{PipelineVersion, ProjectId, TaskId};
+use forge_domain::{PipelineVersion, Project, ProjectId, TaskId};
 use uuid::Uuid;
 
 use crate::store::stored_artifact_from_row;
@@ -12,6 +12,18 @@ use crate::{
 const RUN_COLUMNS: &str = "id, project_id, purpose, communication_assignment_id, resolution_assignment_id, hook_invocation_id, task_id, queue_entry_id, lease_id, employee_id, stage_id, attempt_number, lease_fencing_token, environment_epoch, last_sequence, desired_state, observed_state, run_spec_version, run_spec::text AS run_spec, context_manifest::text AS context_manifest, observed_details::text AS observed_details";
 
 impl PostgresStore {
+    /// Lists canonical Project snapshots in stable identity order for owner reads.
+    pub async fn list_projects(&self) -> Result<Vec<Project>, StorageError> {
+        let snapshots: Vec<String> =
+            sqlx::query_scalar("SELECT canonical_snapshot::text FROM projects ORDER BY id ASC")
+                .fetch_all(&self.pool)
+                .await?;
+        snapshots
+            .into_iter()
+            .map(|value| decode_snapshot(&value, "project"))
+            .collect()
+    }
+
     /// Lists all durable Project identities for recovery and stop reconciliation.
     pub async fn list_project_ids(&self) -> Result<Vec<ProjectId>, StorageError> {
         let ids: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM projects ORDER BY id ASC")

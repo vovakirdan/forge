@@ -38,6 +38,18 @@ async fn main() -> Result<()> {
     let approval_command_fixture = approval_commands::seed(&harness).await?;
     let cancellation_command_fixture = cancellation_commands::seed(&harness).await?;
     let dependency_read_fixture = dependency_reads::seed(&harness).await?;
+    let existing_projects = harness.store.list_project_ids().await?.len();
+    for index in existing_projects..25 {
+        harness
+            .create_project(&format!("Project selector page {index:02}"))
+            .await?;
+    }
+    let later_id = harness.store.list_project_ids().await?[20];
+    let later = harness
+        .store
+        .load_project(later_id)
+        .await?
+        .context("later Project missing")?;
     harness.start_project(project_id).await?;
     let project = harness
         .store
@@ -66,6 +78,7 @@ async fn main() -> Result<()> {
         "approval_commands_project": approval_command_fixture,
         "cancellation_commands_project": cancellation_command_fixture,
         "dependency_reads_project": dependency_read_fixture
+        ,"later_project": {"id": later.id(), "name": later.name()}
     })
     .to_string();
     // The browser's firstLine transport admits at most 8 KiB, including newline.

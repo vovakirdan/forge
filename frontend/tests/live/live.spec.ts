@@ -1,4 +1,5 @@
 import { test, expect } from "./fixtures";
+import { loadProject } from "./task-helpers";
 
 test("owner terminal login reads the canonical Project under production CSP", async ({
   live,
@@ -8,8 +9,7 @@ test("owner terminal login reads the canonical Project under production CSP", as
   page.on("request", (request) => requests.push(new URL(request.url()).origin));
   await live.login(page);
   await expect(page.getByText("Connected to Forge", { exact: true })).toBeVisible();
-  await page.getByLabel("Project ID", { exact: true }).fill(live.core.project_id);
-  await page.getByRole("button", { name: "Load project", exact: true }).click();
+  await loadProject(page, live.core.project_id);
   const project = page.getByRole("region", { name: "Project", exact: true });
   await expect(project).toContainText(live.core.project_id);
   await expect(project).toContainText(live.core.project_name);
@@ -43,7 +43,12 @@ test("unauthorized, foreign-origin and non-allowlisted reads are refused", async
     });
     expect(response.status).toBe(403);
   }
-  for (const path of ["/api/projects", "/v1/health", "/api/commands/start_project_execution"]) {
+  expect((await fetch(`${live.origin}/api/projects`)).status).toBe(401);
+  for (const path of [
+    "/api/projects/extra",
+    "/v1/health",
+    "/api/commands/start_project_execution",
+  ]) {
     const response = await fetch(`${live.origin}${path}`, {
       headers: { Authorization: `Bearer ${token}` },
     });
@@ -58,24 +63,12 @@ test("unknown Project has no mock fallback and network failure remains explicit"
 }) => {
   await live.login(page);
   await expect(page.getByText("Connected to Forge", { exact: true })).toBeVisible();
-  await live.allowConsoleErrors(
-    /^Failed to load resource: the server responded with a status of 404 \(Not Found\)$/,
-    async () => {
-      await page
-        .getByLabel("Project ID", { exact: true })
-        .fill("01900000-0000-7000-8000-000000000001");
-      await page.getByRole("button", { name: "Load project", exact: true }).click();
-      await expect(page.getByRole("alert")).toContainText(/not found/i);
-    },
-  );
-  await expect(page.getByRole("region", { name: "Project", exact: true })).toHaveCount(0);
-  const switchedProjectRequests: string[] = [];
-  page.on("request", (request) => {
-    const path = new URL(request.url()).pathname;
-    if (path === `/api/projects/${live.core.project_id}`) switchedProjectRequests.push("selected");
-    if (path === "/api/projects/01900000-0000-7000-8000-000000000001")
-      switchedProjectRequests.push("previous");
+  const unknown = await fetch(`${live.origin}/api/projects/01900000-0000-7000-8000-000000000001`, {
+    headers: { Authorization: `Bearer ${await live.bearer()}` },
   });
+  expect(unknown.status).toBe(404);
+  await expect(page.getByRole("region", { name: "Project", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("list", { name: "Projects" })).toBeVisible();
   await page.context().setOffline(true);
   await live.allowConsoleErrors(
     /^Failed to load resource: net::ERR_INTERNET_DISCONNECTED$/,
@@ -85,18 +78,16 @@ test("unknown Project has no mock fallback and network failure remains explicit"
           message.type() === "error" &&
           message.text() === "Failed to load resource: net::ERR_INTERNET_DISCONNECTED",
       });
-      await page.getByLabel("Project ID", { exact: true }).fill(live.core.project_id);
-      await page.getByRole("button", { name: "Load project", exact: true }).click();
+      await page
+        .getByRole("list", { name: "Projects" })
+        .getByRole("button", { name: new RegExp(live.core.project_id) })
+        .click();
       await expect(page.getByRole("alert")).toContainText(/unavailable|network|connect/i);
       // React can render the fetch error before Chromium emits its console event.
       // Keep the precise expected-error window open until that event arrives.
       await disconnected;
     },
   );
-  expect(
-    switchedProjectRequests,
-    "Switch must not recreate a read for the previous Project",
-  ).toEqual(["selected"]);
   await expect(page.getByRole("button", { name: "Log out", exact: true })).toBeVisible();
   await page.context().setOffline(false);
   await page.getByRole("button", { name: "Retry project", exact: true }).click();
@@ -219,26 +210,23 @@ test("switching Project cancels a delayed real response without restoring the pr
     }
   });
   try {
-    await page.getByLabel("Project ID", { exact: true }).fill(live.core.project_id);
-    await page.getByRole("button", { name: "Load project", exact: true }).click();
+    await page
+      .getByRole("list", { name: "Projects" })
+      .getByRole("button", { name: new RegExp(live.core.project_id) })
+      .click();
     await responseCaptured;
     expect(failedDelivery, "The real gateway response was captured").toBe(false);
-    await live.allowConsoleErrors(
-      /^Failed to load resource: the server responded with a status of 404 \(Not Found\)$/,
-      async () => {
-        await page
-          .getByLabel("Project ID", { exact: true })
-          .fill("01900000-0000-7000-8000-000000000001");
-        await page.getByRole("button", { name: "Load project", exact: true }).click();
-        await expect(page.getByRole("alert")).toContainText(/not found/i);
-      },
-    );
+    await loadProject(page, live.core.second_project.id);
     await expect.poll(() => cancelled).toBe(true);
     release();
     await responseFinished;
     expect(failedDelivery).toBe(false);
-    await expect(page.getByRole("region", { name: "Project", exact: true })).toHaveCount(0);
-    await expect(page.getByRole("alert")).toContainText(/not found/i);
+    await expect(page.getByRole("region", { name: "Project", exact: true })).toContainText(
+      live.core.second_project.id,
+    );
+    await expect(page.getByRole("region", { name: "Project", exact: true })).not.toContainText(
+      live.core.project_id,
+    );
   } finally {
     release();
     await page.unrouteAll({ behavior: "wait" });
