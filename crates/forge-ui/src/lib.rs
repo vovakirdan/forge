@@ -1,5 +1,8 @@
 //! Local-owner browser boundary. Canonical reads remain behind the Core UDS.
 
+mod amend_employee;
+#[cfg(test)]
+mod amend_employee_tests;
 mod approve_task;
 #[cfg(test)]
 mod approve_task_tests;

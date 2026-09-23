@@ -8,6 +8,7 @@ import { describeApiError, LiveApiError } from "./api.ts";
 import { prepareReadChange, readKeys } from "./read-cache.ts";
 import type { ProjectReadScope } from "./read-scope.ts";
 import { useReadLifetime } from "./use-read-lifetime.ts";
+import { EmployeeEditPanel } from "./EmployeeEditPanel.tsx";
 
 export function EmployeeProfilePanel({
   scope,
@@ -23,6 +24,7 @@ export function EmployeeProfilePanel({
   const title = useRef<HTMLHeadingElement>(null);
   const runOpener = useRef<HTMLButtonElement | null>(null);
   const [runId, setRunId] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
   const [navigation, setNavigation] = useState<{
     cursor: string | null;
     previous: (string | null)[];
@@ -83,12 +85,30 @@ export function EmployeeProfilePanel({
           <div className="flex flex-wrap gap-2">
             <Button
               variant="outline"
+              disabled={
+                !profile.data ||
+                profile.isFetching ||
+                profile.isError ||
+                profile.data.state === "retired" ||
+                editing
+              }
+              onClick={() => setEditing(true)}
+            >
+              Edit Employee
+            </Button>
+            <Button
+              variant="outline"
               disabled={profile.isFetching}
               onClick={() => void profile.refetch()}
             >
               Refresh profile
             </Button>
-            <Button variant="outline" onClick={onClose}>
+            <Button
+              variant="outline"
+              onClick={() => {
+                if (scope.leaveGuard.canLeave()) onClose();
+              }}
+            >
               Close profile
             </Button>
           </div>
@@ -231,6 +251,14 @@ export function EmployeeProfilePanel({
           </>
         )}
       </section>
+      {editing && employee && (
+        <EmployeeEditPanel
+          scope={scope}
+          employee={employee}
+          onCancel={() => setEditing(false)}
+          onSaved={() => setEditing(false)}
+        />
+      )}
       {runId && <RunDetailPanel key={runId} {...scope} runId={runId} onClose={closeRun} />}
     </>
   );

@@ -23,8 +23,10 @@ live availability.
 FRONTEND-021 opens a safe Employee profile and paginated retained Run history
 from Team. FRONTEND-022 creates Employees through Core with explicit stage
 eligibility, receipt, conflict handling and safe replay of an uncertain request.
+FRONTEND-023 edits an existing Employee's name, role, capacity and stage
+eligibility through Core; it keeps exact retries and reads the saved profile.
 The live entry does not load the demo shell or services; Board,
-other Employee management, Pipeline editing, other commands, SSE and body/context
+Employee lifecycle controls, Pipeline editing, other commands, SSE and body/context
 viewers remain future work.
 
 The demo needs no Lovable account, API keys, database, Podman services or provider

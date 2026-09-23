@@ -281,3 +281,67 @@ async fn create_employee_is_an_exact_owner_command_with_employee_receipt() {
     );
     assert!(forwarded.ends_with(&body));
 }
+
+#[tokio::test]
+async fn amend_employee_requires_owner_and_forwards_only_the_exact_route() {
+    let employee = "01988000-0000-7000-8000-000000000005";
+    let body = serde_json::to_vec(&serde_json::json!({
+        "project_id":crate::command_tests::PROJECT,
+        "expected_revision":3,
+        "payload":{"employee_id":employee,"expected_employee_revision":2,"patch":{"name":"Renamed"}}
+    }))
+    .unwrap();
+    let receipt = serde_json::to_vec(&serde_json::json!({
+        "command_id":"01988000-0000-7000-8000-000000000003",
+        "status":"applied","project_revision":4,
+        "event_ids":["01988000-0000-7000-8000-000000000004"],
+        "resource":{"kind":"employee","id":employee}
+    }))
+    .unwrap();
+    let (_dir, client, server) = fake_core(response(200, &receipt), Duration::ZERO).await;
+    let mut state = Arc::try_unwrap(state()).ok().unwrap();
+    state.core = client;
+    let state = Arc::new(state);
+    let token = session_token(&state);
+    for (method, uri) in [
+        ("GET", "/api/commands/amend_employee"),
+        ("POST", "/api/commands/amend_employee/"),
+        ("POST", "/api/commands/amend_employee?actor=owner"),
+    ] {
+        let request = authenticated_request(&state, &token)
+            .method(method)
+            .uri(uri)
+            .body(Body::from(body.clone()))
+            .unwrap();
+        assert_eq!(
+            handle(State(state.clone()), request).await.status(),
+            StatusCode::NOT_FOUND
+        );
+    }
+    let mut unauthorized = authenticated_request(&state, &token)
+        .uri("/api/commands/amend_employee")
+        .body(Body::from(body.clone()))
+        .unwrap();
+    unauthorized.headers_mut().remove("authorization");
+    assert_eq!(
+        handle(State(state.clone()), unauthorized).await.status(),
+        StatusCode::UNAUTHORIZED
+    );
+    let request = authenticated_request(&state, &token)
+        .uri("/api/commands/amend_employee")
+        .body(Body::from(body.clone()))
+        .unwrap();
+    let response = handle(State(state), request).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        to_bytes(response.into_body(), 64 * 1024).await.unwrap(),
+        receipt
+    );
+    let forwarded = server.await.unwrap();
+    assert!(
+        std::str::from_utf8(&forwarded)
+            .unwrap()
+            .starts_with("POST /v1/commands/amend_employee HTTP/1.1")
+    );
+    assert!(forwarded.ends_with(&body));
+}

@@ -29,7 +29,7 @@ Project-wide Run reads, FRONTEND-010 — Pipeline versions и stage inspector.
 |---|---|---|---|
 | Projects / Overview | Selector, metrics, risks, current goal | Safe list/detail есть; нет full config/aggregate dashboard | UI1.1, UI2.1, UI3.3 |
 | Task / Board | Fixed stages/priorities, assignee, artifacts, findings | Task commands/detail есть; нужны schema/dependency/constraint/schedule/handoff views | UI0.1, UI1.3, UI1.4, UI2.3 |
-| Team / Hire | Один manager/current Run, fixed engines, toast hire | Safe scoped Employee list/profile, Run history и Core-backed creation есть; другие Employee commands остаются | UI1.1 |
+| Team / Hire | Один manager/current Run, fixed engines, toast hire | Safe scoped Employee list/profile, Run history, Core-backed creation и amend есть; lifecycle commands остаются | UI1.1 |
 | Pipeline | Local editable stages/save | Immutable versions/default/soft-delete, graph/acceptance есть | UI1.2 |
 | Run / Activity | Mock events, engine/agent/task, fake abort | Diverse Run purposes, evidence/incidents/usage есть; context/object reads неполны | UI2.1, UI2.3 |
 | Chat | Mock channels, synthetic Lead answer, local pending | Inbox/threads/Communication/receipts есть; нужны aggregated reads | UI2.2 |
@@ -263,7 +263,7 @@ rendering остаются в UI0.2/UI1.4/UI2.1; этот слой никуда 
 
 | Gap | Что отсутствует / расходится | Владелец следующего шага |
 |---|---|---|
-| `employee-catalog-read` | FRONTEND-020/021 добавляют scoped safe Employee list/profile и Run history; FRONTEND-022 добавляет `create_employee` через gateway | UI1.1 продолжает amend/lifecycle, runtime и onboarding |
+| `employee-catalog-read` | FRONTEND-020/021 добавляют scoped safe Employee list/profile и Run history; FRONTEND-022/023 добавляют `create_employee` и `amend_employee` через gateway | UI1.1 продолжает lifecycle, runtime и onboarding |
 | `employee-runtime-profile-read` | Нет полного safe profile/readiness view; нельзя получать его из credentials или одного Run | UI1.1; без новых provider Runs для health |
 | `task-work-surface-read` | Нет generic TaskWorkSurface view; source-policy/snapshot/candidate endpoints дают отдельные факты | UI1.4; без обязательного Git и host paths |
 | `run-runtime-metadata-read` | RunView не отдаёт timestamps, provider/model, heartbeat или environment/surface metadata | UI2.1 согласует safe projection; не вычислять из ID/RunSpec version |

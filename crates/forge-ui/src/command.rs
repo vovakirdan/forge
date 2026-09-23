@@ -19,6 +19,7 @@ const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 #[derive(Clone, Copy)]
 pub(crate) enum CommandTarget {
     CreateEmployee,
+    AmendEmployee,
     CreateTask,
     ApproveTask,
     CancelTask,
@@ -32,6 +33,7 @@ impl CommandTarget {
     pub(crate) fn from_browser_path(path: &str) -> Option<Self> {
         match path {
             "/api/commands/create_employee" => Some(Self::CreateEmployee),
+            "/api/commands/amend_employee" => Some(Self::AmendEmployee),
             "/api/commands/create_task" => Some(Self::CreateTask),
             "/api/commands/approve_task" => Some(Self::ApproveTask),
             "/api/commands/cancel_task" => Some(Self::CancelTask),
@@ -46,6 +48,7 @@ impl CommandTarget {
     fn core_path(self) -> &'static str {
         match self {
             Self::CreateEmployee => "/v1/commands/create_employee",
+            Self::AmendEmployee => "/v1/commands/amend_employee",
             Self::CreateTask => "/v1/commands/create_task",
             Self::ApproveTask => "/v1/commands/approve_task",
             Self::CancelTask => "/v1/commands/cancel_task",
@@ -253,6 +256,12 @@ pub(crate) async fn execute(
     let response = match target {
         CommandTarget::CreateEmployee => {
             let command = crate::create_employee::CreateEmployee::parse(&body)?;
+            let response = state.core.command(target, &key, body).await?;
+            command.validate_receipt(&response)?;
+            response
+        }
+        CommandTarget::AmendEmployee => {
+            let command = crate::amend_employee::AmendEmployee::parse(&body)?;
             let response = state.core.command(target, &key, body).await?;
             command.validate_receipt(&response)?;
             response
