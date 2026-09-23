@@ -14,6 +14,8 @@ FRONTEND-014 creates draft Tasks with an explicitly selected Pipeline version.
 FRONTEND-015 edits draft DoD and separately approves saved drafts through Core.
 FRONTEND-016 cancels non-terminal Tasks with a Project reason and shows the
 saved cancellation metadata; it does not add separate Run execution controls.
+FRONTEND-017 reads both directions of Task dependencies and opens related Tasks.
+FRONTEND-018 creates and removes `task_done` links through Core in the live Task card.
 The live entry does not load the demo shell or services; Board, Team, Pipeline
 editing, other commands, SSE and body/context viewers remain future work.
 
@@ -228,9 +230,19 @@ resolved or the Task can run. Cancelled blockers do not satisfy the condition.
 Open a related Task even when it is outside the current list page, then use
 **Back to previous task** to return. The list page remains unchanged; closing
 the card restores focus to the original list opener when available. Navigation
-respects unsaved edits. Refresh and pagination are explicit; dependencies are
-not created or removed here. See
+respects unsaved edits. Refresh and pagination are explicit. See
 [FRONTEND-017](../tasks/frontend/frontend-017-task-dependency-reads.md).
+
+To add a `task_done` link, choose **Add blocker** under **Depends on** or
+**Block another task** under **Blocks**, pick another Task from the Project
+pages, review the direction and confirm. Existing links have a separate
+**Remove link with …** action and confirmation.
+Only the 20 Tasks on the current candidate page are loaded; use **Next page**
+to reach later Tasks. An unknown command result offers **Retry same command**
+with the same request. After a known refusal, refresh the Project baseline and
+confirm again. A receipt refreshes dependency reads; Core decides whether the
+link affects readiness or dispatch. See
+[FRONTEND-018](../tasks/frontend/frontend-018-task-dependency-commands.md).
 
 **Refresh task** retries a read. A failed refresh keeps the previous data marked
 stale; an initial failure does not appear as an empty list. If a cursor becomes

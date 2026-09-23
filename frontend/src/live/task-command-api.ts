@@ -26,24 +26,16 @@ async function boundedJson(response: Response): Promise<unknown> {
   }
 }
 
-export async function sendTaskCommand(
+export async function postCommand(
   fetcher: typeof fetch,
-  command: "amend_draft" | "set_task_priority" | "create_task" | "approve_task" | "cancel_task",
-  attempt: TaskCommandAttempt | CreateTaskAttempt,
-  request: { expected_revision: number; payload: object },
+  command: string,
+  attempt: { body: string; key: string },
   token: string,
   signal: AbortSignal,
   unauthorized: () => Error,
 ) {
-  // Validate before transport; never reconstruct the immutable retry body.
   IdempotencyKeySchema.parse(attempt.key);
-  if (
-    (command !== "create_task" &&
-      (!("taskId" in attempt) ||
-        !("task_id" in request.payload) ||
-        request.payload.task_id !== attempt.taskId)) ||
-    new TextEncoder().encode(attempt.body).byteLength > 512 * 1024
-  )
+  if (new TextEncoder().encode(attempt.body).byteLength > 512 * 1024)
     throw new LiveCommandError("invalid_request");
   let response: Response;
   try {
@@ -82,9 +74,36 @@ export async function sendTaskCommand(
     if (response.status === 403 && code === "forbidden") throw new LiveCommandError(code);
     throw new LiveCommandError("outcome_unknown");
   }
+  return { status: response.status, value };
+}
+
+export async function sendTaskCommand(
+  fetcher: typeof fetch,
+  command: "amend_draft" | "set_task_priority" | "create_task" | "approve_task" | "cancel_task",
+  attempt: TaskCommandAttempt | CreateTaskAttempt,
+  request: { expected_revision: number; payload: object },
+  token: string,
+  signal: AbortSignal,
+  unauthorized: () => Error,
+) {
+  if (
+    command !== "create_task" &&
+    (!("taskId" in attempt) ||
+      !("task_id" in request.payload) ||
+      request.payload.task_id !== attempt.taskId)
+  )
+    throw new LiveCommandError("invalid_request");
+  const { status, value } = await postCommand(
+    fetcher,
+    command,
+    attempt,
+    token,
+    signal,
+    unauthorized,
+  );
   const receipt = TaskCommandReceiptSchema.safeParse(value);
   if (
-    response.status !== 200 ||
+    status !== 200 ||
     !receipt.success ||
     (command !== "create_task" &&
       (!("taskId" in attempt) ||

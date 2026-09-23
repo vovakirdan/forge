@@ -22,6 +22,9 @@ mod core_client_tests;
 mod create_task;
 #[cfg(test)]
 mod create_task_tests;
+mod dependency_command;
+#[cfg(test)]
+mod dependency_command_tests;
 mod http;
 #[cfg(test)]
 mod http_tests;

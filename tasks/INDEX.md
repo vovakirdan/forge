@@ -21,14 +21,14 @@
 | [FRONTEND-015](frontend/frontend-015-draft-dod-approval.md) | UI1.3 / UI0.2 | P0 | done | FRONTEND-011–014; command-срез согласован | DoD edit и явный approval с consent/retry/readback; 121 live browser tests, evidence в Task |
 | [FRONTEND-016](frontend/frontend-016-task-cancellation.md) | UI1.3 / UI0.2 | P0 | done | FRONTEND-008, FRONTEND-011–015; command-срез согласован | Каталог причин, явная отмена и readback; 134 live browser tests PASS |
 | [FRONTEND-017](frontend/frontend-017-task-dependency-reads.md) | UI1.3 / UI0.2 | P0 | done | FRONTEND-008/016; read-only срез согласован | Обе стороны зависимости, оценка условия и переходы между Task; 142 live browser tests PASS |
+| [FRONTEND-018](frontend/frontend-018-task-dependency-commands.md) | UI1.3 / UI0.2 | P0 | done | FRONTEND-017 | Создание/удаление task_done связей через Core с выбором Task из страниц Project; 145 live browser tests PASS |
 
 ## Порядок и параллельность
 
-FRONTEND-017 завершила согласованный read-only срез:
-[зависимости и переходы между Task](frontend/frontend-017-task-dependency-reads.md).
-Создание и удаление связей будут отдельной Task после него.
+FRONTEND-017 завершила чтение и переходы между Task. FRONTEND-018 завершила
+создание и удаление связей через Core поверх этого просмотра.
 
-FRONTEND-001–017 завершены в своих согласованных границах. FRONTEND-012 добавила
+FRONTEND-001–018 завершены в своих согласованных границах. FRONTEND-012 добавила
 чтение приоритетов проекта перед будущим созданием Task; существующие
 milestone/epic gates сохраняются. FRONTEND-013 добавляет изменение приоритета
 существующей Task через `set_task_priority`. FRONTEND-014 добавляет создание

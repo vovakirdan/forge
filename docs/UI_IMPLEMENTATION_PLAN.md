@@ -284,6 +284,11 @@ read-only зависимости в обоих направлениях и ло�
 что у зависимой Task нет других ожиданий. Создание/удаление связей, граф и
 stage/artifact conditions остаются отдельными срезами.
 
+[FRONTEND-018](../tasks/frontend/frontend-018-task-dependency-commands.md) добавляет
+создание и удаление `task_done` связей в live Task-карточке через существующие
+Core commands. Кандидат выбирается из постраничного Project Task list;
+граф, поиск по ключу и иные условия связи остаются за пределами среза.
+
 Run-приёмка разделяет реальные Core reads с M0 fake execution и synthetic
 cases пяти purposes. Ни то ни другое не является новым provider proof. Browser
 limits не закрывают gap серверной Run pagination, пока Core загружает все строки

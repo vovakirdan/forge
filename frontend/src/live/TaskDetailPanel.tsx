@@ -154,7 +154,11 @@ export function TaskDetailPanel(
             </p>
           </section>
           <TaskProperties task={task} />
-          <TaskDependencies {...scope} />
+          <TaskDependencies
+            {...scope}
+            taskKey={task.key}
+            canEdit={detail.isSuccess && !detail.isFetching}
+          />
           <TaskWaits task={task} />
           <TaskArtifacts task={task} />
         </>

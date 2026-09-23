@@ -2,23 +2,68 @@ import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "../components/ui/button.tsx";
 import type { DependencyDirection } from "../contracts/task-dependencies.ts";
+import type { TaskDependencyView } from "../contracts/task-dependencies.ts";
 import { describeApiError, LiveApiError } from "./api.ts";
 import type { ProjectReadScope } from "./read-scope.ts";
 import { prepareReadChange, readKeys } from "./read-cache.ts";
 import { useReadLifetime } from "./use-read-lifetime.ts";
+import { DependencyEditor } from "./DependencyEditor.tsx";
 
-type Props = ProjectReadScope & { taskId: string; onOpenRelated: (taskId: string) => void };
+type Props = ProjectReadScope & {
+  taskId: string;
+  taskKey: string;
+  canEdit: boolean;
+  onOpenRelated: (taskId: string) => void;
+};
+type Edit =
+  | { direction: DependencyDirection; action: "create"; related?: never }
+  | {
+      direction: DependencyDirection;
+      action: "remove";
+      related: TaskDependencyView["related_task"];
+    };
 
 export function TaskDependencies(scope: Props) {
+  const [edit, setEdit] = useState<Edit | null>(null);
+  const [refreshEpoch, setRefreshEpoch] = useState(0);
   return (
     <>
-      <DependencyPanel {...scope} direction="blocked_by" />
-      <DependencyPanel {...scope} direction="blocks" />
+      {edit && (
+        <DependencyEditor
+          {...scope}
+          {...edit}
+          onClose={() => setEdit(null)}
+          onAccepted={() => setRefreshEpoch((value) => value + 1)}
+        />
+      )}
+      <DependencyPanel
+        key={`blocked_by:${refreshEpoch}`}
+        {...scope}
+        direction="blocked_by"
+        editing={edit !== null}
+        onAdd={() => setEdit({ direction: "blocked_by", action: "create" })}
+        onRemove={(related) => setEdit({ direction: "blocked_by", action: "remove", related })}
+      />
+      <DependencyPanel
+        key={`blocks:${refreshEpoch}`}
+        {...scope}
+        direction="blocks"
+        editing={edit !== null}
+        onAdd={() => setEdit({ direction: "blocks", action: "create" })}
+        onRemove={(related) => setEdit({ direction: "blocks", action: "remove", related })}
+      />
     </>
   );
 }
 
-function DependencyPanel(scope: Props & { direction: DependencyDirection }) {
+function DependencyPanel(
+  scope: Props & {
+    direction: DependencyDirection;
+    editing: boolean;
+    onAdd: () => void;
+    onRemove: (related: TaskDependencyView["related_task"]) => void;
+  },
+) {
   const { api, session, generation, projectId, taskId, direction } = scope;
   const queries = useQueryClient();
   const [navigation, setNavigation] = useState<{
@@ -48,6 +93,9 @@ function DependencyPanel(scope: Props & { direction: DependencyDirection }) {
     <section aria-label={title} className="space-y-3 rounded-lg border border-border p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h3 className="font-medium">{title}</h3>
+        <Button variant="outline" disabled={scope.editing || !scope.canEdit} onClick={scope.onAdd}>
+          {direction === "blocked_by" ? "Add blocker" : "Block another task"}
+        </Button>
         <Button
           variant="outline"
           disabled={dependencies.isFetching}
@@ -122,6 +170,13 @@ function DependencyPanel(scope: Props & { direction: DependencyDirection }) {
                   }[item.condition_state]
                 }
               </p>
+              <Button
+                variant="outline"
+                disabled={scope.editing || !scope.canEdit}
+                onClick={() => scope.onRemove(item.related_task)}
+              >
+                Remove link with {item.related_task.key}
+              </Button>
             </li>
           ))}
         </ul>

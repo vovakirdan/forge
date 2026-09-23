@@ -16,6 +16,8 @@ import type { CreateTaskAttempt } from "../contracts/create-task.ts";
 import { sendCreateTask } from "./create-task-api.ts";
 import { sendApproveTask } from "./approve-task-api.ts";
 import { sendCancelTask } from "./cancel-task-api.ts";
+import { sendDependencyCommand } from "./dependency-command-api.ts";
+import type { DependencyCommandAttempt } from "../contracts/dependency-command.ts";
 import { CancellationReasonsViewSchema } from "../contracts/cancellation-reasons.ts";
 import {
   DependencyDirectionSchema,
@@ -140,6 +142,15 @@ export function createLiveApi(fetcher: typeof fetch = fetch) {
   }
 
   return {
+    dependencyCommand(attempt: DependencyCommandAttempt, token: string, signal: AbortSignal) {
+      return sendDependencyCommand(
+        fetcher,
+        attempt,
+        token,
+        signal,
+        () => new LiveApiError("unauthorized"),
+      );
+    },
     async taskDependencies(
       projectId: string,
       taskId: string,

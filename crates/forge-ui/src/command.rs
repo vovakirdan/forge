@@ -23,6 +23,8 @@ pub(crate) enum CommandTarget {
     CancelTask,
     AmendDraft,
     SetTaskPriority,
+    CreateDependency,
+    RemoveDependency,
 }
 
 impl CommandTarget {
@@ -33,6 +35,8 @@ impl CommandTarget {
             "/api/commands/cancel_task" => Some(Self::CancelTask),
             "/api/commands/amend_draft" => Some(Self::AmendDraft),
             "/api/commands/set_task_priority" => Some(Self::SetTaskPriority),
+            "/api/commands/create_dependency" => Some(Self::CreateDependency),
+            "/api/commands/remove_dependency" => Some(Self::RemoveDependency),
             _ => None,
         }
     }
@@ -44,6 +48,8 @@ impl CommandTarget {
             Self::CancelTask => "/v1/commands/cancel_task",
             Self::AmendDraft => "/v1/commands/amend_draft",
             Self::SetTaskPriority => "/v1/commands/set_task_priority",
+            Self::CreateDependency => "/v1/commands/create_dependency",
+            Self::RemoveDependency => "/v1/commands/remove_dependency",
         }
     }
 }
@@ -276,6 +282,12 @@ pub(crate) async fn execute(
         CommandTarget::SetTaskPriority => {
             let command = SetTaskPriority::parse(&body)?;
             state.core.set_task_priority(&command, &key, body).await?
+        }
+        CommandTarget::CreateDependency | CommandTarget::RemoveDependency => {
+            let command = crate::dependency_command::DependencyCommand::parse(&body, target)?;
+            let response = state.core.command(target, &key, body).await?;
+            command.validate_receipt(&response)?;
+            response
         }
     };
     Ok(([(header::CONTENT_TYPE, "application/json")], response).into_response())
