@@ -20,6 +20,9 @@ const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 pub(crate) enum CommandTarget {
     CreateEmployee,
     AmendEmployee,
+    EnableEmployee,
+    DisableEmployee,
+    RetireEmployee,
     CreateTask,
     ApproveTask,
     CancelTask,
@@ -34,6 +37,9 @@ impl CommandTarget {
         match path {
             "/api/commands/create_employee" => Some(Self::CreateEmployee),
             "/api/commands/amend_employee" => Some(Self::AmendEmployee),
+            "/api/commands/enable_employee" => Some(Self::EnableEmployee),
+            "/api/commands/disable_employee" => Some(Self::DisableEmployee),
+            "/api/commands/retire_employee" => Some(Self::RetireEmployee),
             "/api/commands/create_task" => Some(Self::CreateTask),
             "/api/commands/approve_task" => Some(Self::ApproveTask),
             "/api/commands/cancel_task" => Some(Self::CancelTask),
@@ -49,6 +55,9 @@ impl CommandTarget {
         match self {
             Self::CreateEmployee => "/v1/commands/create_employee",
             Self::AmendEmployee => "/v1/commands/amend_employee",
+            Self::EnableEmployee => "/v1/commands/enable_employee",
+            Self::DisableEmployee => "/v1/commands/disable_employee",
+            Self::RetireEmployee => "/v1/commands/retire_employee",
             Self::CreateTask => "/v1/commands/create_task",
             Self::ApproveTask => "/v1/commands/approve_task",
             Self::CancelTask => "/v1/commands/cancel_task",
@@ -262,6 +271,14 @@ pub(crate) async fn execute(
         }
         CommandTarget::AmendEmployee => {
             let command = crate::amend_employee::AmendEmployee::parse(&body)?;
+            let response = state.core.command(target, &key, body).await?;
+            command.validate_receipt(&response)?;
+            response
+        }
+        CommandTarget::EnableEmployee
+        | CommandTarget::DisableEmployee
+        | CommandTarget::RetireEmployee => {
+            let command = crate::employee_lifecycle::EmployeeLifecycle::parse(&body)?;
             let response = state.core.command(target, &key, body).await?;
             command.validate_receipt(&response)?;
             response

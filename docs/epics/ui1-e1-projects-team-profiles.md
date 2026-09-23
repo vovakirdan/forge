@@ -92,9 +92,14 @@ readback и ручным replay при неизвестном исходе. Onbo
 редактирование имени, роли, вместимости и stage eligibility через
 `amend_employee` с двумя revision, receipt, readback и точным replay.
 
+[FRONTEND-024](../../tasks/frontend/frontend-024-employee-lifecycle.md) добавляет
+enable/disable/retire через Core с подтверждением, необязательной audit reason,
+receipt, readback и точным replay. Scheduling state остаётся отдельно от
+доступности и остановки Runs.
+
 - Project settings и более полная safe config metadata;
 - operational projection доступности Employee отдельно от scheduling state;
-- lifecycle/configuration forms и receipt/conflict presentation;
+- Project configuration forms и оставшиеся receipt/conflict presentation;
 - onboarding status/request/retry/skip и four-lane readiness view;
 - browser contract fixtures для unavailable, forbidden и stale-revision ответов.
 

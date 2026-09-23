@@ -345,3 +345,69 @@ async fn amend_employee_requires_owner_and_forwards_only_the_exact_route() {
     );
     assert!(forwarded.ends_with(&body));
 }
+
+#[tokio::test]
+async fn employee_lifecycle_routes_require_owner_and_forward_exact_requests() {
+    let employee = "01988000-0000-7000-8000-000000000005";
+    for action in ["enable_employee", "disable_employee", "retire_employee"] {
+        let body = serde_json::to_vec(&serde_json::json!({
+            "project_id":crate::command_tests::PROJECT,
+            "expected_revision":3,
+            "payload":{"employee_id":employee,"expected_employee_revision":2,"reason":"Owner decision"}
+        }))
+        .unwrap();
+        let receipt = serde_json::to_vec(&serde_json::json!({
+            "command_id":"01988000-0000-7000-8000-000000000003",
+            "status":"applied","project_revision":4,
+            "event_ids":["01988000-0000-7000-8000-000000000004"],
+            "resource":{"kind":"employee","id":employee}
+        }))
+        .unwrap();
+        let (_dir, client, server) = fake_core(response(200, &receipt), Duration::ZERO).await;
+        let mut owned = Arc::try_unwrap(state()).ok().unwrap();
+        owned.core = client;
+        let state = Arc::new(owned);
+        let token = session_token(&state);
+        for (method, path) in [
+            ("GET", format!("/api/commands/{action}")),
+            ("POST", format!("/api/commands/{action}/")),
+            ("POST", format!("/api/commands/{action}?actor=owner")),
+        ] {
+            let request = authenticated_request(&state, &token)
+                .method(method)
+                .uri(path)
+                .body(Body::from(body.clone()))
+                .unwrap();
+            assert_eq!(
+                handle(State(state.clone()), request).await.status(),
+                StatusCode::NOT_FOUND
+            );
+        }
+        let mut unauthorized = authenticated_request(&state, &token)
+            .uri(format!("/api/commands/{action}"))
+            .body(Body::from(body.clone()))
+            .unwrap();
+        unauthorized.headers_mut().remove("authorization");
+        assert_eq!(
+            handle(State(state.clone()), unauthorized).await.status(),
+            StatusCode::UNAUTHORIZED
+        );
+        let request = authenticated_request(&state, &token)
+            .uri(format!("/api/commands/{action}"))
+            .body(Body::from(body.clone()))
+            .unwrap();
+        let response = handle(State(state), request).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            to_bytes(response.into_body(), 64 * 1024).await.unwrap(),
+            receipt
+        );
+        let forwarded = server.await.unwrap();
+        assert!(
+            std::str::from_utf8(&forwarded)
+                .unwrap()
+                .starts_with(&format!("POST /v1/commands/{action} HTTP/1.1"))
+        );
+        assert!(forwarded.ends_with(&body));
+    }
+}

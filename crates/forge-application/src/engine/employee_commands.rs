@@ -29,14 +29,17 @@ impl Engine<'_> {
             | CommandPayload::EnableEmployee {
                 employee_id,
                 expected_employee_revision,
+                ..
             }
             | CommandPayload::DisableEmployee {
                 employee_id,
                 expected_employee_revision,
+                ..
             }
             | CommandPayload::RetireEmployee {
                 employee_id,
                 expected_employee_revision,
+                ..
             } => (*employee_id, *expected_employee_revision),
             _ => return Err(CommandError::UnsupportedCommand),
         };
@@ -53,23 +56,23 @@ impl Engine<'_> {
             }
             .into());
         }
-        let kind = match &envelope.payload {
+        let (kind, reason) = match &envelope.payload {
             CommandPayload::AmendEmployee { patch, .. } => {
                 employee.amend(patch, now)?;
                 validate_employee_stage_eligibility(transaction, &project, &employee).await?;
-                DomainEventKind::EmployeeAmended
+                (DomainEventKind::EmployeeAmended, None)
             }
-            CommandPayload::EnableEmployee { .. } => {
+            CommandPayload::EnableEmployee { reason, .. } => {
                 employee.enable(now)?;
-                DomainEventKind::EmployeeEnabled
+                (DomainEventKind::EmployeeEnabled, reason.clone())
             }
-            CommandPayload::DisableEmployee { .. } => {
+            CommandPayload::DisableEmployee { reason, .. } => {
                 employee.disable(now)?;
-                DomainEventKind::EmployeeDisabled
+                (DomainEventKind::EmployeeDisabled, reason.clone())
             }
-            CommandPayload::RetireEmployee { .. } => {
+            CommandPayload::RetireEmployee { reason, .. } => {
                 employee.retire(now)?;
-                DomainEventKind::EmployeeRetired
+                (DomainEventKind::EmployeeRetired, reason.clone())
             }
             _ => return Err(CommandError::UnsupportedCommand),
         };
@@ -88,7 +91,7 @@ impl Engine<'_> {
             kind,
             self.actors.human,
             command_id,
-            None,
+            reason,
             event_payload([
                 ("employee_id", json!(employee.id())),
                 ("name", json!(employee.name())),

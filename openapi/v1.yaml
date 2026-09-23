@@ -1770,6 +1770,11 @@ components:
         expected_employee_revision:
           type: integer
           minimum: 1
+        reason:
+          type: [string, 'null']
+          minLength: 1
+          maxLength: 10000
+          description: Optional nonblank audit reason without NUL.
       description: >
         Payload for enable_employee, disable_employee and retire_employee.
         Retiring is final. Disabling or retiring prevents admission, not a stop

@@ -27,6 +27,7 @@
 | [FRONTEND-021](frontend/frontend-021-employee-profile-runs.md) | UI1.1 / UI0.2 | P0 | done | FRONTEND-020 | Read-only Employee profile и scoped Run history; 153 live browser tests PASS |
 | [FRONTEND-022](frontend/frontend-022-create-employee.md) | UI1.1 / UI0.2 | P0 | done | FRONTEND-021 | Core-backed Employee creation с explicit stage eligibility, receipt и replay; 157 live browser tests PASS |
 | [FRONTEND-023](frontend/frontend-023-amend-employee.md) | UI1.1 / UI0.2 | P0 | done | FRONTEND-022 | Редактирование Employee через Core с двумя revisions, receipt, replay и readback; 164 live browser tests PASS |
+| [FRONTEND-024](frontend/frontend-024-employee-lifecycle.md) | UI1.1 / UI0.2 | P0 | done | FRONTEND-023 | Enable/disable/retire Employee через Core с optional audit reason, receipt, replay и readback |
 
 ## Порядок и параллельность
 

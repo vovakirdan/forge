@@ -41,8 +41,8 @@ pub const MAX_STABLE_KEY_BYTES: usize = 64;
 
 /// Maximum Unicode scalar-value length of an optional command audit detail.
 ///
-/// This applies to a cancellation note and to the optional reason on project
-/// execution start or stop. It is measured as Rust `char` values, which aligns
+/// This applies to a cancellation note and optional management reasons,
+/// including Employee lifecycle changes. It is measured as Rust `char` values, which aligns
 /// with the OpenAPI `maxLength` contract rather than UTF-8 byte length.
 pub const MAX_COMMAND_AUDIT_DETAIL_CHARACTERS: usize = 10_000;
 

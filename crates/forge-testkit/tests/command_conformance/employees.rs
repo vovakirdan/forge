@@ -108,14 +108,27 @@ pub async fn employee_management_round_trip(kind: BackendKind) -> Result<()> {
         (CommandName::RetireEmployee, EmployeeState::Retired),
     ] {
         let revision = load(&fixture, id).await?.revision();
-        fixture
+        let reason = match name {
+            CommandName::DisableEmployee => Some("Pause future work"),
+            CommandName::RetireEmployee => Some("Role no longer needed"),
+            _ => None,
+        };
+        let receipt = fixture
             .execute(
                 name,
-                json!({"employee_id":id,"expected_employee_revision":revision}),
+                json!({"employee_id":id,"expected_employee_revision":revision,"reason":reason}),
             )
             .await?;
         let current = load(&fixture, id).await?;
         assert_eq!((current.revision(), current.state()), (revision + 1, state));
+        let history = fixture.snapshot().await?.raw;
+        let event = history["event_log"]
+            .as_array()
+            .context("audit events")?
+            .iter()
+            .find(|event| event["id"] == receipt.event_ids[0])
+            .context("lifecycle event")?;
+        assert_eq!(event["reason"], json!(reason));
     }
     let before_replay = fixture.snapshot().await?;
     let replay = fixture.execute_as(&amendment, &fixture.context).await?;

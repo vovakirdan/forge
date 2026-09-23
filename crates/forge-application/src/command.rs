@@ -189,16 +189,19 @@ pub enum CommandPayload {
     EnableEmployee {
         employee_id: EmployeeId,
         expected_employee_revision: u64,
+        reason: Option<String>,
     },
     /// Disable future assignment without changing active Runs.
     DisableEmployee {
         employee_id: EmployeeId,
         expected_employee_revision: u64,
+        reason: Option<String>,
     },
     /// Permanently exclude this Employee from new assignments.
     RetireEmployee {
         employee_id: EmployeeId,
         expected_employee_revision: u64,
+        reason: Option<String>,
     },
     /// Create a Task in draft state.
     CreateTask(CreateTaskCommand),

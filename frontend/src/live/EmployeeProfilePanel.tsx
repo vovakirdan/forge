@@ -9,6 +9,7 @@ import { prepareReadChange, readKeys } from "./read-cache.ts";
 import type { ProjectReadScope } from "./read-scope.ts";
 import { useReadLifetime } from "./use-read-lifetime.ts";
 import { EmployeeEditPanel } from "./EmployeeEditPanel.tsx";
+import { EmployeeLifecyclePanel } from "./EmployeeLifecyclePanel.tsx";
 
 export function EmployeeProfilePanel({
   scope,
@@ -25,6 +26,7 @@ export function EmployeeProfilePanel({
   const runOpener = useRef<HTMLButtonElement | null>(null);
   const [runId, setRunId] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
+  const [managing, setManaging] = useState(false);
   const [navigation, setNavigation] = useState<{
     cursor: string | null;
     previous: (string | null)[];
@@ -90,11 +92,21 @@ export function EmployeeProfilePanel({
                 profile.isFetching ||
                 profile.isError ||
                 profile.data.state === "retired" ||
-                editing
+                editing ||
+                managing
               }
               onClick={() => setEditing(true)}
             >
               Edit Employee
+            </Button>
+            <Button
+              variant="outline"
+              disabled={
+                !profile.data || profile.isFetching || profile.isError || editing || managing
+              }
+              onClick={() => setManaging(true)}
+            >
+              Manage state
             </Button>
             <Button
               variant="outline"
@@ -257,6 +269,13 @@ export function EmployeeProfilePanel({
           employee={employee}
           onCancel={() => setEditing(false)}
           onSaved={() => setEditing(false)}
+        />
+      )}
+      {managing && employee && (
+        <EmployeeLifecyclePanel
+          {...scope}
+          employeeId={employee.id}
+          onClose={() => setManaging(false)}
         />
       )}
       {runId && <RunDetailPanel key={runId} {...scope} runId={runId} onClose={closeRun} />}

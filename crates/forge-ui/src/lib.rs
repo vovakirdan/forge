@@ -31,6 +31,9 @@ mod create_task_tests;
 mod dependency_command;
 #[cfg(test)]
 mod dependency_command_tests;
+mod employee_lifecycle;
+#[cfg(test)]
+mod employee_lifecycle_tests;
 mod http;
 #[cfg(test)]
 mod http_tests;
