@@ -320,6 +320,50 @@ paths:
         '409':
           $ref: '#/components/responses/Conflict'
 
+  /v1/projects/{projectId}/employees/{employeeId}:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+      - $ref: '#/components/parameters/EmployeeId'
+    get:
+      tags: [projects]
+      operationId: getEmployee
+      summary: Read one safe Employee profile in its Project.
+      description: State controls eligibility for new assignments, not live availability.
+      responses:
+        '200':
+          description: Canonical Employee profile without provider credentials or runtime session data.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeProfileView'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/projects/{projectId}/employees/{employeeId}/runs:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+      - $ref: '#/components/parameters/EmployeeId'
+      - $ref: '#/components/parameters/PageCursor'
+      - $ref: '#/components/parameters/PageLimit'
+    get:
+      tags: [runs]
+      operationId: listEmployeeRuns
+      summary: List retained Runs owned by one Employee, newest first.
+      description: Ordered by creation time and ID descending. Hook and SystemJob Runs have no Employee owner.
+      responses:
+        '200':
+          description: Bounded page of existing safe Run projections.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeRunListResponse'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
   /v1/projects/{projectId}/tasks:
     parameters:
       - $ref: '#/components/parameters/ProjectId'
@@ -668,6 +712,12 @@ components:
         maxLength: 128
     ProjectId:
       name: projectId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/UuidV7'
+    EmployeeId:
+      name: employeeId
       in: path
       required: true
       schema:
@@ -2523,6 +2573,54 @@ components:
           type: integer
           minimum: 1
           maximum: 65535
+
+    EmployeeProfileView:
+      type: object
+      additionalProperties: false
+      required: [id, project_id, name, role, state, revision, max_concurrent_runs, stage_eligibility, created_at, updated_at]
+      properties:
+        id: {$ref: '#/components/schemas/UuidV7'}
+        project_id: {$ref: '#/components/schemas/UuidV7'}
+        name: {type: string, minLength: 1, maxLength: 200}
+        role: {type: string, minLength: 1, maxLength: 128}
+        state: {type: string, enum: [enabled, disabled, retired]}
+        revision: {type: integer, minimum: 1, format: int64}
+        max_concurrent_runs: {type: integer, minimum: 1, maximum: 65535}
+        stage_eligibility: {$ref: '#/components/schemas/StageEligibilityView'}
+        created_at: {$ref: '#/components/schemas/Rfc3339Timestamp'}
+        updated_at: {$ref: '#/components/schemas/Rfc3339Timestamp'}
+
+    StageEligibilityView:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [mode]
+          properties:
+            mode: {const: any}
+        - type: object
+          additionalProperties: false
+          required: [mode, stages]
+          properties:
+            mode: {const: only}
+            stages:
+              type: array
+              minItems: 1
+              uniqueItems: true
+              items:
+                $ref: '#/components/schemas/StageEligibilityTarget'
+
+    EmployeeRunListResponse:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/RunView'
+        next_cursor:
+          type: string
+          description: Omitted on the final page.
 
     ProjectPrioritySchemeView:
       type: object

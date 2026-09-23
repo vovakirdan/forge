@@ -27,5 +27,11 @@ pub async fn seed(harness: &M0Harness) -> Result<Value> {
             )
             .await?;
     }
-    Ok(json!({"id":project_id,"name":"Team roster acceptance","total":22}))
+    Ok(json!({
+        "id":project_id,
+        "name":"Team roster acceptance",
+        "total":22,
+        "disabled_id":employees[0].employee.id(),
+        "retired_id":employees[1].employee.id()
+    }))
 }

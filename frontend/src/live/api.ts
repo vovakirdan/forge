@@ -1,7 +1,11 @@
 import { z } from "zod";
 import { UuidV7Schema, TimestampSchema } from "../contracts/common.ts";
 import { ProjectListResponseSchema, ProjectViewSchema } from "../contracts/project.ts";
-import { EmployeeListResponseSchema } from "../contracts/employee.ts";
+import {
+  EmployeeListResponseSchema,
+  EmployeeProfileSchema,
+  EmployeeRunListResponseSchema,
+} from "../contracts/employee.ts";
 import { PrioritySchemeViewSchema } from "../contracts/priority-scheme.ts";
 import { TaskDetailViewSchema, TaskListResponseSchema } from "../contracts/task.ts";
 import {
@@ -295,6 +299,46 @@ export function createLiveApi(fetcher: typeof fetch = fetch) {
       if (
         value.items.length > 20 ||
         new Set(value.items.map((item) => item.id)).size !== value.items.length
+      )
+        throw new LiveApiError("invalid_response");
+      return value;
+    },
+    async employee(projectId: string, employeeId: string, token: string, signal: AbortSignal) {
+      identifiers(projectId, employeeId);
+      const value = await json(
+        await request(`/api/projects/${projectId}/employees/${employeeId}`, "GET", signal, token),
+        EmployeeProfileSchema,
+      );
+      if (
+        value.id.toLowerCase() !== employeeId.toLowerCase() ||
+        value.project_id.toLowerCase() !== projectId.toLowerCase()
+      )
+        throw new LiveApiError("invalid_response");
+      return value;
+    },
+    async employeeRuns(
+      projectId: string,
+      employeeId: string,
+      cursor: string | null,
+      token: string,
+      signal: AbortSignal,
+    ) {
+      identifiers(projectId, employeeId);
+      const search = new URLSearchParams({ limit: "20" });
+      if (cursor !== null) search.set("cursor", cursor);
+      const value = await json(
+        await request(
+          `/api/projects/${projectId}/employees/${employeeId}/runs?${search}`,
+          "GET",
+          signal,
+          token,
+        ),
+        EmployeeRunListResponseSchema,
+      );
+      if (
+        value.items.length > 20 ||
+        new Set(value.items.map((item) => item.id)).size !== value.items.length ||
+        value.items.some((item) => item.employee_id?.toLowerCase() !== employeeId.toLowerCase())
       )
         throw new LiveApiError("invalid_response");
       return value;

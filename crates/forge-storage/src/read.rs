@@ -1,6 +1,6 @@
 //! Read-only projections used by Core-owned local transports.
 
-use forge_domain::{PipelineVersion, Project, ProjectId, TaskId};
+use forge_domain::{EmployeeId, PipelineVersion, Project, ProjectId, TaskId};
 use uuid::Uuid;
 
 use crate::store::stored_artifact_from_row;
@@ -78,6 +78,24 @@ impl PostgresStore {
         );
         let rows = sqlx::query(&query)
             .bind(project_id.as_uuid())
+            .fetch_all(&self.pool)
+            .await?;
+        rows.into_iter().map(run_projection_from_row).collect()
+    }
+
+    /// Lists retained Runs for one Employee, newest first. Hook and SystemJob
+    /// executions have no Employee identity and cannot appear here.
+    pub async fn list_runs_for_employee(
+        &self,
+        project_id: ProjectId,
+        employee_id: EmployeeId,
+    ) -> Result<Vec<RunProjection>, StorageError> {
+        let query = format!(
+            "SELECT {RUN_COLUMNS} FROM runs WHERE project_id = $1 AND employee_id = $2 ORDER BY created_at DESC, id DESC"
+        );
+        let rows = sqlx::query(&query)
+            .bind(project_id.as_uuid())
+            .bind(employee_id.as_uuid())
             .fetch_all(&self.pool)
             .await?;
         rows.into_iter().map(run_projection_from_row).collect()

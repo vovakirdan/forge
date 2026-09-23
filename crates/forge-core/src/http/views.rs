@@ -39,6 +39,16 @@ pub(crate) struct EmployeeSummaryView {
 }
 
 #[derive(Serialize)]
+pub(crate) struct EmployeeProfileView {
+    #[serde(flatten)]
+    summary: EmployeeSummaryView,
+    project_id: String,
+    stage_eligibility: forge_domain::StageEligibility,
+    created_at: String,
+    updated_at: String,
+}
+
+#[derive(Serialize)]
 pub(crate) struct TaskSummaryView {
     id: String,
     key: String,
@@ -200,6 +210,16 @@ pub(crate) fn employee_summary_view(employee: &Employee) -> EmployeeSummaryView 
         revision: employee.revision(),
         max_concurrent_runs: employee.max_concurrent_runs(),
     }
+}
+
+pub(crate) fn employee_profile_view(employee: &Employee) -> Result<EmployeeProfileView, CoreError> {
+    Ok(EmployeeProfileView {
+        summary: employee_summary_view(employee),
+        project_id: employee.project_id().to_string(),
+        stage_eligibility: employee.stage_eligibility().clone(),
+        created_at: timestamp(employee.created_at())?,
+        updated_at: timestamp(employee.updated_at())?,
+    })
 }
 
 pub(crate) fn task_summary_view(task: &Task) -> Result<TaskSummaryView, CoreError> {

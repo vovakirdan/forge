@@ -4,6 +4,10 @@ import type { DependencyDirection } from "../contracts/task-dependencies.ts";
 export const readKeys = {
   employees: (generation: number, project: string, cursor: string | null) =>
     ["live", generation, project, "employees", cursor] as const,
+  employee: (generation: number, project: string, employee: string) =>
+    ["live", generation, project, "employee", employee] as const,
+  employeeRuns: (generation: number, project: string, employee: string, cursor: string | null) =>
+    ["live", generation, project, "employee-runs", employee, cursor] as const,
   dependencies: (
     generation: number,
     project: string,

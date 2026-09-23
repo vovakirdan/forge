@@ -63,6 +63,15 @@ impl ReadTarget {
                 );
                 target.cursor_conflict = true;
             }
+            [project, "employees", employee, "runs"] => {
+                let project = uuid_v7(project)?;
+                let employee = uuid_v7(employee)?;
+                target.path = format!(
+                    "/v1/projects/{project}/employees/{employee}/runs?{}",
+                    pagination(query)?
+                );
+                target.cursor_conflict = true;
+            }
             [
                 project,
                 resource @ ("tasks" | "pipelines" | "runs" | "employees"),
@@ -79,6 +88,12 @@ impl ReadTarget {
                 let project = uuid_v7(project)?;
                 let id = uuid_v7(id)?;
                 target.path = format!("/v1/projects/{project}/{resource}/{id}");
+                target.body_limit = DETAIL_BODY_LIMIT;
+            }
+            [project, "employees", employee] if query.is_none() => {
+                let project = uuid_v7(project)?;
+                let employee = uuid_v7(employee)?;
+                target.path = format!("/v1/projects/{project}/employees/{employee}");
                 target.body_limit = DETAIL_BODY_LIMIT;
             }
             _ => return Err(ApiError::NotFound),

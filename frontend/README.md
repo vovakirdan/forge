@@ -20,8 +20,10 @@ FRONTEND-019 lists Projects from Core and selects one without entering its ID.
 FRONTEND-020 adds a read-only Team roster scoped to the selected Project, with
 pagination and refresh. Employee state describes scheduling eligibility, not
 live availability.
-The live entry does not load the demo shell or services; Board, Employee profiles,
-Pipeline editing, other commands, SSE and body/context viewers remain future work.
+FRONTEND-021 opens a safe Employee profile and paginated retained Run history
+from Team. The live entry does not load the demo shell or services; Board,
+Employee management, Pipeline editing, other commands, SSE and body/context
+viewers remain future work.
 
 The demo needs no Lovable account, API keys, database, Podman services or provider
 Runs. The live screen needs a running local Core; Project access requires an

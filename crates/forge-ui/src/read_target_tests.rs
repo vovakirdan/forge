@@ -50,9 +50,46 @@ fn employee_roster_is_only_a_scoped_paginated_read() {
             Err(ApiError::BadRequest)
         ));
     }
-    for suffix in ["/", "/all", &format!("/{TASK}")] {
+    for suffix in ["/", "/all", &format!("/{TASK}/config")] {
         assert!(matches!(
             ReadTarget::parse(&format!("{path}{suffix}"), None),
+            Err(ApiError::NotFound)
+        ));
+    }
+}
+
+#[test]
+fn employee_profile_and_run_history_are_closed_scoped_reads() {
+    let profile = format!("/api/projects/{PROJECT}/employees/{TASK}");
+    let target = ReadTarget::parse(&profile, None).unwrap();
+    assert_eq!(
+        target.path,
+        format!("/v1/projects/{PROJECT}/employees/{TASK}")
+    );
+    assert_eq!(target.body_limit, DETAIL_BODY_LIMIT);
+    assert!(!target.cursor_conflict);
+    assert!(matches!(
+        ReadTarget::parse(&profile, Some("limit=1")),
+        Err(ApiError::NotFound)
+    ));
+
+    let history = format!("{profile}/runs");
+    let target = ReadTarget::parse(&history, Some("limit=20&cursor=run%2Fid")).unwrap();
+    assert_eq!(
+        target.path,
+        format!("/v1/projects/{PROJECT}/employees/{TASK}/runs?limit=20&cursor=run%2Fid")
+    );
+    assert_eq!(target.body_limit, CORE_BODY_LIMIT);
+    assert!(target.cursor_conflict);
+    for query in ["", "limit=0", "cursor=", "employee_id=other"] {
+        assert!(matches!(
+            ReadTarget::parse(&history, Some(query)),
+            Err(ApiError::BadRequest)
+        ));
+    }
+    for suffix in ["/", "/all", "/diagnostics"] {
+        assert!(matches!(
+            ReadTarget::parse(&format!("{history}{suffix}"), None),
             Err(ApiError::NotFound)
         ));
     }
@@ -289,6 +326,9 @@ fn new_routes_require_both_identifiers_to_be_uuidv7() {
         for path in [
             format!("/api/projects/{invalid}/tasks"),
             format!("/api/projects/{invalid}/employees"),
+            format!("/api/projects/{invalid}/employees/{TASK}"),
+            format!("/api/projects/{PROJECT}/employees/{invalid}"),
+            format!("/api/projects/{PROJECT}/employees/{invalid}/runs"),
             format!("/api/projects/{invalid}/priority-scheme"),
             format!("/api/projects/{invalid}/tasks/{TASK}"),
             format!("/api/projects/{PROJECT}/tasks/{invalid}"),

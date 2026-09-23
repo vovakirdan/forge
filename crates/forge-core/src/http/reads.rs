@@ -1,6 +1,6 @@
 //! Core-owned read paths; HTTP handlers never access canonical storage directly.
 
-use forge_domain::{Pipeline, PipelineVersion, Project, ProjectId, TaskId};
+use forge_domain::{EmployeeId, Pipeline, PipelineVersion, Project, ProjectId, TaskId};
 use forge_storage::{RunProjection, StoredArtifact, StoredEmployee, StoredEvent, StoredTask};
 use uuid::Uuid;
 
@@ -29,6 +29,32 @@ impl CoreService {
         Ok(self.store().list_employees(project_id).await?)
     }
 
+    pub(crate) async fn read_employee(
+        &self,
+        project_id: ProjectId,
+        employee_id: EmployeeId,
+    ) -> Result<StoredEmployee, CoreError> {
+        self.store()
+            .load_employee(employee_id)
+            .await?
+            .filter(|employee| employee.employee.project_id() == project_id)
+            .ok_or(CoreError::NotFound {
+                aggregate: "employee",
+            })
+    }
+
+    pub(crate) async fn read_employee_runs(
+        &self,
+        project_id: ProjectId,
+        employee_id: EmployeeId,
+    ) -> Result<Vec<RunProjection>, CoreError> {
+        self.read_employee(project_id, employee_id).await?;
+        Ok(self
+            .store()
+            .list_runs_for_employee(project_id, employee_id)
+            .await?)
+    }
+
     pub(crate) async fn read_employee_threads(
         &self,
         project_id: ProjectId,
@@ -36,13 +62,7 @@ impl CoreService {
         after: Option<Uuid>,
         limit: u32,
     ) -> Result<Vec<forge_domain::communication::EmployeeThread>, CoreError> {
-        self.store()
-            .load_employee(employee_id)
-            .await?
-            .filter(|employee| employee.employee.project_id() == project_id)
-            .ok_or(CoreError::NotFound {
-                aggregate: "employee",
-            })?;
+        self.read_employee(project_id, employee_id).await?;
         Ok(self
             .store()
             .list_employee_threads(project_id, employee_id, after, limit)

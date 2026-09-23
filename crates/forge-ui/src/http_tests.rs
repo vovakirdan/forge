@@ -328,6 +328,62 @@ async fn task_routes_reject_invalid_queries_ids_methods_and_bodies_before_core()
 }
 
 #[tokio::test]
+async fn employee_profile_routes_reject_mutation_and_unbounded_queries_before_core() {
+    let state = state();
+    let code = state.sessions.issue_code().unwrap();
+    let session = state.sessions.exchange(&code.code).unwrap();
+    let project = "01988000-0000-7000-8000-000000000001";
+    let employee = "01988000-0000-7000-8000-000000000002";
+    for (method, suffix, expected) in [
+        (
+            "GET",
+            format!("employees/{employee}?limit=1"),
+            StatusCode::NOT_FOUND,
+        ),
+        (
+            "GET",
+            format!("employees/{employee}/runs?limit=0"),
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            "GET",
+            format!("employees/{employee}/runs?employee_id=x"),
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            "GET",
+            format!("employees/{employee}/runs/all"),
+            StatusCode::NOT_FOUND,
+        ),
+        (
+            "POST",
+            format!("employees/{employee}"),
+            StatusCode::NOT_FOUND,
+        ),
+        (
+            "DELETE",
+            format!("employees/{employee}"),
+            StatusCode::NOT_FOUND,
+        ),
+        (
+            "OPTIONS",
+            format!("employees/{employee}/runs"),
+            StatusCode::NOT_FOUND,
+        ),
+    ] {
+        let response = handle(
+            State(state.clone()),
+            request(method, &format!("/api/projects/{project}/{suffix}"))
+                .header("authorization", format!("Bearer {}", session.token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(response.status(), expected, "{method} {suffix}");
+    }
+}
+
+#[tokio::test]
 async fn run_routes_reject_unscoped_reads_commands_queries_and_body_before_core() {
     let state = state();
     let code = state.sessions.issue_code().unwrap();

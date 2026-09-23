@@ -29,7 +29,7 @@ Project-wide Run reads, FRONTEND-010 — Pipeline versions и stage inspector.
 |---|---|---|---|
 | Projects / Overview | Selector, metrics, risks, current goal | Safe list/detail есть; нет full config/aggregate dashboard | UI1.1, UI2.1, UI3.3 |
 | Task / Board | Fixed stages/priorities, assignee, artifacts, findings | Task commands/detail есть; нужны schema/dependency/constraint/schedule/handoff views | UI0.1, UI1.3, UI1.4, UI2.3 |
-| Team / Hire | Один manager/current Run, fixed engines, toast hire | Safe scoped Employee list есть; detail/profile reads и hire UI остаются | UI1.1 |
+| Team / Hire | Один manager/current Run, fixed engines, toast hire | Safe scoped Employee list/profile и Run history есть; hire UI остаётся | UI1.1 |
 | Pipeline | Local editable stages/save | Immutable versions/default/soft-delete, graph/acceptance есть | UI1.2 |
 | Run / Activity | Mock events, engine/agent/task, fake abort | Diverse Run purposes, evidence/incidents/usage есть; context/object reads неполны | UI2.1, UI2.3 |
 | Chat | Mock channels, synthetic Lead answer, local pending | Inbox/threads/Communication/receipts есть; нужны aggregated reads | UI2.2 |
@@ -263,7 +263,7 @@ rendering остаются в UI0.2/UI1.4/UI2.1; этот слой никуда 
 
 | Gap | Что отсутствует / расходится | Владелец следующего шага |
 |---|---|---|
-| `employee-catalog-read` | FRONTEND-020 добавляет scoped safe Employee list; detail/profile reads остаются | UI1.1 продолжает profile/hire |
+| `employee-catalog-read` | FRONTEND-020/021 добавляют scoped safe Employee list/profile и Run history | UI1.1 продолжает hire/configuration |
 | `employee-runtime-profile-read` | Нет полного safe profile/readiness view; нельзя получать его из credentials или одного Run | UI1.1; без новых provider Runs для health |
 | `task-work-surface-read` | Нет generic TaskWorkSurface view; source-policy/snapshot/candidate endpoints дают отдельные факты | UI1.4; без обязательного Git и host paths |
 | `run-runtime-metadata-read` | RunView не отдаёт timestamps, provider/model, heartbeat или environment/surface metadata | UI2.1 согласует safe projection; не вычислять из ID/RunSpec version |

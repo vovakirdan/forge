@@ -1,8 +1,8 @@
 # Epic UI1.1 — Projects, команда и профили Employee
 
 **Milestone:** UI1 — browser interface before M4 installer
-**Статус:** `in_progress`; priority read FRONTEND-012 и Project selector
-FRONTEND-019 завершены как отдельные срезы,
+**Статус:** `in_progress`; priority read FRONTEND-012, Project selector
+FRONTEND-019 и Team read FRONTEND-020/021 завершены как отдельные срезы,
 полные зависимости UI0.1/UI0.2/UI0.3 и exit gate сохраняются.
 **Зависимости:** UI0.1 model contracts, UI0.2 browser/API boundary, UI0.3 UI tooling.
 **Контракты:** ../2026-09-03-employee-domain-model.md,
@@ -78,10 +78,14 @@ safe Project list с постраничным выбором в live UI. Это 
 
 [FRONTEND-020](../../tasks/frontend/frontend-020-team-roster.md) добавляет
 постраничный read-only Employee list в выбранном Project с ролью, scheduling
-state и capacity. Operational availability и профиль пока не отображаются.
+state и capacity. Operational availability остаётся отдельным read gap.
+
+[FRONTEND-021](../../tasks/frontend/frontend-021-employee-profile-runs.md) добавляет
+read-only профиль Employee и его retained Run history. Operational availability,
+onboarding и команды управления остаются отдельно.
 
 - Project settings и более полная safe config metadata;
-- Employee detail/profile с Run history projections;
+- operational projection доступности Employee отдельно от scheduling state;
 - hire/configuration forms и receipt/conflict presentation;
 - onboarding status/request/retry/skip и four-lane readiness view;
 - browser contract fixtures для unavailable, forbidden и stale-revision ответов.
