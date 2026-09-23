@@ -1,7 +1,7 @@
 //! Core-owned read paths; HTTP handlers never access canonical storage directly.
 
 use forge_domain::{Pipeline, PipelineVersion, Project, ProjectId, TaskId};
-use forge_storage::{RunProjection, StoredArtifact, StoredEvent, StoredTask};
+use forge_storage::{RunProjection, StoredArtifact, StoredEmployee, StoredEvent, StoredTask};
 use uuid::Uuid;
 
 use crate::{CoreError, CoreService};
@@ -19,6 +19,14 @@ pub(crate) struct PipelineVersionRead {
 impl CoreService {
     pub(crate) async fn read_projects(&self) -> Result<Vec<Project>, CoreError> {
         Ok(self.store().list_projects().await?)
+    }
+
+    pub(crate) async fn read_employees(
+        &self,
+        project_id: ProjectId,
+    ) -> Result<Vec<StoredEmployee>, CoreError> {
+        self.read_project(project_id).await?;
+        Ok(self.store().list_employees(project_id).await?)
     }
 
     pub(crate) async fn read_employee_threads(

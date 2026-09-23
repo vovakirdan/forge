@@ -63,7 +63,10 @@ impl ReadTarget {
                 );
                 target.cursor_conflict = true;
             }
-            [project, resource @ ("tasks" | "pipelines" | "runs")] => {
+            [
+                project,
+                resource @ ("tasks" | "pipelines" | "runs" | "employees"),
+            ] => {
                 let project = uuid_v7(project)?;
                 target.path = format!("/v1/projects/{project}/{resource}?{}", pagination(query)?);
                 target.cursor_conflict = true;

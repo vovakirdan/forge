@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { UuidV7Schema, TimestampSchema } from "../contracts/common.ts";
 import { ProjectListResponseSchema, ProjectViewSchema } from "../contracts/project.ts";
+import { EmployeeListResponseSchema } from "../contracts/employee.ts";
 import { PrioritySchemeViewSchema } from "../contracts/priority-scheme.ts";
 import { TaskDetailViewSchema, TaskListResponseSchema } from "../contracts/task.ts";
 import {
@@ -54,7 +55,7 @@ export class LiveApiError extends Error {
 
 export function describeApiError(
   error: unknown,
-  resource: "Project" | "Task" | "Pipeline" | "Run" = "Project",
+  resource: "Project" | "Task" | "Pipeline" | "Run" | "Employee" = "Project",
 ): string {
   if (!(error instanceof LiveApiError)) return "The request could not be completed.";
   switch (error.kind) {
@@ -281,6 +282,21 @@ export function createLiveApi(fetcher: typeof fetch = fetch) {
         ProjectViewSchema,
       );
       if (value.id.toLowerCase() !== id.toLowerCase()) throw new LiveApiError("invalid_response");
+      return value;
+    },
+    async employees(projectId: string, cursor: string | null, token: string, signal: AbortSignal) {
+      identifiers(projectId);
+      const search = new URLSearchParams({ limit: "20" });
+      if (cursor !== null) search.set("cursor", cursor);
+      const value = await json(
+        await request(`/api/projects/${projectId}/employees?${search}`, "GET", signal, token),
+        EmployeeListResponseSchema,
+      );
+      if (
+        value.items.length > 20 ||
+        new Set(value.items.map((item) => item.id)).size !== value.items.length
+      )
+        throw new LiveApiError("invalid_response");
       return value;
     },
     async tasks(projectId: string, cursor: string | null, token: string, signal: AbortSignal) {

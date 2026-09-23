@@ -23,6 +23,7 @@
 | [FRONTEND-017](frontend/frontend-017-task-dependency-reads.md) | UI1.3 / UI0.2 | P0 | done | FRONTEND-008/016; read-only срез согласован | Обе стороны зависимости, оценка условия и переходы между Task; 142 live browser tests PASS |
 | [FRONTEND-018](frontend/frontend-018-task-dependency-commands.md) | UI1.3 / UI0.2 | P0 | done | FRONTEND-017 | Создание/удаление task_done связей через Core с выбором Task из страниц Project; 145 live browser tests PASS |
 | [FRONTEND-019](frontend/frontend-019-project-selector.md) | UI1.1 / UI0.2 | P0 | done | FRONTEND-007/018 | Safe Project list и выбор вместо ручного UUID; 148 live browser tests PASS |
+| [FRONTEND-020](frontend/frontend-020-team-roster.md) | UI1.1 / UI0.2 | P0 | done | FRONTEND-019 | Scoped read-only Employee list в Team; 150 live browser tests PASS |
 
 ## Порядок и параллельность
 

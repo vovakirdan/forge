@@ -128,6 +128,7 @@ async fn unauthorized_or_cross_origin_browser_never_connects_to_existing_core_so
         "/api/projects?limit=20",
         "/api/projects/01988000-0000-7000-8000-000000000001/priority-scheme",
         "/api/projects/01988000-0000-7000-8000-000000000001/tasks?limit=20",
+        "/api/projects/01988000-0000-7000-8000-000000000001/employees?limit=20",
         "/api/projects/01988000-0000-7000-8000-000000000001/tasks/01988000-0000-7000-8000-000000000002",
         "/api/projects/01988000-0000-7000-8000-000000000001/pipelines?limit=20",
         "/api/projects/01988000-0000-7000-8000-000000000001/pipelines/01988000-0000-7000-8000-000000000002",

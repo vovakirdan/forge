@@ -296,6 +296,30 @@ paths:
         '503':
           $ref: '#/components/responses/Unavailable'
 
+  /v1/projects/{projectId}/employees:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+      - $ref: '#/components/parameters/PageCursor'
+      - $ref: '#/components/parameters/PageLimit'
+    get:
+      tags: [projects]
+      operationId: listEmployees
+      summary: List safe Employee summaries for one Project.
+      description: Stable name then ID order. State is scheduling eligibility, not live availability.
+      responses:
+        '200':
+          description: A bounded page of Employee summaries.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeListResponse'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
   /v1/projects/{projectId}/tasks:
     parameters:
       - $ref: '#/components/parameters/ProjectId'
@@ -2459,6 +2483,46 @@ components:
         execution_gate:
           type: string
           enum: [open, stopped]
+
+    EmployeeListResponse:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/EmployeeSummaryView'
+        next_cursor:
+          type: string
+          description: Omitted on the final page.
+
+    EmployeeSummaryView:
+      type: object
+      additionalProperties: false
+      required: [id, name, role, state, revision, max_concurrent_runs]
+      properties:
+        id:
+          $ref: '#/components/schemas/UuidV7'
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        role:
+          type: string
+          minLength: 1
+          maxLength: 128
+        state:
+          type: string
+          enum: [enabled, disabled, retired]
+        revision:
+          type: integer
+          minimum: 1
+          format: int64
+        max_concurrent_runs:
+          type: integer
+          minimum: 1
+          maximum: 65535
 
     ProjectPrioritySchemeView:
       type: object

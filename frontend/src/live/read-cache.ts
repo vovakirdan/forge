@@ -2,6 +2,8 @@ import type { QueryClient, QueryKey } from "@tanstack/react-query";
 import type { DependencyDirection } from "../contracts/task-dependencies.ts";
 
 export const readKeys = {
+  employees: (generation: number, project: string, cursor: string | null) =>
+    ["live", generation, project, "employees", cursor] as const,
   dependencies: (
     generation: number,
     project: string,

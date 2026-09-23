@@ -29,6 +29,36 @@ fn project_catalog_is_only_a_bounded_paginated_read() {
 }
 
 #[test]
+fn employee_roster_is_only_a_scoped_paginated_read() {
+    let path = format!("/api/projects/{PROJECT}/employees");
+    let target = ReadTarget::parse(&path, Some("limit=20&cursor=opaque%2Fid")).unwrap();
+    assert_eq!(
+        target.path,
+        format!("/v1/projects/{PROJECT}/employees?limit=20&cursor=opaque%2Fid")
+    );
+    assert_eq!(target.body_limit, CORE_BODY_LIMIT);
+    assert!(target.cursor_conflict);
+    for query in [
+        "",
+        "limit=0",
+        "cursor=",
+        "limit=20&limit=1",
+        "state=enabled",
+    ] {
+        assert!(matches!(
+            ReadTarget::parse(&path, Some(query)),
+            Err(ApiError::BadRequest)
+        ));
+    }
+    for suffix in ["/", "/all", &format!("/{TASK}")] {
+        assert!(matches!(
+            ReadTarget::parse(&format!("{path}{suffix}"), None),
+            Err(ApiError::NotFound)
+        ));
+    }
+}
+
+#[test]
 fn dependency_reads_are_direction_scoped_and_paginated() {
     for direction in ["blocked_by", "blocks"] {
         let path = format!("/api/projects/{PROJECT}/tasks/{TASK}/dependencies/{direction}");
@@ -101,6 +131,12 @@ fn scoped_reads_have_fixed_paths_limits_and_cursor_policy() {
             format!("/v1/projects/{PROJECT}/priority-scheme"),
             CORE_BODY_LIMIT,
             false,
+        ),
+        (
+            format!("/api/projects/{PROJECT}/employees"),
+            format!("/v1/projects/{PROJECT}/employees?limit=20"),
+            CORE_BODY_LIMIT,
+            true,
         ),
         (
             format!("/api/projects/{PROJECT}/tasks"),
@@ -226,7 +262,7 @@ fn only_allowlisted_lists_accept_queries_and_other_resources_stay_closed() {
         format!("/api/projects/{PROJECT}/pipelines/{TASK}/versions"),
         format!("/api/projects/{PROJECT}/tasks/"),
         format!("/api/projects/{PROJECT}/tasks/{TASK}/artifacts"),
-        format!("/api/projects/{PROJECT}/employees"),
+        format!("/api/projects/{PROJECT}/employees/{TASK}"),
         format!("/api/projects/{PROJECT}/runs/{TASK}"),
         format!("/api/projects/{PROJECT}/runs/"),
         format!("/api/projects/{PROJECT}/runs/{TASK}/evidence"),
@@ -252,6 +288,7 @@ fn new_routes_require_both_identifiers_to_be_uuidv7() {
     ] {
         for path in [
             format!("/api/projects/{invalid}/tasks"),
+            format!("/api/projects/{invalid}/employees"),
             format!("/api/projects/{invalid}/priority-scheme"),
             format!("/api/projects/{invalid}/tasks/{TASK}"),
             format!("/api/projects/{PROJECT}/tasks/{invalid}"),

@@ -1,7 +1,7 @@
 //! Explicit public read models derived from canonical domain snapshots.
 
 use forge_domain::{
-    Actor, ActorKind as DomainActorKind, Artifact, ArtifactBody, ArtifactRequirement,
+    Actor, ActorKind as DomainActorKind, Artifact, ArtifactBody, ArtifactRequirement, Employee,
     PipelineStage, PipelineTransition, PipelineTransitionTarget, PipelineVersion, Project, Task,
     TaskWaitCondition, TaskWaitKind, Timestamp,
 };
@@ -26,6 +26,16 @@ pub(crate) struct ProjectView {
     revision: u64,
     name: String,
     execution_gate: forge_domain::ProjectExecutionGate,
+}
+
+#[derive(Serialize)]
+pub(crate) struct EmployeeSummaryView {
+    id: String,
+    name: String,
+    role: String,
+    state: forge_domain::EmployeeState,
+    revision: u64,
+    max_concurrent_runs: u16,
 }
 
 #[derive(Serialize)]
@@ -178,6 +188,17 @@ pub(crate) fn project_view(project: &Project) -> ProjectView {
         revision: project.revision(),
         name: project.name().to_owned(),
         execution_gate: project.execution_gate(),
+    }
+}
+
+pub(crate) fn employee_summary_view(employee: &Employee) -> EmployeeSummaryView {
+    EmployeeSummaryView {
+        id: employee.id().to_string(),
+        name: employee.name().to_owned(),
+        role: employee.role().as_str().to_owned(),
+        state: employee.state(),
+        revision: employee.revision(),
+        max_concurrent_runs: employee.max_concurrent_runs(),
     }
 }
 

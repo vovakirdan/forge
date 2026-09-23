@@ -22,6 +22,8 @@ mod pipelines;
 mod runs;
 #[path = "ui_core_fixture/tasks.rs"]
 mod tasks;
+#[path = "ui_core_fixture/team.rs"]
+mod team;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -38,6 +40,7 @@ async fn main() -> Result<()> {
     let approval_command_fixture = approval_commands::seed(&harness).await?;
     let cancellation_command_fixture = cancellation_commands::seed(&harness).await?;
     let dependency_read_fixture = dependency_reads::seed(&harness).await?;
+    let team_fixture = team::seed(&harness).await?;
     let existing_projects = harness.store.list_project_ids().await?.len();
     for index in existing_projects..25 {
         harness
@@ -78,6 +81,7 @@ async fn main() -> Result<()> {
         "approval_commands_project": approval_command_fixture,
         "cancellation_commands_project": cancellation_command_fixture,
         "dependency_reads_project": dependency_read_fixture
+        ,"team_project": team_fixture
         ,"later_project": {"id": later.id(), "name": later.name()}
     })
     .to_string();

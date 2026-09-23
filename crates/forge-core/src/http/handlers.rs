@@ -21,8 +21,8 @@ use uuid::Uuid;
 use super::{
     error::HttpError,
     views::{
-        ListView, health_view, pipeline_version_view, project_view, run_view, task_detail_view,
-        task_summary_view,
+        ListView, employee_summary_view, health_view, pipeline_version_view, project_view,
+        run_view, task_detail_view, task_summary_view,
     },
 };
 use crate::{CoreService, event_envelope_from_stored_event};
@@ -41,6 +41,7 @@ pub fn router(core: CoreService) -> Router {
         .route("/v1/commands/{name}", post(execute_command))
         .route("/v1/projects", get(list_projects))
         .route("/v1/projects/{project_id}", get(get_project))
+        .route("/v1/projects/{project_id}/employees", get(list_employees))
         .route("/v1/projects/{project_id}/tasks", get(list_tasks))
         .route("/v1/projects/{project_id}/tasks/{task_id}", get(get_task))
         .route("/v1/projects/{project_id}/pipelines", get(list_pipelines))
@@ -131,6 +132,35 @@ async fn list_projects(
         StatusCode::OK,
         ListView {
             items: page.items.iter().map(project_view).collect::<Vec<_>>(),
+            next_cursor: page.next_cursor,
+        },
+        &request_id,
+    ))
+}
+
+async fn list_employees(
+    State(core): State<CoreService>,
+    Path(path): Path<ProjectPath>,
+    query: Result<Query<PageQuery>, axum::extract::rejection::QueryRejection>,
+) -> Result<Response, HttpError> {
+    let request_id = request_id();
+    let project_id = project_id(&path.project_id, &request_id)?;
+    let query = page_query(query, &request_id)?;
+    let employees = core
+        .read_employees(project_id)
+        .await
+        .map_err(|error| HttpError::from_core(request_id.clone(), error))?;
+    let page = paginate(employees, &query, &request_id, |employee| {
+        employee.employee.id().to_string()
+    })?;
+    Ok(json_response(
+        StatusCode::OK,
+        ListView {
+            items: page
+                .items
+                .iter()
+                .map(|employee| employee_summary_view(&employee.employee))
+                .collect::<Vec<_>>(),
             next_cursor: page.next_cursor,
         },
         &request_id,

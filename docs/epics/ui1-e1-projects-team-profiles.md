@@ -76,8 +76,12 @@ Skip требует reason, actor и receipt; legacy bypass остаётся о�
 safe Project list с постраничным выбором в live UI. Это не Employee catalog,
 настройка Project или закрытие полного UI1.1 gate.
 
+[FRONTEND-020](../../tasks/frontend/frontend-020-team-roster.md) добавляет
+постраничный read-only Employee list в выбранном Project с ролью, scheduling
+state и capacity. Operational availability и профиль пока не отображаются.
+
 - Project settings и более полная safe config metadata;
-- Employee list/profile с lifecycle, capacity и Run history projections;
+- Employee detail/profile с Run history projections;
 - hire/configuration forms и receipt/conflict presentation;
 - onboarding status/request/retry/skip и four-lane readiness view;
 - browser contract fixtures для unavailable, forbidden и stale-revision ответов.

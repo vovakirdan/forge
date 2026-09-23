@@ -136,7 +136,7 @@ impl PostgresStore {
         project_id: ProjectId,
     ) -> Result<Vec<StoredEmployee>, StorageError> {
         let values: Vec<String> = sqlx::query_scalar(
-            "SELECT canonical_snapshot::text FROM employees WHERE project_id = $1 ORDER BY name ASC",
+            "SELECT canonical_snapshot::text FROM employees WHERE project_id = $1 ORDER BY name ASC, id ASC",
         )
         .bind(project_id.as_uuid())
         .fetch_all(&self.pool)
