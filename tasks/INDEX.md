@@ -25,6 +25,7 @@
 | [FRONTEND-019](frontend/frontend-019-project-selector.md) | UI1.1 / UI0.2 | P0 | done | FRONTEND-007/018 | Safe Project list и выбор вместо ручного UUID; 148 live browser tests PASS |
 | [FRONTEND-020](frontend/frontend-020-team-roster.md) | UI1.1 / UI0.2 | P0 | done | FRONTEND-019 | Scoped read-only Employee list в Team; 150 live browser tests PASS |
 | [FRONTEND-021](frontend/frontend-021-employee-profile-runs.md) | UI1.1 / UI0.2 | P0 | done | FRONTEND-020 | Read-only Employee profile и scoped Run history; 153 live browser tests PASS |
+| [FRONTEND-022](frontend/frontend-022-create-employee.md) | UI1.1 / UI0.2 | P0 | done | FRONTEND-021 | Core-backed Employee creation с explicit stage eligibility, receipt и replay; 157 live browser tests PASS |
 
 ## Порядок и параллельность
 
@@ -32,7 +33,7 @@ FRONTEND-017 завершила чтение и переходы между Task
 создание и удаление связей через Core поверх этого просмотра. FRONTEND-019
 добавила выбор Project из Core list вместо ручного UUID.
 
-FRONTEND-001–021 завершены в своих согласованных границах. FRONTEND-012 добавила
+FRONTEND-001–022 завершены в своих согласованных границах. FRONTEND-012 добавила
 чтение приоритетов проекта перед будущим созданием Task; существующие
 milestone/epic gates сохраняются. FRONTEND-013 добавляет изменение приоритета
 существующей Task через `set_task_priority`. FRONTEND-014 добавляет создание

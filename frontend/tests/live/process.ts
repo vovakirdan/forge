@@ -2,6 +2,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { once } from "node:events";
 
 const children = new Set<ChildProcessWithoutNullStreams>();
+const READINESS_LIMIT = 12 * 1024;
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.once(signal, () => {
     void Promise.all([...children].map(stop)).finally(() => process.exit(1));
@@ -30,7 +31,8 @@ export async function firstLine(child: ChildProcessWithoutNullStreams): Promise<
     const timer = setTimeout(() => finish(new Error("Fixture startup timed out")), 40_000);
     const onData = (chunk: Buffer) => {
       output += chunk.toString();
-      if (output.length > 8192) finish(new Error("Fixture startup exceeded output bound"));
+      if (output.length > READINESS_LIMIT)
+        finish(new Error("Fixture startup exceeded output bound"));
       else if (output.includes("\n")) finish(undefined, output.split("\n")[0]);
     };
     const onExit = () => finish(new Error("Fixture exited before readiness"));

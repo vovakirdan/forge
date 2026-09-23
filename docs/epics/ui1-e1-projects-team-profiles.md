@@ -2,7 +2,7 @@
 
 **Milestone:** UI1 — browser interface before M4 installer
 **Статус:** `in_progress`; priority read FRONTEND-012, Project selector
-FRONTEND-019 и Team read FRONTEND-020/021 завершены как отдельные срезы,
+FRONTEND-019, Team read FRONTEND-020/021 и создание FRONTEND-022 завершены как отдельные срезы,
 полные зависимости UI0.1/UI0.2/UI0.3 и exit gate сохраняются.
 **Зависимости:** UI0.1 model contracts, UI0.2 browser/API boundary, UI0.3 UI tooling.
 **Контракты:** ../2026-09-03-employee-domain-model.md,
@@ -84,9 +84,13 @@ state и capacity. Operational availability остаётся отдельным 
 read-only профиль Employee и его retained Run history. Operational availability,
 onboarding и команды управления остаются отдельно.
 
+[FRONTEND-022](../../tasks/frontend/frontend-022-create-employee.md) добавляет
+создание Employee через `create_employee` с явной stage eligibility, receipt,
+readback и ручным replay при неизвестном исходе. Onboarding не запускается.
+
 - Project settings и более полная safe config metadata;
 - operational projection доступности Employee отдельно от scheduling state;
-- hire/configuration forms и receipt/conflict presentation;
+- amend/lifecycle/configuration forms и receipt/conflict presentation;
 - onboarding status/request/retry/skip и four-lane readiness view;
 - browser contract fixtures для unavailable, forbidden и stale-revision ответов.
 

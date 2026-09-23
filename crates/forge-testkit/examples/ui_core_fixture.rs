@@ -16,6 +16,8 @@ mod commands;
 mod create_commands;
 #[path = "ui_core_fixture/dependency_reads.rs"]
 mod dependency_reads;
+#[path = "ui_core_fixture/employee_creation.rs"]
+mod employee_creation;
 #[path = "ui_core_fixture/pipelines.rs"]
 mod pipelines;
 #[path = "ui_core_fixture/runs.rs"]
@@ -53,6 +55,8 @@ async fn main() -> Result<()> {
         .load_project(later_id)
         .await?
         .context("later Project missing")?;
+    // Keep prior Project pagination and fixture IDs stable for existing browser cases.
+    let employee_creation_fixture = employee_creation::seed(&harness).await?;
     harness.start_project(project_id).await?;
     let project = harness
         .store
@@ -82,13 +86,14 @@ async fn main() -> Result<()> {
         "cancellation_commands_project": cancellation_command_fixture,
         "dependency_reads_project": dependency_read_fixture
         ,"team_project": team_fixture
+        ,"employee_creation_project": employee_creation_fixture
         ,"later_project": {"id": later.id(), "name": later.name()}
     })
     .to_string();
-    // The browser's firstLine transport admits at most 8 KiB, including newline.
+    // The browser's firstLine transport admits at most 12 KiB, including newline.
     anyhow::ensure!(
-        readiness.len() < 8192,
-        "browser fixture readiness exceeds 8 KiB"
+        readiness.len() < 12 * 1024,
+        "browser fixture readiness exceeds 12 KiB"
     );
     println!("{readiness}");
     std::io::stdout().flush()?;

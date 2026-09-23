@@ -19,6 +19,9 @@ pub mod control;
 mod core_client;
 #[cfg(test)]
 mod core_client_tests;
+mod create_employee;
+#[cfg(test)]
+mod create_employee_tests;
 mod create_task;
 #[cfg(test)]
 mod create_task_tests;

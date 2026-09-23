@@ -209,3 +209,75 @@ async fn exhausted_capacity_rejects_command_before_upstream() {
         StatusCode::TOO_MANY_REQUESTS
     );
 }
+
+#[tokio::test]
+async fn create_employee_is_an_exact_owner_command_with_employee_receipt() {
+    let body = serde_json::to_vec(&serde_json::json!({
+        "project_id":crate::command_tests::PROJECT,
+        "expected_revision":3,
+        "payload":{"name":"New teammate","role":"reviewer","stage_eligibility":{"mode":"any"}}
+    }))
+    .unwrap();
+    let employee_receipt = serde_json::to_vec(&serde_json::json!({
+        "command_id":"01988000-0000-7000-8000-000000000003",
+        "status":"applied","project_revision":4,
+        "event_ids":["01988000-0000-7000-8000-000000000004"],
+        "resource":{"kind":"employee","id":"01988000-0000-7000-8000-000000000005"}
+    }))
+    .unwrap();
+    let (_dir, client, server) = fake_core(response(200, &employee_receipt), Duration::ZERO).await;
+    let mut state = Arc::try_unwrap(state()).ok().unwrap();
+    state.core = client;
+    let state = Arc::new(state);
+    let token = session_token(&state);
+    for (method, uri, status) in [
+        (
+            "GET",
+            "/api/commands/create_employee",
+            StatusCode::NOT_FOUND,
+        ),
+        (
+            "POST",
+            "/api/commands/create_employee/",
+            StatusCode::NOT_FOUND,
+        ),
+        (
+            "POST",
+            "/api/commands/create_employee?actor=owner",
+            StatusCode::NOT_FOUND,
+        ),
+    ] {
+        let request = authenticated_request(&state, &token)
+            .method(method)
+            .uri(uri)
+            .body(Body::from(body.clone()))
+            .unwrap();
+        assert_eq!(handle(State(state.clone()), request).await.status(), status);
+    }
+    let mut unauthorized = authenticated_request(&state, &token)
+        .uri("/api/commands/create_employee")
+        .body(Body::from(body.clone()))
+        .unwrap();
+    unauthorized.headers_mut().remove("authorization");
+    assert_eq!(
+        handle(State(state.clone()), unauthorized).await.status(),
+        StatusCode::UNAUTHORIZED
+    );
+    let request = authenticated_request(&state, &token)
+        .uri("/api/commands/create_employee")
+        .body(Body::from(body.clone()))
+        .unwrap();
+    let response = handle(State(state), request).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        to_bytes(response.into_body(), 64 * 1024).await.unwrap(),
+        employee_receipt
+    );
+    let forwarded = server.await.unwrap();
+    assert!(
+        std::str::from_utf8(&forwarded)
+            .unwrap()
+            .starts_with("POST /v1/commands/create_employee HTTP/1.1")
+    );
+    assert!(forwarded.ends_with(&body));
+}

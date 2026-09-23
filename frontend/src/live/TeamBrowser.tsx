@@ -6,12 +6,15 @@ import { prepareReadChange, readKeys } from "./read-cache.ts";
 import type { ProjectReadScope } from "./read-scope.ts";
 import { useReadLifetime } from "./use-read-lifetime.ts";
 import { EmployeeProfilePanel } from "./EmployeeProfilePanel.tsx";
+import { EmployeeCreatePanel } from "./EmployeeCreatePanel.tsx";
 
 export function TeamBrowser(scope: ProjectReadScope) {
   const { api, session, generation, projectId } = scope;
   const queries = useQueryClient();
   const [employeeId, setEmployeeId] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
   const opener = useRef<HTMLButtonElement | null>(null);
+  const createOpener = useRef<HTMLButtonElement | null>(null);
   const [navigation, setNavigation] = useState<{
     cursor: string | null;
     previous: (string | null)[];
@@ -38,23 +41,40 @@ export function TeamBrowser(scope: ProjectReadScope) {
     setEmployeeId(null);
     if (opener.current?.isConnected) opener.current.focus();
   }
+  function created(id: string) {
+    setCreating(false);
+    setNavigation({ cursor: null, previous: [] });
+    setEmployeeId(id);
+  }
   const items = employees.data?.items;
   return (
     <>
       <section aria-label="Team" className="space-y-4 rounded-xl border border-border bg-card p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-lg font-semibold">Team</h2>
-          <Button
-            variant="outline"
-            disabled={employees.isFetching}
-            onClick={() => void employees.refetch()}
-          >
-            Refresh team
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              ref={createOpener}
+              disabled={creating}
+              onClick={() => {
+                setEmployeeId(null);
+                setCreating(true);
+              }}
+            >
+              Create Employee
+            </Button>
+            <Button
+              variant="outline"
+              disabled={employees.isFetching}
+              onClick={() => void employees.refetch()}
+            >
+              Refresh team
+            </Button>
+          </div>
         </div>
         <p className="text-xs text-muted-foreground">
-          Read-only Project roster, up to 20 Employees per page. State controls eligibility for new
-          work; it does not show live availability.
+          Project roster, up to 20 Employees per page. State controls eligibility for new work; it
+          does not show live availability.
         </p>
         {employees.isPending && <p role="status">Loading team…</p>}
         {employees.isFetching && items && (
@@ -146,6 +166,16 @@ export function TeamBrowser(scope: ProjectReadScope) {
           </Button>
         </nav>
       </section>
+      {creating && (
+        <EmployeeCreatePanel
+          {...scope}
+          onCreated={created}
+          onCancel={() => {
+            setCreating(false);
+            if (createOpener.current?.isConnected) createOpener.current.focus();
+          }}
+        />
+      )}
       {employeeId && (
         <EmployeeProfilePanel
           key={employeeId}

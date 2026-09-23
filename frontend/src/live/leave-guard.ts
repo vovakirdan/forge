@@ -3,16 +3,18 @@ export const draftLeaveWarning =
 
 /** One active Task form per connection; no edit contents or keys enter browser storage. */
 export function createLeaveGuard(confirmLeave: (message: string) => boolean = window.confirm) {
-  const checks = new Set<() => boolean>();
+  const checks = new Set<{ check: () => boolean; message: string }>();
   return {
-    register(check: () => boolean) {
-      checks.add(check);
+    register(check: () => boolean, message = draftLeaveWarning) {
+      const entry = { check, message };
+      checks.add(entry);
       return () => {
-        checks.delete(check);
+        checks.delete(entry);
       };
     },
     canLeave() {
-      return !Array.from(checks).some((check) => check()) || confirmLeave(draftLeaveWarning);
+      const warning = Array.from(checks).find((entry) => entry.check())?.message;
+      return warning === undefined || confirmLeave(warning);
     },
   };
 }

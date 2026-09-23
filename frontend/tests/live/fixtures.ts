@@ -56,6 +56,11 @@ const CoreFixtureSchema = z.object({
     disabled_id: z.string().uuid(),
     retired_id: z.string().uuid(),
   }),
+  employee_creation_project: z.object({
+    id: z.string().uuid(),
+    name: z.string(),
+    version_id: z.string().uuid(),
+  }),
   commands_project: CommandProjectSchema,
   dependency_reads_project: z.object({
     id: z.string().uuid(),

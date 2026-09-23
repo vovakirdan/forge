@@ -122,7 +122,9 @@ test("logout revokes a session copied into another tab", async ({ live, page }) 
     async () => {
       await copied.reload();
       await expect(copied.getByRole("heading", { name: "Connect to Forge" })).toBeVisible();
+      await copied.waitForLoadState("networkidle");
     },
+    8,
   );
   await expect(copied.getByRole("region", { name: "Project", exact: true })).toHaveCount(0);
 });
