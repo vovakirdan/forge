@@ -62,3 +62,16 @@ export const EmployeeRunListResponseSchema = preserveWireValue(
 );
 
 export type EmployeeProfile = z.infer<typeof EmployeeProfileSchema>;
+
+export const EmployeeOperationsSchema = preserveWireValue(
+  z
+    .object({
+      employee_id: UuidV7Schema,
+      max_concurrent_runs: z.number().int().min(1).max(65535),
+      occupied_slots: z.number().int().nonnegative(),
+      observed_running_runs: z.number().int().nonnegative(),
+      runtime_binding_configured: z.boolean(),
+      availability: z.literal("unknown"),
+    })
+    .passthrough(),
+);

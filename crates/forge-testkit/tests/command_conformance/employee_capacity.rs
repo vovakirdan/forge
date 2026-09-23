@@ -1,9 +1,15 @@
 //! Real PostgreSQL admission tests. No provider or Supervisor is started.
 use anyhow::{Context, Result};
-use forge_domain::{EmployeeId, Timestamp, runtime::RunScope};
+use axum::{
+    Router,
+    body::{Body, to_bytes},
+    http::{Request, StatusCode},
+};
+use forge_domain::{EmployeeId, ProjectId, Timestamp, runtime::RunScope};
 use forge_protocol::wire::CommandName;
 use forge_storage::{EnvironmentReport, LeaseRunRequest, PostgresStore, RunProjection};
 use serde_json::json;
+use tower::ServiceExt;
 use uuid::Uuid;
 
 use super::{
@@ -117,6 +123,125 @@ async fn release(fixture: &Fixture, run: &RunProjection, quiescent: bool) -> Res
     })
     .await?;
     tx.commit().await?;
+    Ok(())
+}
+
+async fn read_operations(
+    router: &Router,
+    project: ProjectId,
+    employee: EmployeeId,
+) -> Result<(StatusCode, serde_json::Value)> {
+    let response = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!(
+                    "/v1/projects/{project}/employees/{employee}/operations"
+                ))
+                .body(Body::empty())?,
+        )
+        .await?;
+    let status = response.status();
+    let body = serde_json::from_slice(&to_bytes(response.into_body(), 64 * 1024).await?)?;
+    Ok((status, body))
+}
+
+async fn read_resources(
+    router: &Router,
+    project: ProjectId,
+) -> Result<(StatusCode, serde_json::Value)> {
+    let response = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/v1/projects/{project}/resources"))
+                .body(Body::empty())?,
+        )
+        .await?;
+    let status = response.status();
+    let body = serde_json::from_slice(&to_bytes(response.into_body(), 64 * 1024).await?)?;
+    Ok((status, body))
+}
+
+#[tokio::test]
+#[ignore = "requires explicit local PostgreSQL; validates admission resource read"]
+async fn project_resources_count_one_run_once_until_physical_release() -> Result<()> {
+    let (fixture, employee) = setup(1, 1).await?;
+    let Backend::Postgres(pool) = &fixture.backend else {
+        unreachable!("PostgreSQL test")
+    };
+    let router = forge_core::router(fixture.core(pool));
+    let (status, initial) = read_resources(&router, fixture.project_id).await?;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(initial["project_id"], json!(fixture.project_id));
+    assert_eq!(initial["policy"]["host_max_runs"], 16);
+    assert_eq!(initial["policy"]["project_max_runs"], 8);
+    assert_eq!(initial["policy"]["credential_account_max_runs"], 4);
+    assert!(initial["policy"]["revision"].as_u64().is_some());
+    assert!(initial["policy"]["updated_at"].as_str().is_some());
+    assert!(initial["observed_at"].as_str().is_some());
+    assert_eq!(
+        initial["occupancy"],
+        json!({
+            "host_runs": 0, "project_runs": 0, "credential_account_runs": null
+        })
+    );
+
+    let run = provision(&fixture, employee)
+        .await?
+        .context("reserved run")?;
+    let (_, occupied) = read_resources(&router, fixture.project_id).await?;
+    assert_eq!(occupied["occupancy"]["host_runs"], 1);
+    assert_eq!(occupied["occupancy"]["project_runs"], 1);
+    release(&fixture, &run, false).await?;
+    let (_, uncertain) = read_resources(&router, fixture.project_id).await?;
+    assert_eq!(uncertain["occupancy"]["project_runs"], 1);
+    release(&fixture, &run, true).await?;
+    let (_, released) = read_resources(&router, fixture.project_id).await?;
+    assert_eq!(released["occupancy"]["host_runs"], 0);
+    assert_eq!(released["occupancy"]["project_runs"], 0);
+
+    let (foreign_status, _) = read_resources(&router, ProjectId::new()).await?;
+    assert_eq!(foreign_status, StatusCode::NOT_FOUND);
+    let serialized = serde_json::to_string(&occupied)?;
+    for forbidden in ["secret_id", "run_spec", "credential_binding", "password"] {
+        assert!(!serialized.contains(forbidden), "leaked {forbidden}");
+    }
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires explicit local PostgreSQL; validates scoped physical occupancy read"]
+async fn employee_operations_keep_uncertain_occupancy_and_scope() -> Result<()> {
+    let (fixture, employee) = setup(1, 1).await?;
+    let Backend::Postgres(pool) = &fixture.backend else {
+        unreachable!("PostgreSQL test")
+    };
+    let router = forge_core::router(fixture.core(pool));
+    let (status, initial) = read_operations(&router, fixture.project_id, employee).await?;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(initial["employee_id"], json!(employee));
+    assert_eq!(initial["max_concurrent_runs"], 1);
+    assert_eq!(initial["occupied_slots"], 0);
+    assert_eq!(initial["observed_running_runs"], 0);
+    assert_eq!(initial["availability"], "unknown");
+
+    let run = provision(&fixture, employee)
+        .await?
+        .context("reserved run")?;
+    let (_, reserved) = read_operations(&router, fixture.project_id, employee).await?;
+    assert_eq!(reserved["occupied_slots"], 1);
+    assert_eq!(reserved["observed_running_runs"], 0);
+
+    release(&fixture, &run, false).await?;
+    let (_, uncertain) = read_operations(&router, fixture.project_id, employee).await?;
+    assert_eq!(uncertain["occupied_slots"], 1);
+    release(&fixture, &run, true).await?;
+    let (_, released) = read_operations(&router, fixture.project_id, employee).await?;
+    assert_eq!(released["occupied_slots"], 0);
+
+    let (foreign_status, _) = read_operations(&router, ProjectId::new(), employee).await?;
+    assert_eq!(foreign_status, StatusCode::NOT_FOUND);
     Ok(())
 }
 

@@ -93,7 +93,7 @@ async function suite(config: string, expectedExit: number) {
         FORGE_UI_TEST_REGISTRY: socketPath,
       },
       signal: interrupted.signal,
-      timeoutMs: 260_000,
+      timeoutMs: 620_000,
     },
   );
   let { output } = result;

@@ -7,6 +7,283 @@ const PROJECT: &str = "01988000-0000-7000-8000-000000000001";
 const TASK: &str = "01988000-0000-7000-8000-000000000002";
 
 #[test]
+fn task_surface_reads_are_exact_scoped_and_bounded() {
+    for resource in ["git-source-policy", "file-inputs"] {
+        let path = format!("/api/projects/{PROJECT}/tasks/{TASK}/{resource}");
+        let target = ReadTarget::parse(&path, None).unwrap();
+        assert_eq!(
+            target.path,
+            format!("/v1/projects/{PROJECT}/tasks/{TASK}/{resource}")
+        );
+        assert_eq!(target.body_limit, DETAIL_BODY_LIMIT);
+        assert!(ReadTarget::parse(&path, Some("limit=1")).is_err());
+    }
+    for resource in ["file-snapshots", "reviews", "integrations"] {
+        let path = format!("/api/projects/{PROJECT}/tasks/{TASK}/{resource}");
+        let target = ReadTarget::parse(&path, Some(&format!("limit=5&after={TASK}"))).unwrap();
+        assert_eq!(
+            target.path,
+            format!("/v1/projects/{PROJECT}/tasks/{TASK}/{resource}?limit=5&after={TASK}")
+        );
+        assert_eq!(target.body_limit, DETAIL_BODY_LIMIT);
+        for query in [
+            "limit=0",
+            "limit=101",
+            "after=bad",
+            "limit=5&limit=5",
+            "object_key=secret",
+        ] {
+            assert!(ReadTarget::parse(&path, Some(query)).is_err());
+        }
+        assert!(ReadTarget::parse(&format!("{path}/raw"), None).is_err());
+    }
+    assert!(
+        ReadTarget::parse(
+            &format!("/api/projects/{PROJECT}/tasks/not-a-task/file-inputs"),
+            None
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn delivery_evidence_is_thread_scoped_and_sequence_paged() {
+    let path = format!("/api/projects/{PROJECT}/threads/{TASK}/delivery");
+    let target = ReadTarget::parse(&path, Some("after=12&limit=7")).unwrap();
+    assert_eq!(
+        target.path,
+        format!("/v1/projects/{PROJECT}/threads/{TASK}/delivery?limit=7&after=12")
+    );
+    assert_eq!(target.body_limit, DETAIL_BODY_LIMIT);
+    for query in [
+        "after=-1",
+        "after=abc",
+        "limit=0",
+        "limit=101",
+        "after=1&after=2",
+        "message_id=x",
+    ] {
+        assert!(ReadTarget::parse(&path, Some(query)).is_err());
+    }
+    assert!(ReadTarget::parse(&format!("{path}/raw"), None).is_err());
+}
+
+#[test]
+fn management_lists_and_escalation_detail_are_bounded() {
+    for resource in [
+        "resume-schedules",
+        "escalations",
+        "next-run-constraints",
+        "recovery-runs",
+    ] {
+        let path = format!("/api/projects/{PROJECT}/{resource}");
+        let target = ReadTarget::parse(&path, Some(&format!("limit=7&cursor={TASK}"))).unwrap();
+        assert_eq!(
+            target.path,
+            format!("/v1/projects/{PROJECT}/{resource}?limit=7&cursor={TASK}")
+        );
+        assert_eq!(target.body_limit, DETAIL_BODY_LIMIT);
+        for query in [
+            "limit=0",
+            "limit=21",
+            "cursor=bad",
+            "after=1",
+            "limit=7&limit=7",
+        ] {
+            assert!(ReadTarget::parse(&path, Some(query)).is_err());
+        }
+    }
+    let detail = format!("/api/projects/{PROJECT}/escalations/{TASK}");
+    assert_eq!(
+        ReadTarget::parse(&detail, None).unwrap().path,
+        format!("/v1/projects/{PROJECT}/escalations/{TASK}")
+    );
+    assert!(ReadTarget::parse(&detail, Some("limit=1")).is_err());
+    assert!(ReadTarget::parse(&format!("{detail}/raw"), None).is_err());
+    let routes = format!("/api/projects/{PROJECT}/resolver-routes");
+    assert_eq!(
+        ReadTarget::parse(&routes, Some("limit=7&cursor=human_route"))
+            .unwrap()
+            .path,
+        format!("/v1/projects/{PROJECT}/resolver-routes?limit=7&cursor=human_route")
+    );
+    for query in [
+        "cursor=Bad",
+        "cursor=route-name",
+        "cursor=",
+        "limit=21",
+        "after=1",
+    ] {
+        assert!(ReadTarget::parse(&routes, Some(query)).is_err());
+    }
+    let recovery = format!("/api/projects/{PROJECT}/recovery");
+    assert_eq!(
+        ReadTarget::parse(&recovery, None).unwrap().path,
+        format!("/v1/projects/{PROJECT}/recovery")
+    );
+    assert!(ReadTarget::parse(&recovery, Some("limit=1")).is_err());
+    let readiness = format!("/api/projects/{PROJECT}/recovery-runs/{TASK}/assessment-readiness");
+    assert_eq!(
+        ReadTarget::parse(&readiness, None).unwrap().path,
+        format!("/v1/projects/{PROJECT}/recovery-runs/{TASK}/assessment-readiness")
+    );
+    assert!(ReadTarget::parse(&readiness, Some("limit=1")).is_err());
+    assert!(ReadTarget::parse(&format!("{readiness}/raw"), None).is_err());
+}
+
+#[test]
+fn run_context_and_evidence_are_scoped_and_bounded() {
+    let context = format!("/api/projects/{PROJECT}/runs/{TASK}/context");
+    assert_eq!(
+        ReadTarget::parse(&context, None).unwrap().path,
+        format!("/v1/projects/{PROJECT}/runs/{TASK}/context")
+    );
+    assert!(ReadTarget::parse(&context, Some("x=1")).is_err());
+    let evidence = format!("/api/projects/{PROJECT}/runs/{TASK}/evidence");
+    assert_eq!(
+        ReadTarget::parse(&evidence, Some(&format!("limit=50&cursor={TASK}")))
+            .unwrap()
+            .path,
+        format!("/v1/projects/{PROJECT}/runs/{TASK}/evidence?limit=50&cursor={TASK}")
+    );
+    for query in [
+        "limit=0",
+        "limit=51",
+        "cursor=nope",
+        "after=1",
+        "limit=20&limit=20",
+    ] {
+        assert!(ReadTarget::parse(&evidence, Some(query)).is_err());
+    }
+    assert!(ReadTarget::parse(&format!("{evidence}/raw"), None).is_err());
+}
+
+#[test]
+fn task_handoffs_are_scoped_bounded_and_metadata_only() {
+    let path = format!("/api/projects/{PROJECT}/tasks/{TASK}/handoffs");
+    let target = ReadTarget::parse(&path, Some(&format!("limit=20&cursor={TASK}"))).unwrap();
+    assert_eq!(
+        target.path,
+        format!("/v1/projects/{PROJECT}/tasks/{TASK}/handoffs?limit=20&cursor={TASK}")
+    );
+    assert_eq!(target.body_limit, DETAIL_BODY_LIMIT);
+    for query in ["limit=21", "cursor=bad", "after=1", "limit=1&limit=1"] {
+        assert!(ReadTarget::parse(&path, Some(query)).is_err());
+    }
+    assert!(ReadTarget::parse(&format!("{path}/content"), None).is_err());
+}
+
+#[test]
+fn employee_runtime_metadata_has_no_arbitrary_subresource() {
+    let path = format!("/api/projects/{PROJECT}/employees/{TASK}/runtime-metadata");
+    assert_eq!(
+        ReadTarget::parse(&path, None).unwrap().path,
+        format!("/v1/projects/{PROJECT}/employees/{TASK}/runtime-metadata")
+    );
+    assert!(ReadTarget::parse(&path, Some("raw=1")).is_err());
+    assert!(ReadTarget::parse(&format!("{path}/credential"), None).is_err());
+}
+
+#[test]
+fn events_are_scoped_to_one_project_and_numeric_cursor() {
+    let path = format!("/api/projects/{PROJECT}/events");
+    let target = ReadTarget::parse(&path, Some("after=42")).unwrap();
+    assert_eq!(
+        target.path,
+        format!("/v1/projects/{PROJECT}/events?after=42")
+    );
+    assert!(target.event_stream);
+    for query in [
+        "",
+        "after=",
+        "after=-1",
+        "after=x",
+        "after=1&after=2",
+        "limit=2",
+    ] {
+        assert!(ReadTarget::parse(&path, Some(query)).is_err());
+    }
+    assert!(ReadTarget::parse("/api/projects/not-an-id/events", None).is_err());
+}
+
+#[test]
+fn knowledge_and_memory_reads_have_closed_scope_and_query_shape() {
+    let knowledge = format!("/api/projects/{PROJECT}/knowledge");
+    let list = ReadTarget::parse(&knowledge, Some(&format!("after={TASK}&limit=5"))).unwrap();
+    assert_eq!(
+        list.path,
+        format!("/v1/projects/{PROJECT}/knowledge?limit=5&after={TASK}")
+    );
+    let history = format!("{knowledge}/{TASK}/history");
+    assert_eq!(
+        ReadTarget::parse(&history, Some("after=2")).unwrap().path,
+        format!("/v1/projects/{PROJECT}/knowledge/{TASK}/history?limit=20&after=2")
+    );
+    let search = format!("/api/projects/{PROJECT}/memory/search");
+    assert_eq!(
+        ReadTarget::parse(&search, Some("query=hello%20world&limit=3"))
+            .unwrap()
+            .path,
+        format!("/v1/projects/{PROJECT}/memory/search?limit=3&query=hello%20world")
+    );
+    for query in [
+        "query=",
+        "query=x&query=y",
+        "query=x&limit=0",
+        "query=x&employee_id=bad",
+    ] {
+        assert!(ReadTarget::parse(&search, Some(query)).is_err());
+    }
+    for query in ["after=bad", "after=2&after=3", "cursor=x", "limit=101"] {
+        assert!(ReadTarget::parse(&knowledge, Some(query)).is_err());
+    }
+    assert!(
+        ReadTarget::parse(
+            &format!("/api/projects/{PROJECT}/memory/status"),
+            Some("limit=1")
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn resources_are_a_scoped_read_without_query_or_subpaths() {
+    let path = format!("/api/projects/{PROJECT}/resources");
+    assert_eq!(
+        ReadTarget::parse(&path, None).unwrap().path,
+        format!("/v1/projects/{PROJECT}/resources")
+    );
+    assert!(ReadTarget::parse(&path, Some("limit=1")).is_err());
+    assert!(ReadTarget::parse(&format!("{path}/raw"), None).is_err());
+}
+
+#[test]
+fn pipeline_catalog_and_task_property_schema_are_scoped_reads() {
+    let catalog = format!("/api/projects/{PROJECT}/pipeline-catalog");
+    assert_eq!(
+        ReadTarget::parse(&catalog, Some(&format!("limit=5&cursor={TASK}")))
+            .unwrap()
+            .path,
+        format!("/v1/projects/{PROJECT}/pipeline-catalog?limit=5&cursor={TASK}")
+    );
+    for query in [
+        "cursor=bad",
+        "limit=0",
+        "limit=101",
+        "after=x",
+        "limit=1&limit=2",
+    ] {
+        assert!(ReadTarget::parse(&catalog, Some(query)).is_err());
+    }
+    let schema = format!("/api/projects/{PROJECT}/task-property-schema");
+    assert_eq!(
+        ReadTarget::parse(&schema, None).unwrap().path,
+        format!("/v1/projects/{PROJECT}/task-property-schema")
+    );
+    assert!(ReadTarget::parse(&schema, Some("revision=1")).is_err());
+}
+
+#[test]
 fn project_catalog_is_only_a_bounded_paginated_read() {
     let target = ReadTarget::parse("/api/projects", None).unwrap();
     assert_eq!(target.path, "/v1/projects?limit=20");
@@ -93,6 +370,127 @@ fn employee_profile_and_run_history_are_closed_scoped_reads() {
             Err(ApiError::NotFound)
         ));
     }
+}
+
+#[test]
+fn employee_operations_are_one_scoped_read_without_query() {
+    let path = format!("/api/projects/{PROJECT}/employees/{TASK}/operations");
+    let target = ReadTarget::parse(&path, None).unwrap();
+    assert_eq!(
+        target.path,
+        format!("/v1/projects/{PROJECT}/employees/{TASK}/operations")
+    );
+    assert!(!target.event_stream);
+    assert!(ReadTarget::parse(&path, Some("limit=1")).is_err());
+    assert!(ReadTarget::parse(&format!("{path}/history"), None).is_err());
+}
+
+#[test]
+fn system_job_status_and_employee_onboarding_are_exact_reads() {
+    let jobs = format!("/api/projects/{PROJECT}/system-jobs");
+    let target = ReadTarget::parse(&jobs, None).unwrap();
+    assert_eq!(target.path, format!("/v1/projects/{PROJECT}/system-jobs"));
+    assert_eq!(target.body_limit, DETAIL_BODY_LIMIT);
+    let onboarding = format!("/api/projects/{PROJECT}/employees/{TASK}/onboarding");
+    let target = ReadTarget::parse(&onboarding, None).unwrap();
+    assert_eq!(
+        target.path,
+        format!("/v1/projects/{PROJECT}/employees/{TASK}/onboarding")
+    );
+    assert_eq!(target.body_limit, DETAIL_BODY_LIMIT);
+    for path in [&jobs, &onboarding] {
+        assert!(ReadTarget::parse(path, Some("limit=20")).is_err());
+        assert!(ReadTarget::parse(&format!("{path}/extra"), None).is_err());
+    }
+    assert!(ReadTarget::parse("/api/projects/not-a-uuid/system-jobs", None).is_err());
+    assert!(
+        ReadTarget::parse(
+            "/api/projects/not-a-uuid/employees/not-a-uuid/onboarding",
+            None
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn system_job_attempts_and_hook_invocations_are_scoped_bounded_reads() {
+    let attempts = format!("/api/projects/{PROJECT}/system-jobs/{TASK}/attempts");
+    let target = ReadTarget::parse(&attempts, Some(&format!("limit=20&cursor={TASK}"))).unwrap();
+    assert_eq!(
+        target.path,
+        format!("/v1/projects/{PROJECT}/system-jobs/{TASK}/attempts?limit=20&cursor={TASK}")
+    );
+    assert_eq!(target.body_limit, DETAIL_BODY_LIMIT);
+    assert!(target.cursor_conflict);
+    for query in ["limit=0", "limit=51", "cursor=not-a-uuid", "actor=owner"] {
+        assert!(ReadTarget::parse(&attempts, Some(query)).is_err());
+    }
+    let hooks = format!("/api/projects/{PROJECT}/hook-invocations");
+    let target = ReadTarget::parse(&hooks, Some(&format!("limit=20&after={TASK}"))).unwrap();
+    assert_eq!(
+        target.path,
+        format!("/v1/projects/{PROJECT}/hook-invocations?limit=20&after={TASK}")
+    );
+    assert_eq!(target.body_limit, DETAIL_BODY_LIMIT);
+    for query in ["limit=0", "limit=101", "after=not-a-uuid", "actor=owner"] {
+        assert!(ReadTarget::parse(&hooks, Some(query)).is_err());
+    }
+    for path in [&attempts, &hooks] {
+        assert!(ReadTarget::parse(&format!("{path}/extra"), None).is_err());
+    }
+}
+
+#[test]
+fn employee_inbox_reads_are_exact_scoped_and_bounded() {
+    let threads = format!("/api/projects/{PROJECT}/employees/{TASK}/threads");
+    let target = ReadTarget::parse(&threads, Some(&format!("limit=20&after={TASK}"))).unwrap();
+    assert_eq!(
+        target.path,
+        format!("/v1/projects/{PROJECT}/employees/{TASK}/threads?limit=20&after={TASK}")
+    );
+    assert_eq!(target.body_limit, CORE_BODY_LIMIT);
+    let messages = format!("/api/projects/{PROJECT}/threads/{TASK}/messages");
+    let target = ReadTarget::parse(&messages, Some("limit=20&after=42")).unwrap();
+    assert_eq!(
+        target.path,
+        format!("/v1/projects/{PROJECT}/threads/{TASK}/messages?limit=20&after=42")
+    );
+    assert_eq!(target.body_limit, DETAIL_BODY_LIMIT);
+    for path in [&threads, &messages] {
+        assert!(
+            ReadTarget::parse(path, None)
+                .unwrap()
+                .path
+                .ends_with("?limit=20")
+        );
+        for query in [
+            "limit=0",
+            "limit=21",
+            "limit=20&limit=1",
+            "cursor=x",
+            "after=",
+            "after=bad",
+        ] {
+            assert!(matches!(
+                ReadTarget::parse(path, Some(query)),
+                Err(ApiError::BadRequest)
+            ));
+        }
+        assert!(ReadTarget::parse(&format!("{path}/extra"), None).is_err());
+    }
+    for query in [
+        "after=-1",
+        "after=9223372036854775808",
+        "after=1.0",
+        "after=+1",
+    ] {
+        assert!(matches!(
+            ReadTarget::parse(&messages, Some(query)),
+            Err(ApiError::BadRequest)
+        ));
+    }
+    assert!(ReadTarget::parse("/api/projects/bad/employees/bad/threads", None).is_err());
+    assert!(ReadTarget::parse("/api/projects/bad/threads/bad/messages", None).is_err());
 }
 
 #[test]
@@ -302,7 +700,6 @@ fn only_allowlisted_lists_accept_queries_and_other_resources_stay_closed() {
         format!("/api/projects/{PROJECT}/employees/{TASK}"),
         format!("/api/projects/{PROJECT}/runs/{TASK}"),
         format!("/api/projects/{PROJECT}/runs/"),
-        format!("/api/projects/{PROJECT}/runs/{TASK}/evidence"),
         format!("/api/projects/{PROJECT}/tasks/{TASK}/runs"),
     ] {
         assert!(matches!(

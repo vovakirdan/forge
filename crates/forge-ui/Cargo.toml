@@ -14,6 +14,7 @@ axum.workspace = true
 bytes = "1"
 clap.workspace = true
 forge-protocol = { version = "0.1.0", path = "../forge-protocol" }
+forge-domain = { version = "0.1.0", path = "../forge-domain" }
 getrandom = "0.4"
 http-body-util = "0.1"
 hyper = { version = "1.11.1", features = ["client", "http1", "server"] }

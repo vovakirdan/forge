@@ -23,7 +23,7 @@ test("Unavailable reports and empty loaded arrays do not imply success or zero u
   });
 });
 
-test("Report availability distinguishes null from an empty object independently", () => {
+test("Report availability distinguishes null from a safe availability marker", () => {
   const reports = [
     ["runtime_report", "runtimeReportAvailable"],
     ["handoff", "handoffAvailable"],
@@ -31,7 +31,10 @@ test("Report availability distinguishes null from an empty object independently"
     ["git_source", "gitSourceAvailable"],
   ] as const;
   for (const [field, availability] of reports) {
-    const source = RunDiagnosticsSchema.parse({ ...emptyRunDiagnosticsFixture, [field]: {} });
+    const source = RunDiagnosticsSchema.parse({
+      ...emptyRunDiagnosticsFixture,
+      [field]: { available: true },
+    });
     const result = presentRunDiagnostics(source);
     for (const [, key] of reports) {
       assert.equal(result.presentation[key], key === availability);
@@ -70,27 +73,16 @@ test("Unknown and duplicate stream names stay loaded facts without deduplication
   assert.strictEqual(result.source.streams, source.streams);
 });
 
-test("Diagnostics preserve arbitrary JSON without parsing it, fetching it or modifying it", (context) => {
+test("Diagnostics preserve safe metadata without fetching it or modifying it", (context) => {
   const fetch = context.mock.method(globalThis, "fetch", () => {
     throw new Error("Presentation must not fetch reports or evidence");
   });
-  const opaque = JSON.parse(
-    '{"__proto__":{"retained":true},"constructor":{"opaque":true},"accepted":true,"url":"https://invalid.example/not-a-fetch-request"}',
-  );
-  const source = freezeFixture(
-    RunDiagnosticsSchema.parse({
-      ...emptyRunDiagnosticsFixture,
-      runtime_report: opaque,
-      evidence: [opaque],
-      extra: opaque,
-    }),
-  );
+  const source = freezeFixture(RunDiagnosticsSchema.parse(populatedRunDiagnosticsFixture));
   const before = JSON.stringify(source);
   const result = presentRunDiagnostics(source);
   assert.strictEqual(result.source, source);
-  assert.strictEqual(result.source.runtime_report, opaque);
-  assert.strictEqual(result.source.evidence[0], opaque);
-  assert.strictEqual(result.source["extra"], opaque);
+  assert.strictEqual(result.source.runtime_report, source.runtime_report);
+  assert.strictEqual(result.source.evidence[0], source.evidence[0]);
   assert.deepEqual(result, presentRunDiagnostics(source));
   assert.equal(JSON.stringify(source), before);
   assert.equal(fetch.mock.callCount(), 0);

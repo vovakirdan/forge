@@ -59,6 +59,7 @@ impl CommandContext {
                     BindTaskGitRepository,
                     SetTaskGitSourcePolicy,
                     CreateProject,
+                    ConfigureTaskPropertySchema,
                     CreatePipeline,
                     PublishPipelineVersion,
                     SetPipelineDefaultVersion,

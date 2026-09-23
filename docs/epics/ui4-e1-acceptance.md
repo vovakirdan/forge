@@ -1,7 +1,7 @@
 # Epic UI4.1 — Сквозная Control Room acceptance
 
 **Milestone:** UI4 — UI-приёмка и передача установщику
-**Статус:** planned; blocked by UI1–UI3
+**Статус на 23 сентября 2026:** локальный gate пройден: 178/178 keyless browser scenarios, отдельный 1 000 Task / 20 Employee test и согласованный live scenario. Границы доказательства — в [отчёте](../UI4_LIVE_PROPOSAL.md).
 **Тип / приоритет:** testing / P0
 **Источники:** [UI-план](../UI_IMPLEMENTATION_PLAN.md),
 [матрица соответствия](../UI_BACKEND_ALIGNMENT.md)

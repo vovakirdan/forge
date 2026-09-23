@@ -1,7 +1,7 @@
 # Epic UI2.1 — Runs, Activity и evidence
 
 **Milestone:** UI2 — Наблюдение, коммуникация и вмешательство человека
-**Статус:** in_progress; ранний read-only FRONTEND-009 согласован отдельно
+**Статус на 23 сентября 2026:** локальная реализация Run/Activity/diagnostic metadata готова; raw body viewer удержан до безопасного Core-контракта согласно условию ниже. Итоговый keyless browser gate пройден.
 **Источник:** [UI plan](../UI_IMPLEMENTATION_PLAN.md),
 [backend alignment](../UI_BACKEND_ALIGNMENT.md)
 **База backend:** `1439211`; транспортные ограничения зафиксированы в UI0.

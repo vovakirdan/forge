@@ -5,11 +5,16 @@ use super::{
     fixture::{Backend, BackendKind, Fixture},
 };
 use anyhow::{Context, Result};
+use axum::{
+    body::{Body, to_bytes},
+    http::{Request, StatusCode},
+};
 use forge_application::{Clock, CommandTransaction};
 use forge_domain::{ActorKind, LifecycleStatus, ScheduledResumeState, Timestamp};
 use forge_protocol::wire::{CommandName, CommandStatus};
 use forge_storage::PostgresStore;
 use serde_json::json;
+use tower::ServiceExt;
 use uuid::Uuid;
 
 async fn paused(kind: BackendKind) -> Result<(Fixture, forge_domain::TaskId)> {
@@ -57,6 +62,98 @@ async fn schedule(fixture: &Fixture, task: forge_domain::TaskId) -> Result<Uuid>
     let receipt=fixture.task_command(CommandName::ScheduleTaskResume,task,
         json!({"wait_condition_id":wait,"not_before":deadline_json(fixture),"reason":"Quota reset requested by owner"})).await?;
     Ok(receipt.resource.context("alarm")?.id.parse()?)
+}
+
+#[tokio::test]
+#[ignore = "requires local PostgreSQL; validates scoped resume schedule pages"]
+async fn resume_schedule_read_tracks_pending_and_cancelled_without_mutating_tasks() -> Result<()> {
+    let (fixture, task) = paused(BackendKind::Postgres).await?;
+    let first = schedule(&fixture, task).await?;
+    let version = fixture.task(task).await?.pipeline().pipeline_version_id();
+    let second_task = fixture
+        .create_task(version, "Another delayed continuation")
+        .await?;
+    fixture
+        .task_command(CommandName::ApproveTask, second_task, json!({}))
+        .await?;
+    fixture
+        .task_command(
+            CommandName::PauseTask,
+            second_task,
+            json!({"mode":"graceful"}),
+        )
+        .await?;
+    let second = schedule(&fixture, second_task).await?;
+    let Backend::Postgres(pool) = &fixture.backend else {
+        unreachable!()
+    };
+    let router = forge_core::router(fixture.core(pool));
+    let read = |uri: String| Request::builder().uri(uri).body(Body::empty());
+    let base = format!("/v1/projects/{}/resume-schedules", fixture.project_id);
+    let response = router
+        .clone()
+        .oneshot(read(format!("{base}?limit=1"))?)
+        .await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    let page: serde_json::Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 64 * 1024).await?)?;
+    assert_eq!(page["items"].as_array().context("first page")?.len(), 1);
+    let cursor = page["next_cursor"].as_str().context("cursor")?;
+    let response = router
+        .clone()
+        .oneshot(read(format!("{base}?limit=1&cursor={cursor}"))?)
+        .await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    let next: serde_json::Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 64 * 1024).await?)?;
+    assert_eq!(next["items"].as_array().context("second page")?.len(), 1);
+    assert!(next["next_cursor"].is_null());
+    let ids = [
+        page["items"][0]["id"].clone(),
+        next["items"][0]["id"].clone(),
+    ];
+    assert!(ids.contains(&json!(first)) && ids.contains(&json!(second)));
+    assert_eq!(page["items"][0]["state"]["status"], "pending");
+    assert!(page["items"][0]["not_before"].as_str().is_some());
+    assert!(page["items"][0]["created_at"].as_str().is_some());
+
+    fixture
+        .execute(
+            CommandName::CancelTaskResume,
+            json!({"schedule_id":first,"reason":"Owner changed plan"}),
+        )
+        .await?;
+    let response = router.clone().oneshot(read(base.clone())?).await?;
+    let all: serde_json::Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 64 * 1024).await?)?;
+    let cancelled = all["items"]
+        .as_array()
+        .context("items")?
+        .iter()
+        .find(|item| item["id"] == json!(first))
+        .context("cancelled schedule")?;
+    assert_eq!(cancelled["state"]["status"], "cancelled");
+    assert!(cancelled["state"]["at"].as_str().is_some());
+    assert_eq!(cancelled["task_id"], json!(task));
+    assert_eq!(
+        router
+            .clone()
+            .oneshot(read(format!("{base}?limit=51"))?)
+            .await?
+            .status(),
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(
+        router
+            .oneshot(read(format!(
+                "/v1/projects/{}/resume-schedules",
+                forge_domain::ProjectId::new()
+            ))?)
+            .await?
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    Ok(())
 }
 
 pub async fn alarm_intent_and_cancellation_are_atomic(kind: BackendKind) -> Result<()> {

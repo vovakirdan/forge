@@ -192,6 +192,12 @@ pub trait CommandTransaction: Send {
         project: &Project,
         expected_revision: u64,
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+    /// Checks whether schema replacement would reinterpret an existing Task.
+    /// The caller already holds the Project lock shared with Task creation.
+    fn project_has_tasks(
+        &mut self,
+        project_id: ProjectId,
+    ) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
     /// Loads the immutable catalog binding under the transaction's Project lock.
     fn lock_pipeline(
         &mut self,

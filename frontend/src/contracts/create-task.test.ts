@@ -16,8 +16,15 @@ const request = {
     properties: {},
   },
 };
-test("creation accepts a pinned draft with optional DoD and empty properties only", () => {
+test("creation accepts a pinned draft with optional DoD and typed properties", () => {
   assert.deepEqual(CreateTaskRequestSchema.parse(request), request);
+  assert.equal(
+    CreateTaskRequestSchema.safeParse({
+      ...request,
+      payload: { ...request.payload, properties: { impact: { type: "enum", value: "high" } } },
+    }).success,
+    true,
+  );
   assert.equal(
     CreateTaskRequestSchema.safeParse({
       ...request,

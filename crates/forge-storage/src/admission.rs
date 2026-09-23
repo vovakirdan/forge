@@ -3,8 +3,58 @@ use crate::{PostgresStore, StorageError, StorageTransaction};
 use forge_domain::{ExecutionProfile, ProjectId, admission::AdmissionLimits};
 use serde_json::Value;
 use sqlx::Row;
+use time::OffsetDateTime;
+
+/// Configured local admission caps and occupied Runs observed in one SQL statement.
+#[derive(Clone, Copy, Debug)]
+pub struct AdmissionResourceSnapshot {
+    pub policy_revision: u64,
+    pub limits: AdmissionLimits,
+    pub policy_updated_at: OffsetDateTime,
+    pub observed_at: OffsetDateTime,
+    pub host_occupied_runs: u64,
+    pub project_occupied_runs: u64,
+}
 
 impl PostgresStore {
+    /// Counts the canonical occupied Run view; Lease plus physical reservation
+    /// for the same Run remain one unit until physical quiescence is confirmed.
+    pub async fn admission_resource_snapshot(
+        &self,
+        project_id: ProjectId,
+    ) -> Result<AdmissionResourceSnapshot, StorageError> {
+        let row = sqlx::query(
+            "SELECT revision,host_max_runs,project_max_runs,credential_account_max_runs,updated_at, \
+             clock_timestamp() AS observed_at, \
+             (SELECT count(*) FROM occupied_execution_runs) AS host_occupied_runs, \
+             (SELECT count(*) FROM occupied_execution_runs WHERE project_id=$1) AS project_occupied_runs \
+             FROM local_admission_policy WHERE singleton",
+        )
+        .bind(project_id.as_uuid())
+        .fetch_one(&self.pool)
+        .await?;
+        let read_u64 = |name| -> Result<u64, StorageError> {
+            u64::try_from(row.try_get::<i64, _>(name)?)
+                .map_err(|_| invalid("invalid persisted admission count or revision"))
+        };
+        let read_u16 = |name| -> Result<u16, StorageError> {
+            u16::try_from(row.try_get::<i32, _>(name)?)
+                .map_err(|_| invalid("invalid persisted admission limit"))
+        };
+        Ok(AdmissionResourceSnapshot {
+            policy_revision: read_u64("revision")?,
+            limits: AdmissionLimits {
+                host_max_runs: read_u16("host_max_runs")?,
+                project_max_runs: read_u16("project_max_runs")?,
+                credential_account_max_runs: read_u16("credential_account_max_runs")?,
+            },
+            policy_updated_at: row.try_get("updated_at")?,
+            observed_at: row.try_get("observed_at")?,
+            host_occupied_runs: read_u64("host_occupied_runs")?,
+            project_occupied_runs: read_u64("project_occupied_runs")?,
+        })
+    }
+
     /// Operator startup configuration. Different limits require full quiescence;
     /// an identical configuration is safe during recovery or a concurrent startup.
     pub async fn configure_local_admission(

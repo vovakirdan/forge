@@ -72,14 +72,17 @@ test("leave guard requires explicit confirmation and removes only the disposed r
     return allowed;
   });
   assert.equal(guard.canLeave(), true);
+  assert.equal(guard.hasPending(), false);
   const removeClean = guard.register(() => false);
   const removeDirty = guard.register(() => true);
+  assert.equal(guard.hasPending(), true);
   assert.equal(guard.canLeave(), false);
   allowed = true;
   assert.equal(guard.canLeave(), true);
   assert.deepEqual(notices, [draftLeaveWarning, draftLeaveWarning]);
   removeClean();
   removeDirty();
+  assert.equal(guard.hasPending(), false);
   assert.equal(guard.canLeave(), true);
   assert.equal(notices.length, 2);
 });

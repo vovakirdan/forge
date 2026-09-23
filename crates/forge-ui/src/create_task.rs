@@ -1,6 +1,7 @@
 //! Narrow draft creation; pipeline selection and lifecycle policy remain in Core.
 
 use serde::Deserialize;
+use std::collections::BTreeMap;
 
 use crate::{
     command::{uuid_v7, validate_receipt},
@@ -25,7 +26,7 @@ struct Payload {
     _kind: Kind,
     pipeline_version_id: String,
     priority: String,
-    properties: std::collections::BTreeMap<String, serde_json::Value>,
+    properties: BTreeMap<String, serde_json::Value>,
 }
 
 #[derive(Deserialize)]
@@ -51,7 +52,18 @@ impl CreateTask {
         let value: Self = serde_json::from_slice(bytes).map_err(|_| ApiError::BadRequest)?;
         let payload = &value.payload;
         if !uuid_v7(&value.project_id)
-            || !payload.properties.is_empty()
+            || payload.properties.len() > 64
+            || payload.properties.iter().any(|(key, value)| {
+                key.is_empty()
+                    || key.len() > 64
+                    || !key.as_bytes()[0].is_ascii_lowercase()
+                    || !key.bytes().all(|byte| {
+                        byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_'
+                    })
+                    || !value.is_object()
+                    || !value.get("type").is_some_and(serde_json::Value::is_string)
+                    || value.get("value").is_none()
+            })
             || !(1..9_007_199_254_740_991_u64).contains(&value.expected_revision)
             || !uuid_v7(&payload.pipeline_version_id)
             || payload.title.trim().is_empty()

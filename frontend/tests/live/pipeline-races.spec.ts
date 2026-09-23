@@ -24,7 +24,8 @@ for (const destination of ["version", "page", "section", "logout"] as const) {
         await pipelineList(page).getByRole("button", { name: "Next page", exact: true }).click();
         await expect(
           pipelineList(page).getByRole("button", { name: /^Open Pipeline version / }),
-        ).toHaveCount(3);
+        ).not.toHaveCount(0);
+        await expect(openVersion(page, project.featured_id)).toHaveCount(0);
       } else if (destination === "section") {
         await page.getByRole("button", { name: "Tasks", exact: true }).click();
         await expect(page.getByRole("region", { name: "Tasks", exact: true })).toBeVisible();

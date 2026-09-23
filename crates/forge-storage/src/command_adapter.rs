@@ -348,6 +348,12 @@ impl CommandTransaction for StorageTransaction<'_> {
             .map_err(Into::into)
     }
 
+    async fn project_has_tasks(&mut self, project_id: ProjectId) -> Result<bool, RepositoryError> {
+        StorageTransaction::project_has_tasks(self, project_id)
+            .await
+            .map_err(Into::into)
+    }
+
     async fn lock_pipeline(&mut self, id: PipelineId) -> Result<Option<Pipeline>, RepositoryError> {
         StorageTransaction::lock_pipeline(self, id)
             .await

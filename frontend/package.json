@@ -19,6 +19,7 @@
     "typecheck": "tsc --noEmit",
     "test:contracts": "node --test --test-concurrency=1 src/contracts/*.test.ts",
     "test:presentation": "node --test --test-concurrency=1 src/presentation/*.test.ts",
+    "test:components": "tsc --noEmit --project tests/components/tsconfig.json && bun test tests/components/*.test.tsx",
     "test:browser": "playwright test",
     "test:browser:install": "playwright install chromium",
     "test:browser:serve": "vite dev --host 127.0.0.1 --port 4173 --strictPort",

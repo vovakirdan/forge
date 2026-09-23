@@ -24,6 +24,7 @@ import {
 import { readKeys } from "./read-cache.ts";
 import { useReadLifetime } from "./use-read-lifetime.ts";
 import { CreateTaskPipelinePicker } from "./CreateTaskPipelinePicker.tsx";
+import { TaskPropertiesSchema } from "../contracts/properties.ts";
 
 type Props = ProjectReadScope & { onCancel: () => void; onCreated: (taskId: string) => void };
 export function TaskCreateEditor(scope: Props) {
@@ -75,6 +76,7 @@ function CreateForm(scope: Props & { initial: PrioritySchemeView }) {
   const queries = useQueryClient();
   const [scheme, setScheme] = useState(scope.initial);
   const [fields, setFields] = useState(() => initialCreateTaskFields(scope.initial));
+  const [propertiesText, setPropertiesText] = useState("{}");
   const [state, setState] = useState<State>({ status: "editing" });
   const [refreshing, setRefreshing] = useState(false);
   const [readError, setReadError] = useState<string | null>(null);
@@ -91,6 +93,7 @@ function CreateForm(scope: Props & { initial: PrioritySchemeView }) {
     fields.definitionOfDone !== "" ||
     fields.kind !== "" ||
     fields.pipelineVersionId !== "" ||
+    propertiesText !== "{}" ||
     fields.priority !== scope.initial.default_level_id;
   const warn =
     state.status === "sending" ||
@@ -133,6 +136,16 @@ function CreateForm(scope: Props & { initial: PrioritySchemeView }) {
       ),
   });
   useReadLifetime(pipelineKey);
+  const schemaKey = useMemo(
+    () => readKeys.taskPropertySchema(generation, projectId),
+    [generation, projectId],
+  );
+  const propertySchema = useQuery({
+    queryKey: schemaKey,
+    queryFn: ({ signal }) =>
+      session.request(generation, (token) => api.taskPropertySchema(projectId, token, signal)),
+    retry: false,
+  });
   async function refreshCreated(receipt: TaskCommandReceipt, controller: AbortController) {
     setState({ status: "created", receipt, refreshing: true, refreshFailed: false });
     try {
@@ -209,13 +222,24 @@ function CreateForm(scope: Props & { initial: PrioritySchemeView }) {
   const priorityValid = activePriority(scheme, fields.priority);
   const pipelineValid =
     pipeline.isSuccess && !pipeline.isFetching && pipelineAllowsCreation(pipeline.data, fields);
+  let propertyValues: ReturnType<typeof TaskPropertiesSchema.safeParse>;
+  try {
+    propertyValues = TaskPropertiesSchema.safeParse(JSON.parse(propertiesText) as unknown);
+  } catch {
+    propertyValues = TaskPropertiesSchema.safeParse(null);
+  }
+  const propertyValid = propertyValues.success && Object.keys(propertyValues.data).length <= 64;
   const canCreate =
     editable &&
     priorityValid &&
     pipelineValid &&
-    CreateTaskRequestSchema.safeParse(createTaskInput(scheme, fields)).success;
+    propertyValid &&
+    CreateTaskRequestSchema.safeParse(createTaskInput(scheme, fields, propertyValues.data)).success;
   const [, create, pending] = useActionState(async (_previous: null) => {
-    if (canCreate && pipeline.data) await submit(createTaskAttempt(scheme, pipeline.data, fields));
+    if (canCreate && pipeline.data && propertyValues.success)
+      await submit(
+        createTaskAttempt(scheme, pipeline.data, fields, undefined, propertyValues.data),
+      );
     return null;
   }, null);
   const disabled = !editable || pending;
@@ -227,9 +251,7 @@ function CreateForm(scope: Props & { initial: PrioritySchemeView }) {
       }}
       className="space-y-4"
     >
-      <p className="text-sm">
-        Creates a draft only. No approval, queue entry or Run is requested. Properties remain empty.
-      </p>
+      <p className="text-sm">Creates a draft only. No approval, queue entry or Run is requested.</p>
       <p className="text-xs">Creation baseline: Project revision {scheme.project_revision}.</p>
       {scheme.project_revision === Number.MAX_SAFE_INTEGER && (
         <p role="alert">The revision exceeds the browser creation limit.</p>
@@ -244,6 +266,37 @@ function CreateForm(scope: Props & { initial: PrioritySchemeView }) {
           aria-invalid={!DraftTitleSchema.safeParse(fields.title).success}
         />
         <p className="text-xs">Required; at most 240 Unicode characters.</p>
+      </div>
+      <div className="space-y-2">
+        <label htmlFor="create-properties">Task properties JSON</label>
+        <Textarea
+          id="create-properties"
+          className="font-mono text-xs"
+          value={propertiesText}
+          disabled={disabled}
+          aria-invalid={!propertyValid}
+          onChange={(event) => setPropertiesText(event.target.value)}
+        />
+        {propertySchema.data && (
+          <p className="text-xs">
+            Project schema:{" "}
+            {Object.values(propertySchema.data.schema.definitions)
+              .map(
+                (definition) =>
+                  `${definition.key} (${definition.property_type}${definition.required ? ", required" : ""})`,
+              )
+              .join(", ") || "no configured fields"}
+            . Values use tagged objects such as {`{"impact":{"type":"enum","value":"high"}}`}.
+          </p>
+        )}
+        {propertySchema.isError && (
+          <p role="alert">
+            Property definitions unavailable. Core will validate submitted values at approval.
+          </p>
+        )}
+        {!propertyValid && (
+          <p role="alert">Enter at most 64 stable property keys with tagged values.</p>
+        )}
       </div>
       <div className="space-y-2">
         <label htmlFor="create-description">Draft description</label>

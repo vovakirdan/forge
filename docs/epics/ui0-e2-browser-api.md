@@ -1,7 +1,7 @@
 # Epic UI0.2 — Локальная browser boundary и API client
 
 **Milestone:** UI0 — Модель интерфейса и локальная API-граница
-**Статус:** in_progress — owner gateway, read срезы и первая draft command; полная приёмка эпика впереди
+**Статус на 23 сентября 2026:** локальный owner gateway, typed read/command client и browser boundary реализованы и проверены; описание ранних срезов ниже сохранено как история.
 **Тип / приоритет:** integration / P0
 **Источники:** [UI-план](../UI_IMPLEMENTATION_PLAN.md),
 [матрица соответствия](../UI_BACKEND_ALIGNMENT.md)

@@ -2,6 +2,7 @@ import { test, expect } from "./fixtures";
 import { loadProject, openTasks } from "./task-helpers";
 import { TaskDetailViewSchema, TaskListResponseSchema } from "../../src/contracts/task";
 import { PipelineVersionViewSchema } from "../../src/contracts/pipeline";
+import { TaskHandoffPageSchema } from "../../src/contracts/task-handoff";
 
 test("real Task list pages by 20 and the card resolves its soft-deleted pinned Pipeline", async ({
   live,
@@ -31,17 +32,31 @@ test("real Task list pages by 20 and the card resolves its soft-deleted pinned P
   expect(first.next_cursor).toBeTruthy();
   for (const task of first.items) await expect(list).toContainText(task.title);
   const task = TaskDetailViewSchema.parse(await get(`tasks/${live.core.tasks.featured_id}`));
+  const handoffs = TaskHandoffPageSchema.parse(
+    await get(`tasks/${live.core.tasks.featured_id}/handoffs?limit=20`),
+  );
   await list.getByRole("button", { name: `Open ${task.key}`, exact: true }).click();
   const card = page.getByRole("region", { name: "Task detail", exact: true });
   await expect(card).toContainText(task.title);
   await expect(card).toContainText(task.description);
+  await expect(card.getByRole("region", { name: "Task handoffs" })).toBeVisible();
+  for (const handoff of handoffs.items) await expect(card).toContainText(handoff.id);
   await expect(card).toContainText(task.definition_of_done ?? "");
   await expect(card).toContainText(live.core.tasks.stage_name);
   await expect(card).toContainText(live.core.tasks.pinned_version_id);
   for (const artifact of task.artifacts) {
     await expect(card).toContainText(artifact.id);
     await expect(card).toContainText(artifact.title);
+    await expect(card).toContainText(artifact.producer);
+    await expect(card).toContainText(artifact.submitted_at);
   }
+  await expect(card.getByRole("region", { name: "Task work surface and evidence" })).toContainText(
+    `Core work surface: ${task.work_surface_kind === "git" ? "Git binding" : "None"}`,
+  );
+  const preview = card.getByRole("button", { name: "Preview JSON" }).first();
+  await preview.click();
+  await expect(card.getByRole("button", { name: "Hide JSON preview" })).toBeVisible();
+  await card.getByRole("button", { name: "Hide JSON preview" }).click();
   expect(task.wait_conditions.length).toBeGreaterThan(0);
   for (const wait of task.wait_conditions) {
     await expect(card).toContainText(wait.kind);
@@ -111,7 +126,7 @@ test("real Project scope stays separate, empty is explicit and foreign Task/Pipe
     );
     expect(response.status).toBe(404);
   }
-  await loadProject(page, live.core.empty_project.id);
+  await loadProject(page, live.core.later_project.id);
   await expect(list).toContainText(/no tasks/i);
   await expect(list.getByRole("button", { name: /^Open TASK-/ })).toHaveCount(0);
 });

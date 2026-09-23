@@ -6,6 +6,44 @@ use forge_domain::{
 use uuid::Uuid;
 
 impl PostgresStore {
+    /// Returns a bounded Project-scoped retained alarm page in stable ID order.
+    pub async fn task_resume_schedule_page(
+        &self,
+        project_id: ProjectId,
+        after: Option<Uuid>,
+        limit: u32,
+    ) -> Result<Vec<TaskResumeSchedule>, StorageError> {
+        if !(1..=51).contains(&limit) {
+            return Err(StorageError::InvalidInput {
+                reason: "resume schedule page limit must be between 1 and 51".into(),
+            });
+        }
+        let snapshots: Vec<String> = sqlx::query_scalar(
+            "SELECT canonical_snapshot::text FROM task_resume_schedules \
+             WHERE project_id=$1 AND ($2::uuid IS NULL OR id>$2) ORDER BY id LIMIT $3",
+        )
+        .bind(project_id.as_uuid())
+        .bind(after)
+        .bind(i64::from(limit))
+        .fetch_all(&self.pool)
+        .await?;
+        snapshots
+            .into_iter()
+            .map(|value| {
+                let schedule: TaskResumeSchedule =
+                    serde_json::from_str(&value).map_err(|source| StorageError::Snapshot {
+                        aggregate: "resume_schedule",
+                        source,
+                    })?;
+                validate(&schedule)?;
+                if schedule.project_id != project_id {
+                    return Err(invalid());
+                }
+                Ok(schedule)
+            })
+            .collect()
+    }
+
     /// Bounded pending scan; callers acquire Project then alarm locks and recheck due time.
     pub async fn due_task_resume_schedules(
         &self,

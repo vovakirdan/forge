@@ -96,6 +96,9 @@ pub fn command_name(envelope: &CommandEnvelope) -> String {
         forge_protocol::wire::CommandName::BindTaskGitRepository => "bind_task_git_repository",
         forge_protocol::wire::CommandName::SetTaskGitSourcePolicy => "set_task_git_source_policy",
         forge_protocol::wire::CommandName::CreateProject => "create_project",
+        forge_protocol::wire::CommandName::ConfigureTaskPropertySchema => {
+            "configure_task_property_schema"
+        }
         forge_protocol::wire::CommandName::CreatePipeline => "create_pipeline",
         forge_protocol::wire::CommandName::PublishPipelineVersion => "publish_pipeline_version",
         forge_protocol::wire::CommandName::SetPipelineDefaultVersion => {

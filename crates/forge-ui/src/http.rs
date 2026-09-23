@@ -41,6 +41,7 @@ pub(crate) enum ApiError {
     ResponseTooLarge,
     CursorInvalid,
     StaleRevision,
+    Conflict,
     IdempotencyConflict,
     ValidationFailed,
     CommandForbidden,
@@ -64,6 +65,7 @@ impl IntoResponse for ApiError {
                 StatusCode::CONFLICT,
                 "project revision is no longer current",
             ),
+            Self::Conflict => (StatusCode::CONFLICT, "command conflicts with current state"),
             Self::IdempotencyConflict => (
                 StatusCode::CONFLICT,
                 "idempotency key conflicts with another command",
@@ -87,6 +89,7 @@ impl IntoResponse for ApiError {
             Self::ResponseTooLarge => "response_too_large",
             Self::CursorInvalid => "cursor_invalid",
             Self::StaleRevision => "stale_revision",
+            Self::Conflict => "conflict",
             Self::IdempotencyConflict => "idempotency_conflict",
             Self::ValidationFailed => "validation_failed",
             Self::Unavailable => "unavailable",
@@ -191,7 +194,12 @@ async fn guarded_dispatch(state: &HttpState, request: Request<Body>) -> Result<R
             return Err(ApiError::BadRequest);
         }
         let body = state.core.read(&target).await?;
-        return Ok(([(header::CONTENT_TYPE, "application/json")], body).into_response());
+        let content_type = if target.event_stream {
+            "text/event-stream"
+        } else {
+            "application/json"
+        };
+        return Ok(([(header::CONTENT_TYPE, content_type)], body).into_response());
     }
     if request.uri().query().is_some()
         || (request.method() != Method::GET && request.method() != Method::HEAD)

@@ -8,6 +8,7 @@ use forge_domain::{
 };
 use serde_json::Value;
 use sqlx::Row;
+use time::OffsetDateTime;
 use uuid::Uuid;
 
 // Exclude retained blockers before the bounded scan. The dispatcher repeats
@@ -45,7 +46,85 @@ pub struct StoredHookInvocation {
     pub expected_task_revision: u64,
     pub result: Option<Value>,
 }
+
+/// Bounded operator projection. Never deserialize or expose the private Hook
+/// RunSpec, process output, candidate checkout, or raw result evidence.
+#[derive(Clone, Debug)]
+pub struct HookInvocationView {
+    pub id: Uuid,
+    pub task_id: TaskId,
+    pub pipeline_version_id: forge_domain::PipelineVersionId,
+    pub stage_id: String,
+    pub stage_visit: u64,
+    pub hook_version_id: Uuid,
+    pub candidate_proposal_id: Option<Uuid>,
+    pub run_id: Option<Uuid>,
+    pub state: String,
+    pub verdict: Option<String>,
+    pub mapped_outcome: Option<String>,
+    pub artifact_id: Option<Uuid>,
+    pub created_at: OffsetDateTime,
+    pub updated_at: OffsetDateTime,
+}
 impl PostgresStore {
+    pub async fn hook_invocations_page(
+        &self,
+        project: ProjectId,
+        after: Option<Uuid>,
+        limit: u32,
+    ) -> Result<Vec<HookInvocationView>, StorageError> {
+        if !(1..=101).contains(&limit) {
+            return Err(invalid());
+        }
+        let rows = sqlx::query(
+            r#"SELECT h.id,h.task_id,h.pipeline_version_id,h.stage_id,h.stage_visit,
+                      h.hook_version_id,h.candidate_proposal_id,h.run_id,h.state,
+                      CASE WHEN h.state='completed' AND h.result->>'verdict' IN
+                        ('passed','failed','timed_out','skipped')
+                        THEN h.result->>'verdict' END AS verdict,
+                      CASE WHEN h.state='completed' AND h.result->>'verdict' IN
+                        ('passed','failed','timed_out','skipped')
+                        THEN v.definition->'stages'->h.stage_id->'system_action'->'outcomes'->>(h.result->>'verdict')
+                      END AS mapped_outcome,h.artifact_id,h.created_at,h.updated_at
+               FROM hook_invocations h
+               JOIN pipeline_versions v ON v.id=h.pipeline_version_id
+               JOIN pipelines p ON p.id=v.pipeline_id AND p.project_id=h.project_id
+               WHERE h.project_id=$1 AND ($2::uuid IS NULL OR h.id<$2)
+               ORDER BY h.id DESC LIMIT $3"#,
+        )
+        .bind(project.as_uuid())
+        .bind(after)
+        .bind(i64::from(limit))
+        .fetch_all(&self.pool)
+        .await?;
+        rows.into_iter()
+            .map(|row| {
+                let state: String = row.try_get("state")?;
+                if !matches!(state.as_str(), "running" | "completed" | "held") {
+                    return Err(invalid());
+                }
+                let stage_visit = crate::i64_to_u64(row.try_get("stage_visit")?, "hook.visit")?;
+                Ok(HookInvocationView {
+                    id: row.try_get("id")?,
+                    task_id: TaskId::from(row.try_get::<Uuid, _>("task_id")?),
+                    pipeline_version_id: forge_domain::PipelineVersionId::from(
+                        row.try_get::<Uuid, _>("pipeline_version_id")?,
+                    ),
+                    stage_id: row.try_get("stage_id")?,
+                    stage_visit,
+                    hook_version_id: row.try_get("hook_version_id")?,
+                    candidate_proposal_id: row.try_get("candidate_proposal_id")?,
+                    run_id: row.try_get("run_id")?,
+                    state,
+                    verdict: row.try_get("verdict")?,
+                    mapped_outcome: row.try_get("mapped_outcome")?,
+                    artifact_id: row.try_get("artifact_id")?,
+                    created_at: row.try_get("created_at")?,
+                    updated_at: row.try_get("updated_at")?,
+                })
+            })
+            .collect()
+    }
     pub async fn hook_projects(&self) -> Result<Vec<ProjectId>, StorageError> {
         let query = format!(
             "SELECT DISTINCT t.project_id FROM tasks t JOIN projects p ON p.id=t.project_id JOIN pipeline_versions v ON v.id=t.pipeline_version_id WHERE {DISPATCH_ELIGIBILITY} AND t.lifecycle='in_progress' AND v.definition->'stages'->t.current_stage_id->'system_action'->>'kind'='project_hook' AND NOT EXISTS(SELECT 1 FROM hook_invocations h WHERE h.task_id=t.id AND h.state='running') ORDER BY t.project_id LIMIT 64"

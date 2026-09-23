@@ -25,6 +25,12 @@ mod core_client_tests;
 mod create_employee;
 #[cfg(test)]
 mod create_employee_tests;
+mod create_pipeline;
+#[cfg(test)]
+mod create_pipeline_tests;
+mod create_project;
+#[cfg(test)]
+mod create_project_tests;
 mod create_task;
 #[cfg(test)]
 mod create_task_tests;
@@ -34,16 +40,49 @@ mod dependency_command_tests;
 mod employee_lifecycle;
 #[cfg(test)]
 mod employee_lifecycle_tests;
+mod employee_runtime_command;
+#[cfg(test)]
+mod employee_runtime_command_tests;
+mod git_recovery_command;
+#[cfg(test)]
+mod git_recovery_command_tests;
 mod http;
 #[cfg(test)]
 mod http_tests;
+mod inbox_command;
+#[cfg(test)]
+mod inbox_command_tests;
+mod knowledge_command;
+#[cfg(test)]
+mod knowledge_command_tests;
+mod management_command;
+#[cfg(test)]
+mod management_command_tests;
+mod manager_planning_command;
+#[cfg(test)]
+mod manager_planning_command_tests;
+mod pipeline_management_command;
+#[cfg(test)]
+mod pipeline_management_command_tests;
 #[cfg(test)]
 mod priority_command_tests;
+mod project_hook_command;
+#[cfg(test)]
+mod project_hook_command_tests;
+mod property_schema_command;
+#[cfg(test)]
+mod property_schema_command_tests;
 mod read_target;
 #[cfg(test)]
 mod read_target_tests;
+mod resolver_command;
+#[cfg(test)]
+mod resolver_command_tests;
 #[cfg(test)]
 mod server_tests;
+mod system_job_command;
+#[cfg(test)]
+mod system_job_command_tests;
 
 use std::{convert::Infallible, path::PathBuf, sync::Arc, time::Duration};
 

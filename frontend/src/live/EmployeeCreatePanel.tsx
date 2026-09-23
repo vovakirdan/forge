@@ -26,6 +26,8 @@ function describeRefusal(error: LiveCommandError) {
   switch (error.kind) {
     case "stale_revision":
       return "Project changed. Refresh the creation baseline before retrying.";
+    case "conflict":
+      return "Core refused Employee creation in the current Project state. Refresh the baseline.";
     case "idempotency_conflict":
       return "This request key belongs to another command. Refresh the creation baseline.";
     case "validation_failed":

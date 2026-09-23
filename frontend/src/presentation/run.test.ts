@@ -120,10 +120,9 @@ test("Run detail retains its typed diagnostics through the same Run presenter", 
   assert.strictEqual(diagnostics, run.diagnostics);
 });
 
-test("Run presentation preserves source extensions and never mutates frozen input", () => {
+test("Run presentation preserves owner extensions and never mutates frozen input", () => {
   const raw = JSON.parse(JSON.stringify(runViewFixture));
   const extensions = JSON.parse('{"__proto__":{"retained":true},"constructor":{"opaque":true}}');
-  raw.extra = extensions;
   raw.assignment.owner.extra = extensions;
   const run = freezeFixture(RunViewSchema.parse(raw));
   const before = JSON.stringify(run);

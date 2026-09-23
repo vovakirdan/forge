@@ -122,6 +122,31 @@ async fn execution_case(
     } else {
         assert!(!gate(&f, None).await?);
     }
+    let history = f.h.core.read_hook_invocations(f.project, None, 21).await?;
+    let observed = history
+        .iter()
+        .find(|item| item.id == spec.assignment.invocation_id)
+        .context("Hook invocation read projection")?;
+    assert_eq!(observed.task_id, f.task);
+    assert_eq!(observed.run_id, Some(run.id));
+    assert_eq!(observed.hook_version_id, f.hook);
+    if expected == LifecycleStatus::Waiting {
+        assert_eq!(observed.state, "held");
+        assert!(observed.mapped_outcome.is_none());
+    } else {
+        assert_eq!(observed.state, "completed");
+        assert_eq!(
+            observed.verdict.as_deref(),
+            verdict.map(|v| match v {
+                HookVerdict::Passed => "passed",
+                HookVerdict::Failed => "failed",
+                HookVerdict::TimedOut => "timed_out",
+                HookVerdict::Interrupted => "interrupted",
+            })
+        );
+        assert!(observed.mapped_outcome.is_some());
+    }
+    assert!(observed.artifact_id.is_some());
     assert!(
         f.h.store
             .list_artifacts_for_task(f.task)
@@ -201,6 +226,54 @@ async fn nonapplicable_hook_records_skip_without_run() -> Result<()> {
             .iter()
             .any(|artifact| artifact.artifact.kind().as_str() == "hook_result")
     );
+    let history = f.h.core.read_hook_invocations(f.project, None, 21).await?;
+    assert_eq!(history.len(), 1);
+    assert_eq!(history[0].task_id, f.task);
+    assert_eq!(history[0].hook_version_id, f.hook);
+    assert_eq!(history[0].state, "completed");
+    assert_eq!(history[0].verdict.as_deref(), Some("skipped"));
+    assert_eq!(history[0].mapped_outcome.as_deref(), Some("skipped"));
+    assert!(history[0].run_id.is_none());
+    assert!(history[0].artifact_id.is_some());
+    let foreign = f.h.create_project("Other hook history").await?;
+    assert!(
+        f.h.core
+            .read_hook_invocations(foreign, None, 21)
+            .await?
+            .is_empty()
+    );
+    use axum::{
+        body::{Body, to_bytes},
+        http::Request,
+    };
+    use tower::ServiceExt;
+    let response = forge_core::router(f.h.core.clone())
+        .oneshot(
+            Request::builder()
+                .uri(format!(
+                    "/v1/projects/{}/hook-invocations?limit=1",
+                    f.project
+                ))
+                .body(Body::empty())?,
+        )
+        .await?;
+    assert_eq!(response.status(), 200);
+    let body: Value = serde_json::from_slice(&to_bytes(response.into_body(), 64 * 1024).await?)?;
+    assert_eq!(body["items"][0]["verdict"], "skipped");
+    assert_eq!(body["items"][0]["run_id"], Value::Null);
+    assert_eq!(body["items"][0]["mapped_outcome"], "skipped");
+    assert!(body["items"][0].get("spec").is_none());
+    assert!(body["items"][0].get("result").is_none());
+    let response = forge_core::router(f.h.core.clone())
+        .oneshot(
+            Request::builder()
+                .uri(format!("/v1/projects/{foreign}/hook-invocations"))
+                .body(Body::empty())?,
+        )
+        .await?;
+    assert_eq!(response.status(), 200);
+    let body: Value = serde_json::from_slice(&to_bytes(response.into_body(), 64 * 1024).await?)?;
+    assert!(body["items"].as_array().context("items")?.is_empty());
     drop(f.supervisor);
     f.h.shutdown().await;
     Ok(())

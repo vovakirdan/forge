@@ -107,6 +107,19 @@ impl Project {
         &self.property_schema
     }
 
+    /// Replaces the Project's future Task approval schema at a new revision.
+    /// The command layer permits this only before the first Task exists.
+    pub fn configure_property_schema(
+        &mut self,
+        schema: TaskPropertySchema,
+        changed_at: Timestamp,
+    ) -> Result<(), DomainError> {
+        schema.validate_for_configuration()?;
+        self.touch(changed_at)?;
+        self.property_schema = schema;
+        Ok(())
+    }
+
     /// Returns Project creation time.
     #[must_use]
     pub const fn created_at(&self) -> Timestamp {

@@ -7,6 +7,7 @@ import type { ProjectReadScope } from "./read-scope.ts";
 import { useReadLifetime } from "./use-read-lifetime.ts";
 import { PipelineCatalog } from "./PipelineCatalog.tsx";
 import { PipelineDetailPanel } from "./PipelineDetailPanel.tsx";
+import { PipelineCatalogBrowser } from "./PipelineCatalogBrowser.tsx";
 
 export function PipelineBrowser(scope: ProjectReadScope) {
   const { api, session, generation, projectId } = scope;
@@ -42,6 +43,7 @@ export function PipelineBrowser(scope: ProjectReadScope) {
   const items = versions.data?.items;
   return (
     <>
+      <PipelineCatalogBrowser {...scope} />
       <section
         aria-label="Pipeline versions"
         className="space-y-4 rounded-xl border border-border bg-card p-6"

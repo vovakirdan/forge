@@ -250,6 +250,8 @@ pub enum CommandName {
     AcceptGitIntegrationResult,
     /// Create a Project with the caller-reserved Project identity.
     CreateProject,
+    /// Replace Project Task-property definitions before its first Task exists.
+    ConfigureTaskPropertySchema,
     /// Create a Pipeline and its initial immutable PipelineVersion.
     CreatePipeline,
     /// Publish a complete immutable graph under an existing Pipeline.

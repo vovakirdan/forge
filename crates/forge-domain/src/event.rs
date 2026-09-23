@@ -224,6 +224,8 @@ pub enum DomainEventKind {
     RunProgressReported,
     /// A Project was created with its initial policy catalog.
     ProjectCreated,
+    /// Project Task-property schema was replaced before any Task existed.
+    TaskPropertySchemaConfigured,
     /// Project dispatch was opened by an authorized manager command.
     ProjectExecutionStarted,
     /// Project dispatch was stopped by an authorized manager command.

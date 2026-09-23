@@ -1,7 +1,7 @@
 # Epic UI3.1 — Knowledge и Memory
 
 **Milestone:** UI3 — Knowledge loop и операционная конфигурация
-**Статус:** planned; реализация не начата
+**Статус на 23 сентября 2026:** локальные authoritative Knowledge, derived memory и source-linked reads реализованы и проверены.
 **Источник:** [UI plan](../UI_IMPLEMENTATION_PLAN.md),
 [backend alignment](../UI_BACKEND_ALIGNMENT.md)
 **База backend:** `1439211`; M3 каноническая память отделена от search projection.

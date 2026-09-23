@@ -22,6 +22,65 @@ impl crate::model::SnapshotValidatable for EmployeeMessage {
 }
 
 impl PostgresStore {
+    /// One message-sequence page of persisted delivery facts. Receipts are reduced in SQL,
+    /// so repeated attempts cannot expand a bounded browser response without limit.
+    pub async fn list_message_delivery(
+        &self,
+        project: ProjectId,
+        thread: Uuid,
+        after: u64,
+        limit: u32,
+    ) -> Result<Vec<serde_json::Value>, StorageError> {
+        let rows = sqlx::query_scalar(
+            r#"SELECT jsonb_build_object(
+                'message_id', m.id, 'sequence', m.sequence,
+                'assignment', CASE WHEN a.id IS NULL THEN NULL ELSE jsonb_build_object(
+                    'state', a.state, 'attempt_number', a.attempt_number,
+                    'run_id', (SELECT r.id FROM runs r WHERE r.project_id=m.project_id
+                        AND r.communication_assignment_id=a.id ORDER BY r.attempt_number DESC LIMIT 1),
+                    'retry_ready', EXISTS (
+                        SELECT 1 FROM runs r
+                        JOIN leases l ON forge_lease_owns_run(l,r)
+                        JOIN run_environment_reservations e ON e.run_id=r.id
+                        WHERE r.project_id=m.project_id AND r.communication_assignment_id=a.id
+                          AND r.purpose='communication' AND r.attempt_number=a.attempt_number
+                          AND a.state='held' AND l.lease_state<>'active'
+                          AND e.state='quiescent' AND e.released_at IS NOT NULL
+                          AND NOT EXISTS (SELECT 1 FROM run_environment_reservations other
+                              WHERE other.communication_assignment_id=a.id AND other.released_at IS NULL)
+                          AND NOT EXISTS (SELECT 1 FROM escalations question
+                              WHERE question.source_run_id=r.id AND question.escalation_state<>'resolved')
+                    )) END,
+                'runtime_accepted_at', receipts.runtime_accepted_at,
+                'acknowledged_at', receipts.acknowledged_at,
+                'answered_at', receipts.answered_at,
+                'answered_reply_id', (SELECT r.reply_id FROM employee_message_receipts r
+                    WHERE r.project_id=m.project_id AND r.message_id=m.id AND r.kind='answered'
+                    ORDER BY r.created_at DESC, r.run_id DESC LIMIT 1),
+                'waiver', w.canonical_snapshot
+            )
+            FROM employee_messages m
+            LEFT JOIN communication_assignments a ON a.project_id=m.project_id AND a.source_message_id=m.id
+            LEFT JOIN employee_message_waivers w ON w.project_id=m.project_id AND w.message_id=m.id
+            LEFT JOIN LATERAL (
+                SELECT max(r.created_at) FILTER (WHERE r.kind='runtime_accepted') AS runtime_accepted_at,
+                       max(r.created_at) FILTER (WHERE r.kind='acknowledged') AS acknowledged_at,
+                       max(r.created_at) FILTER (WHERE r.kind='answered') AS answered_at
+                FROM employee_message_receipts r
+                WHERE r.project_id=m.project_id AND r.message_id=m.id
+            ) receipts ON TRUE
+            WHERE m.project_id=$1 AND m.thread_id=$2 AND m.sequence>$3
+            ORDER BY m.sequence LIMIT $4"#,
+        )
+        .bind(project.as_uuid())
+        .bind(thread)
+        .bind(u64_to_i64(after, "delivery.after")?)
+        .bind(i64::from(limit.clamp(1, 101)))
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
     pub async fn list_employee_threads(
         &self,
         project: ProjectId,

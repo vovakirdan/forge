@@ -7,23 +7,17 @@ import {
   runViewFixture,
 } from "./run-fixtures.ts";
 
-test("diagnostics accepts absent measurements as null, partial reports, and populated reports", () => {
-  const partial = {
-    ...emptyRunDiagnosticsFixture,
-    runtime_report: { status: "started" },
-    streams: [{ stream: "custom_stream", incomplete: true }],
-  };
-  for (const raw of [emptyRunDiagnosticsFixture, partial, populatedRunDiagnosticsFixture]) {
-    assert.deepEqual(RunDiagnosticsSchema.parse(raw), raw);
+test("diagnostics accept empty and safe populated metadata without changing wire values", () => {
+  for (const raw of [emptyRunDiagnosticsFixture, populatedRunDiagnosticsFixture]) {
+    assert.strictEqual(RunDiagnosticsSchema.parse(raw), raw);
+    assert.strictEqual(
+      RunDetailViewSchema.parse({ ...runViewFixture, diagnostics: raw }).diagnostics,
+      raw,
+    );
   }
-  const diagnostics = RunDiagnosticsSchema.parse(emptyRunDiagnosticsFixture);
-  assert.equal(diagnostics.proxy_usage, null);
-  assert.equal(diagnostics.git_source, null);
-  assert.equal(Object.hasOwn(diagnostics, "cost"), false);
-  assert.equal(Object.hasOwn(diagnostics, "accepted"), false);
 });
 
-test("diagnostics envelope fields are all required even when empty or null", () => {
+test("diagnostics require every envelope field", () => {
   for (const field of Object.keys(emptyRunDiagnosticsFixture)) {
     const raw: Record<string, unknown> = { ...emptyRunDiagnosticsFixture };
     delete raw[field];
@@ -34,20 +28,23 @@ test("diagnostics envelope fields are all required even when empty or null", () 
   }
 });
 
-test("diagnostic report roots are nullable JSON objects, not primitives or arrays", () => {
+test("report markers reject private bodies and false availability", () => {
   for (const field of ["runtime_report", "handoff", "proxy_usage", "git_source"]) {
-    for (const value of [null, {}, { nested: [1, true, null, "text", { more: 2.5 }] }]) {
-      const raw = { ...emptyRunDiagnosticsFixture, [field]: value };
-      assert.deepEqual(RunDiagnosticsSchema.parse(raw), raw);
+    for (const value of [null, { available: true }]) {
+      assert.equal(
+        RunDiagnosticsSchema.safeParse({ ...emptyRunDiagnosticsFixture, [field]: value }).success,
+        true,
+        field,
+      );
     }
     for (const value of [
-      undefined,
-      true,
-      12,
-      "text",
+      {},
+      { available: false },
+      { available: true, prompt: "private" },
+      { available: true, object_key: "private" },
+      { status: "finished", body: "private" },
       [],
-      { not_json: undefined },
-      { not_json: Infinity },
+      "private",
     ]) {
       assert.equal(
         RunDiagnosticsSchema.safeParse({ ...emptyRunDiagnosticsFixture, [field]: value }).success,
@@ -58,17 +55,26 @@ test("diagnostic report roots are nullable JSON objects, not primitives or array
   }
 });
 
-test("incidents and evidence are arrays of opaque JSON objects without automatic interpretation", () => {
-  for (const field of ["incidents", "evidence"]) {
-    const item = {
-      storage: "object_reference",
-      object_key: "opaque/no-fetch",
-      nested: [null, false],
-      unknown: "synthetic",
-    };
-    const raw = { ...emptyRunDiagnosticsFixture, [field]: [item] };
-    assert.deepEqual(RunDiagnosticsSchema.parse(raw), raw);
-    for (const value of [null, {}, "text", [null], [1], [[]], [{ invalid: NaN }]]) {
+test("incidents, evidence and streams reject content and object references", () => {
+  const incident = populatedRunDiagnosticsFixture.incidents[0];
+  const evidence = populatedRunDiagnosticsFixture.evidence[0];
+  const stream = populatedRunDiagnosticsFixture.streams[0];
+  for (const [field, item] of [
+    ["incidents", { ...incident, kind: "private" }],
+    ["incidents", { ...incident, assessment: "secret" }],
+    ["evidence", { ...evidence, object_key: "private" }],
+    ["evidence", { ...evidence, body: "private" }],
+    ["evidence", { ...evidence, content_availability: "available" }],
+    ["streams", { ...stream, raw: "private" }],
+  ] as const) {
+    assert.equal(
+      RunDiagnosticsSchema.safeParse({ ...emptyRunDiagnosticsFixture, [field]: [item] }).success,
+      false,
+      field,
+    );
+  }
+  for (const field of ["incidents", "evidence", "streams"]) {
+    for (const value of [null, {}, "text", [null], [1], [[]]]) {
       assert.equal(
         RunDiagnosticsSchema.safeParse({ ...emptyRunDiagnosticsFixture, [field]: value }).success,
         false,
@@ -78,55 +84,19 @@ test("incidents and evidence are arrays of opaque JSON objects without automatic
   }
 });
 
-test("stream entries require an open string name and explicit incomplete boolean", () => {
-  const stream = {
-    stream: "provider.specific/stream",
-    incomplete: true,
-    future: { hint: "opaque" },
-  };
-  assert.deepEqual(
-    RunDiagnosticsSchema.parse({ ...emptyRunDiagnosticsFixture, streams: [stream] }).streams,
-    [stream],
-  );
-  for (const streams of [
-    null,
-    {},
-    [null],
-    [{}],
-    [{ stream: "stdout" }],
-    [{ incomplete: false }],
-    [{ stream: 1, incomplete: false }],
-    [{ stream: "stdout", incomplete: "false" }],
+test("diagnostics reject additive top-level fields before they enter the Run cache", () => {
+  for (const extra of [
+    { object_key: "private" },
+    { prompt: "private" },
+    JSON.parse('{"__proto__":{"private":true}}'),
   ]) {
     assert.equal(
-      RunDiagnosticsSchema.safeParse({ ...emptyRunDiagnosticsFixture, streams }).success,
+      RunDetailViewSchema.safeParse({
+        ...runViewFixture,
+        diagnostics: { ...populatedRunDiagnosticsFixture, ...extra },
+      }).success,
       false,
     );
   }
-});
-
-test("diagnostic JSON and additive keys retain special members without fetching, merging or mutation", () => {
-  const special: Record<string, unknown> = JSON.parse(
-    '{"__proto__":{"literal":true},"constructor":{"__proto__":null},"nested":[{"__proto__":"data"}]}',
-  );
-  const diagnostics = {
-    runtime_report: special,
-    handoff: special,
-    incidents: [special],
-    evidence: [special],
-    streams: [{ stream: "stdout", incomplete: false, ...special }],
-    proxy_usage: special,
-    git_source: special,
-    ...special,
-  };
-  const raw = { ...runViewFixture, diagnostics, ...special };
-  const before = structuredClone(raw);
-  Object.freeze(special);
-  Object.freeze(diagnostics);
-  Object.freeze(raw);
-  const parsed = RunDetailViewSchema.parse(raw);
-  assert.deepEqual(parsed, before);
-  assert.deepEqual(raw, before);
-  assert.equal(JSON.stringify(parsed), JSON.stringify(before));
-  assert.equal(Object.hasOwn(Object.prototype, "literal"), false);
+  assert.equal(Object.hasOwn(Object.prototype, "private"), false);
 });

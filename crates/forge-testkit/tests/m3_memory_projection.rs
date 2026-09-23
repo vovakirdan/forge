@@ -457,6 +457,12 @@ async fn operator_memory_http_is_project_scoped_and_exposes_disabled_index_expli
     assert_eq!(result["mode"], "canonical_fallback");
     assert_eq!(result["degradation"], "not_configured");
     assert_eq!(result["results"].as_array().context("results")?.len(), 2);
+    for hit in result["results"].as_array().context("search hits")? {
+        assert!(hit["document"]["record"]["created_at"].is_string());
+        if hit["document"]["kind"] == "knowledge_page" {
+            assert!(hit["document"]["record"]["revised_at"].is_string());
+        }
+    }
     let result: Value = get(format!(
         "/v1/projects/{project}/memory?employee_id={employee}&limit=1"
     ))
@@ -466,6 +472,7 @@ async fn operator_memory_http_is_project_scoped_and_exposes_disabled_index_expli
     .json()
     .await?;
     assert_eq!(result["items"][0]["id"], json!(id));
+    assert!(result["items"][0]["created_at"].is_string());
     let history: Value = get(format!(
         "/v1/projects/{project}/memory/{id}/history?limit=1"
     ))
@@ -475,6 +482,7 @@ async fn operator_memory_http_is_project_scoped_and_exposes_disabled_index_expli
     .json()
     .await?;
     assert_eq!(history["items"][0]["revision"], 1);
+    assert!(history["items"][0]["created_at"].is_string());
     assert_eq!(history["next_cursor"], "1");
     for suffix in [
         format!("memory/{id}"),

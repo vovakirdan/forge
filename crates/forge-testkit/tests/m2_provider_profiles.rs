@@ -105,6 +105,48 @@ async fn register(
             .fetch_one(&harness.pool)
             .await?;
     assert_eq!(stored, serde_json::to_value(template.binding)?);
+    let api = forge_testkit::m0::LocalHttpApi::start(harness.core.clone())?;
+    let client = reqwest::Client::builder()
+        .unix_socket(api.socket())
+        .no_proxy()
+        .timeout(std::time::Duration::from_secs(3))
+        .build()?;
+    let response = client
+        .get(format!(
+            "http://localhost/v1/projects/{project}/employees/{employee}/runtime-metadata"
+        ))
+        .send()
+        .await?
+        .error_for_status()?
+        .text()
+        .await?;
+    let metadata: Value = serde_json::from_str(&response)?;
+    assert_eq!(metadata["availability"], "available");
+    assert_eq!(metadata["model"], "explicit-fixture-model");
+    assert_eq!(metadata["employee_id"], json!(employee));
+    for private in [
+        "system_prompt",
+        "employee_prompt",
+        "secret_id",
+        "account_id",
+        "repository",
+        "synthetic-access",
+        "synthetic-refresh",
+        "synthetic-id",
+    ] {
+        assert!(
+            !response.contains(private),
+            "runtime metadata leaked private field: {private}"
+        );
+    }
+    let foreign = client
+        .get(format!(
+            "http://localhost/v1/projects/{}/employees/{employee}/runtime-metadata",
+            ProjectId::new()
+        ))
+        .send()
+        .await?;
+    assert_eq!(foreign.status(), reqwest::StatusCode::NOT_FOUND);
     Ok(())
 }
 

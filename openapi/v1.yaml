@@ -60,7 +60,264 @@ tags:
     description: Replayable canonical Event stream.
   - name: inbox
     description: Durable Employee conversations; persistence is not runtime delivery.
+  - name: knowledge
+    description: Canonical human-managed pages and immutable revision history.
+  - name: memory
+    description: Derived, source-linked memory and disposable search projections.
+  - name: system-jobs
+    description: Ownerless background job status, attempts and accepted result coordinates.
 paths:
+  /v1/projects/{project_id}/task-property-schema:
+    get:
+      tags: [projects]
+      operationId: getProjectTaskPropertySchema
+      summary: Read the Project's typed Task property definitions and revision.
+      parameters:
+        - {name: project_id, in: path, required: true, schema: {$ref: '#/components/schemas/UuidV7'}}
+      responses:
+        '200':
+          description: Current schema; an empty definitions map is a valid initial state.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [project_id, project_revision, schema]
+                properties:
+                  project_id: {$ref: '#/components/schemas/UuidV7'}
+                  project_revision: {type: integer, minimum: 1}
+                  schema:
+                    $ref: '#/components/schemas/TaskPropertySchema'
+        '404': {$ref: '#/components/responses/NotFound'}
+  /v1/projects/{project_id}/pipeline-catalog:
+    get:
+      tags: [pipelines]
+      operationId: listPipelineCatalog
+      summary: List mutable Pipeline catalog metadata without loading immutable graphs.
+      description: Keyset order by Pipeline ID. Default may differ from latest. Pinned count includes retained Tasks across all versions and states; soft-deleted Pipelines remain visible.
+      parameters:
+        - {name: project_id, in: path, required: true, schema: {$ref: '#/components/schemas/UuidV7'}}
+        - {name: cursor, in: query, schema: {$ref: '#/components/schemas/UuidV7'}}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 50}}
+      responses:
+        '200':
+          description: One bounded page of catalog metadata.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, name, revision, default_version_id, latest_version_id, latest_version, deleted_at, pinned_task_count]
+                      properties:
+                        id: {$ref: '#/components/schemas/UuidV7'}
+                        name: {type: string}
+                        revision: {type: integer, minimum: 1}
+                        default_version_id: {type: [string, 'null'], format: uuid}
+                        latest_version_id: {type: [string, 'null'], format: uuid}
+                        latest_version: {type: [integer, 'null'], minimum: 1}
+                        deleted_at: {type: [string, 'null'], format: date-time}
+                        pinned_task_count: {type: integer, minimum: 0}
+                  next_cursor: {$ref: '#/components/schemas/UuidV7'}
+        '400': {$ref: '#/components/responses/InvalidRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /v1/projects/{project_id}/resources:
+    get:
+      tags: [projects]
+      operationId: getProjectResources
+      summary: Read configured admission limits and current occupied slots.
+      description: Lease and unreleased physical reservation for one Run count as one occupied slot. Account occupancy is unknown without a selected credential scope. Limits are configuration, not measured CPU/RAM/cost usage.
+      parameters:
+        - {name: project_id, in: path, required: true, schema: {$ref: '#/components/schemas/UuidV7'}}
+      responses:
+        '200':
+          description: Safe local admission projection.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [project_id, policy, occupancy, observed_at]
+                properties:
+                  project_id: {$ref: '#/components/schemas/UuidV7'}
+                  policy:
+                    type: object
+                    required: [revision, host_max_runs, project_max_runs, credential_account_max_runs, updated_at]
+                    properties:
+                      revision: {type: integer, minimum: 1}
+                      host_max_runs: {type: integer, minimum: 1}
+                      project_max_runs: {type: integer, minimum: 1}
+                      credential_account_max_runs: {type: integer, minimum: 1}
+                      updated_at: {type: string, format: date-time}
+                  occupancy:
+                    type: object
+                    required: [host_runs, project_runs, credential_account_runs]
+                    properties:
+                      host_runs: {type: integer, minimum: 0}
+                      project_runs: {type: integer, minimum: 0}
+                      credential_account_runs: {type: 'null'}
+                  observed_at: {type: string, format: date-time}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /v1/projects/{project_id}/knowledge:
+    get:
+      tags: [knowledge]
+      operationId: listKnowledgePages
+      summary: List current canonical page revisions, including drafts and withdrawn pages.
+      parameters:
+        - {name: project_id, in: path, required: true, schema: {$ref: '#/components/schemas/UuidV7'}}
+        - {name: after, in: query, schema: {$ref: '#/components/schemas/UuidV7'}}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 50}}
+      responses:
+        '200':
+          description: Ascending page-ID order; next_cursor is the last returned page ID when more pages exist.
+          content: {application/json: {schema: {$ref: '#/components/schemas/KnowledgePageList'}}}
+        '400': {$ref: '#/components/responses/InvalidRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+  /v1/projects/{project_id}/knowledge/{page_id}:
+    get:
+      tags: [knowledge]
+      operationId: getKnowledgePage
+      summary: Read the current canonical page revision.
+      parameters:
+        - {name: project_id, in: path, required: true, schema: {$ref: '#/components/schemas/UuidV7'}}
+        - {name: page_id, in: path, required: true, schema: {$ref: '#/components/schemas/UuidV7'}}
+      responses:
+        '200':
+          description: Current page, including draft or withdrawn state.
+          content: {application/json: {schema: {$ref: '#/components/schemas/KnowledgePage'}}}
+        '400': {$ref: '#/components/responses/InvalidRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+  /v1/projects/{project_id}/knowledge/{page_id}/history:
+    get:
+      tags: [knowledge]
+      operationId: listKnowledgePageHistory
+      summary: Read immutable revisions of one canonical page.
+      parameters:
+        - {name: project_id, in: path, required: true, schema: {$ref: '#/components/schemas/UuidV7'}}
+        - {name: page_id, in: path, required: true, schema: {$ref: '#/components/schemas/UuidV7'}}
+        - {name: after, in: query, schema: {type: integer, minimum: 0, maximum: 9223372036854775807, format: int64}}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 50}}
+      responses:
+        '200':
+          description: Ascending page revision order, strictly after the supplied revision.
+          content: {application/json: {schema: {$ref: '#/components/schemas/KnowledgePageHistory'}}}
+        '400': {$ref: '#/components/responses/InvalidRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+  /v1/projects/{project_id}/memory:
+    get:
+      tags: [memory]
+      operationId: listDerivedMemory
+      summary: List current, visible derived memory entries.
+      description: |
+        Without employee_id, only Project-visible entries are returned. With a
+        same-Project employee_id, that Employee's personal entries are included.
+        Withdrawn entries and entries whose evidence is no longer valid are omitted.
+        The cursor advances over scanned candidates, so a page can contain fewer
+        items than limit even when next_cursor is present. Owner-only entry and
+        history reads are separate audit routes and may include withdrawn content.
+      parameters:
+        - {name: project_id, in: path, required: true, schema: {$ref: '#/components/schemas/UuidV7'}}
+        - {name: employee_id, in: query, schema: {$ref: '#/components/schemas/UuidV7'}}
+        - {name: after, in: query, schema: {$ref: '#/components/schemas/UuidV7'}}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 50}}
+      responses:
+        '200':
+          description: Ascending entry-ID scan with a candidate cursor.
+          content: {application/json: {schema: {$ref: '#/components/schemas/DerivedMemoryList'}}}
+        '400': {$ref: '#/components/responses/InvalidRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+  /v1/projects/{project_id}/memory/search:
+    get:
+      tags: [memory]
+      operationId: searchMemory
+      summary: Search scoped canonical knowledge and derived memory.
+      description: |
+        Search is bounded retrieval, not authority or an exhaustive listing.
+        Indexed hits are rehydrated from canonical Forge records with scope and
+        evidence rechecked. When the index is absent or unavailable, Core uses a
+        bounded canonical substring fallback. The result reports mode, degradation
+        and truncation; callers must not treat score or projection_id as canonical.
+      parameters:
+        - {name: project_id, in: path, required: true, schema: {$ref: '#/components/schemas/UuidV7'}}
+        - {name: query, in: query, required: true, schema: {type: string, minLength: 1, x-forge-max-utf8-bytes: 8192}}
+        - {name: employee_id, in: query, schema: {$ref: '#/components/schemas/UuidV7'}}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 50}}
+      responses:
+        '200':
+          description: Up to limit results with an overall serialized hit budget of 256 KiB.
+          content: {application/json: {schema: {$ref: '#/components/schemas/MemorySearchResult'}}}
+        '400': {$ref: '#/components/responses/InvalidRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+  /v1/projects/{project_id}/memory/status:
+    get:
+      tags: [memory]
+      operationId: getMemoryProjectionStatus
+      summary: Read Project indexing diagnostics; not an indexing acknowledgement.
+      parameters:
+        - {name: project_id, in: path, required: true, schema: {$ref: '#/components/schemas/UuidV7'}}
+      responses:
+        '200':
+          description: Current projection counts and configuration state.
+          content: {application/json: {schema: {$ref: '#/components/schemas/MemoryProjectionStatus'}}}
+        '400': {$ref: '#/components/responses/InvalidRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+  /v1/projects/{project_id}/memory/{id}:
+    get:
+      tags: [memory]
+      operationId: getDerivedMemoryEntry
+      summary: Read one current derived memory revision for owner audit.
+      parameters:
+        - {name: project_id, in: path, required: true, schema: {$ref: '#/components/schemas/UuidV7'}}
+        - {name: id, in: path, required: true, schema: {$ref: '#/components/schemas/UuidV7'}}
+      responses:
+        '200':
+          description: Canonical head, which may be withdrawn or personal.
+          content: {application/json: {schema: {$ref: '#/components/schemas/DerivedMemoryEntry'}}}
+        '400': {$ref: '#/components/responses/InvalidRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+  /v1/projects/{project_id}/memory/{id}/history:
+    get:
+      tags: [memory]
+      operationId: listDerivedMemoryHistory
+      summary: Read immutable revision history for owner audit.
+      parameters:
+        - {name: project_id, in: path, required: true, schema: {$ref: '#/components/schemas/UuidV7'}}
+        - {name: id, in: path, required: true, schema: {$ref: '#/components/schemas/UuidV7'}}
+        - {name: after, in: query, schema: {type: integer, minimum: 0, maximum: 9223372036854775807, format: int64}}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 50}}
+      responses:
+        '200':
+          description: Ascending revisions strictly after the supplied revision.
+          content: {application/json: {schema: {$ref: '#/components/schemas/DerivedMemoryHistory'}}}
+        '400': {$ref: '#/components/responses/InvalidRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+  /v1/projects/{project_id}/employees/{employee_id}/onboarding:
+    get:
+      tags: [memory]
+      operationId: getEmployeeOnboarding
+      summary: Read one Employee's onboarding status in the Project.
+      parameters:
+        - {name: project_id, in: path, required: true, schema: {$ref: '#/components/schemas/UuidV7'}}
+        - {name: employee_id, in: path, required: true, schema: {$ref: '#/components/schemas/UuidV7'}}
+      responses:
+        '200':
+          description: Persisted onboarding state and optional job receipt.
+          content: {application/json: {schema: {$ref: '#/components/schemas/EmployeeOnboardingStatus'}}}
+        '400': {$ref: '#/components/responses/InvalidRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '503': {$ref: '#/components/responses/Unavailable'}
   /v1/projects/{project_id}/hook-versions:
     get:
       tags: [projects]
@@ -77,12 +334,67 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [items, next_cursor]
+                required: [items]
                 properties:
                   items: {type: array, items: {$ref: '#/components/schemas/ProjectHookVersionView'}}
-                  next_cursor: {type: [string, 'null'], format: uuid}
+                  next_cursor: {$ref: '#/components/schemas/UuidV7'}
         '400': {description: Invalid identifier, cursor or page limit.}
         '404': {description: Project absent.}
+  /v1/projects/{project_id}/hook-invocations:
+    get:
+      tags: [projects]
+      operationId: listProjectHookInvocations
+      summary: Read bounded canonical hook status and mapped result metadata; private runtime output is excluded.
+      parameters:
+        - {name: project_id, in: path, required: true, schema: {$ref: '#/components/schemas/UuidV7'}}
+        - {name: after, in: query, schema: {$ref: '#/components/schemas/UuidV7'}}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 20}}
+      responses:
+        '200':
+          description: Ascending invocation-ID page for the requested Project.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items]
+                properties:
+                  items: {type: array, maxItems: 100, items: {$ref: '#/components/schemas/ProjectHookInvocationView'}}
+                  next_cursor: {$ref: '#/components/schemas/UuidV7'}
+        '400': {$ref: '#/components/responses/InvalidRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+  /v1/projects/{project_id}/system-jobs:
+    get:
+      tags: [system-jobs]
+      operationId: getProjectSystemJobStatus
+      summary: Read bounded policy, jobs, onboarding receipts and aggregate attempt usage without runtime bindings.
+      parameters:
+        - {name: project_id, in: path, required: true, schema: {$ref: '#/components/schemas/UuidV7'}}
+      responses:
+        '200':
+          description: Current Project SystemJob status; job list is limited to 256 records.
+          content: {application/json: {schema: {$ref: '#/components/schemas/SystemJobStatusView'}}}
+        '400': {$ref: '#/components/responses/InvalidRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+  /v1/projects/{project_id}/system-jobs/{job_id}/attempts:
+    get:
+      tags: [system-jobs]
+      operationId: listSystemJobAttempts
+      summary: Read accepted-result and materialization coordinates for one Project-owned SystemJob.
+      parameters:
+        - {name: project_id, in: path, required: true, schema: {$ref: '#/components/schemas/UuidV7'}}
+        - {name: job_id, in: path, required: true, schema: {$ref: '#/components/schemas/UuidV7'}}
+        - {name: cursor, in: query, schema: {$ref: '#/components/schemas/UuidV7'}}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 50, default: 20}}
+      responses:
+        '200':
+          description: Bounded attempt page; no spec, provider result body or credential binding.
+          content: {application/json: {schema: {$ref: '#/components/schemas/SystemJobAttemptPage'}}}
+        '400': {$ref: '#/components/responses/InvalidRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '503': {$ref: '#/components/responses/Unavailable'}
   /v1/projects/{project_id}/tasks/{task_id}/integrations:
     get:
       tags: [tasks]
@@ -364,6 +676,49 @@ paths:
         '409':
           $ref: '#/components/responses/Conflict'
 
+  /v1/projects/{projectId}/employees/{employeeId}/operations:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+      - $ref: '#/components/parameters/EmployeeId'
+    get:
+      tags: [projects]
+      operationId: getEmployeeOperations
+      summary: Read current admission occupancy and limited Run evidence for one Employee.
+      description: Occupied slots use the same Lease and physical reservation union as admission. Observed running Runs are a separate count. Neither proves provider availability.
+      responses:
+        '200':
+          description: Safe operational evidence without runtime binding details.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [employee_id, max_concurrent_runs, occupied_slots, observed_running_runs, runtime_binding_configured, availability]
+                properties:
+                  employee_id: {$ref: '#/components/schemas/UuidV7'}
+                  max_concurrent_runs: {type: integer, minimum: 1}
+                  occupied_slots: {type: integer, minimum: 0}
+                  observed_running_runs: {type: integer, minimum: 0}
+                  runtime_binding_configured: {type: boolean}
+                  availability: {type: string, const: unknown}
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/projects/{projectId}/employees/{employeeId}/runtime-metadata:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+      - $ref: '#/components/parameters/EmployeeId'
+    get:
+      tags: [projects]
+      operationId: getEmployeeRuntimeMetadata
+      summary: Read safe future-Run runtime settings without prompts, secrets or host paths.
+      responses:
+        '200':
+          description: Safe configured metadata or an explicit unavailable marker.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/EmployeeRuntimeMetadata'}
+        '404': {$ref: '#/components/responses/NotFound'}
+
   /v1/projects/{projectId}/tasks:
     parameters:
       - $ref: '#/components/parameters/ProjectId'
@@ -402,6 +757,38 @@ paths:
                 $ref: '#/components/schemas/TaskDetailView'
         '404':
           $ref: '#/components/responses/NotFound'
+
+  /v1/projects/{projectId}/tasks/{taskId}/handoffs:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+      - $ref: '#/components/parameters/TaskId'
+      - name: cursor
+        in: query
+        schema: {$ref: '#/components/schemas/UuidV7'}
+      - name: limit
+        in: query
+        schema: {type: integer, minimum: 1, maximum: 20, default: 20}
+    get:
+      tags: [tasks]
+      operationId: listTaskHandoffCoordinates
+      summary: Read bounded canonical Task handoff receipts without body content.
+      responses:
+        '200':
+          description: Task-scoped handoff coordinates and source provenance.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    maxItems: 20
+                    items: {$ref: '#/components/schemas/TaskHandoffCoordinates'}
+                  next_cursor: {$ref: '#/components/schemas/UuidV7'}
+        '400': {$ref: '#/components/responses/InvalidRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
 
   /v1/projects/{projectId}/tasks/{taskId}/dependencies/{direction}:
     parameters:
@@ -583,6 +970,82 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /v1/projects/{projectId}/runs/{runId}/context:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+      - $ref: '#/components/parameters/RunId'
+    get:
+      tags: [runs]
+      operationId: getRunContextCoordinates
+      summary: Read safe dispatch coordinates without the context snapshot body.
+      responses:
+        '200':
+          description: Available coordinates or an explicit unavailable marker.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - type: object
+                    additionalProperties: false
+                    required: [availability, coordinates]
+                    properties:
+                      availability: {type: string, const: available}
+                      coordinates:
+                        type: object
+                        additionalProperties: false
+                        required: [context_snapshot_id, run_id, project_id, task_id, employee_id, pipeline_version_id, stage_id, stage_visit, task_revision_before_dispatch, run_spec_id]
+                        properties:
+                          context_snapshot_id: {$ref: '#/components/schemas/UuidV7'}
+                          run_id: {$ref: '#/components/schemas/UuidV7'}
+                          project_id: {$ref: '#/components/schemas/UuidV7'}
+                          task_id: {$ref: '#/components/schemas/UuidV7'}
+                          employee_id: {$ref: '#/components/schemas/UuidV7'}
+                          pipeline_version_id: {$ref: '#/components/schemas/UuidV7'}
+                          stage_id: {type: string}
+                          stage_visit: {type: [integer, 'null'], minimum: 1}
+                          task_revision_before_dispatch: {type: integer, minimum: 1}
+                          run_spec_id: {$ref: '#/components/schemas/UuidV7'}
+                  - type: object
+                    additionalProperties: false
+                    required: [availability, run_id, coordinates]
+                    properties:
+                      availability: {type: string, const: unavailable}
+                      run_id: {$ref: '#/components/schemas/UuidV7'}
+                      coordinates: {type: 'null'}
+        '404': {$ref: '#/components/responses/NotFound'}
+
+  /v1/projects/{projectId}/runs/{runId}/evidence:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+      - $ref: '#/components/parameters/RunId'
+      - name: cursor
+        in: query
+        schema: {$ref: '#/components/schemas/UuidV7'}
+      - name: limit
+        in: query
+        schema: {type: integer, minimum: 1, maximum: 50, default: 20}
+    get:
+      tags: [runs]
+      operationId: listRunEvidenceReceipts
+      summary: Read bounded metadata receipts without evidence content or storage keys.
+      responses:
+        '200':
+          description: One page of safe receipts.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    maxItems: 50
+                    items: {$ref: '#/components/schemas/RunEvidenceReceipt'}
+                  next_cursor: {$ref: '#/components/schemas/UuidV7'}
+        '400': {$ref: '#/components/responses/InvalidRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+
   /v1/projects/{projectId}/employees/{employeeId}/threads:
     parameters:
       - $ref: '#/components/parameters/ProjectId'
@@ -640,6 +1103,45 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/EmployeeMessageList'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/projects/{projectId}/threads/{threadId}/delivery:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+      - name: threadId
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/UuidV7'
+      - name: after
+        in: query
+        description: Exclusive per-thread message sequence; defaults to zero.
+        schema:
+          type: integer
+          minimum: 0
+          maximum: 9223372036854775807
+          default: 0
+      - $ref: '#/components/parameters/PageLimit'
+    get:
+      tags: [inbox]
+      operationId: listEmployeeMessageDelivery
+      summary: Read persisted delivery evidence for one conversation.
+      description: >
+        Rows follow immutable message sequence order. Assignment state and receipts
+        are separate persisted facts: a queued or leased assignment, or a read of
+        this endpoint, does not prove that the Employee received or answered the
+        message. Receipt timestamps are the latest persisted facts of each kind.
+        A waiver is an operator decision, never an Employee acknowledgement.
+      responses:
+        '200':
+          description: Bounded message delivery facts for this thread.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeMessageDeliveryList'
         '400':
           $ref: '#/components/responses/InvalidRequest'
         '404':
@@ -866,6 +1368,40 @@ components:
         `{ "type": ..., "value": ... }` representation; arbitrary JSON
         values are not accepted.
 
+    TaskPropertySchema:
+      type: object
+      additionalProperties: false
+      required: [definitions]
+      properties:
+        definitions:
+          type: object
+          maxProperties: 64
+          additionalProperties:
+            $ref: '#/components/schemas/TaskPropertyDefinition'
+      description: >
+        Full Project-owned schema. Configuration is limited to 64 KiB of
+        serialized JSON and is allowed only before the first Task exists.
+      x-forge-max-serialized-utf8-bytes: 65536
+
+    TaskPropertyDefinition:
+      type: object
+      additionalProperties: false
+      required: [key, display_name, property_type, required, default_value, allowed_choices]
+      properties:
+        key: {$ref: '#/components/schemas/StableKey'}
+        display_name: {type: string, minLength: 1, maxLength: 200}
+        property_type:
+          enum: [boolean, text, number, date, enum, multi_enum, reference]
+        required: {type: boolean}
+        default_value:
+          oneOf:
+            - {$ref: '#/components/schemas/TaskPropertyValue'}
+            - {type: 'null'}
+        allowed_choices:
+          oneOf:
+            - {type: array, uniqueItems: true, items: {$ref: '#/components/schemas/PropertyChoice'}}
+            - {type: 'null'}
+
     TaskPropertyValue:
       oneOf:
         - $ref: '#/components/schemas/BooleanPropertyValue'
@@ -1051,6 +1587,7 @@ components:
         - triage_finding
         - promote_finding
         - create_project
+        - configure_task_property_schema
         - create_pipeline
         - publish_pipeline_version
         - set_pipeline_default_version
@@ -1098,6 +1635,10 @@ components:
         - retry_communication
         - retry_git_integration
         - accept_git_integration_result
+        - author_knowledge_page
+        - publish_knowledge_page
+        - supersede_knowledge_page
+        - withdraw_knowledge_page
 
     CommandRequest:
       type: object
@@ -1120,6 +1661,7 @@ components:
             - $ref: '#/components/schemas/TriageFindingPayload'
             - $ref: '#/components/schemas/PromoteFindingPayload'
             - $ref: '#/components/schemas/CreateProjectPayload'
+            - $ref: '#/components/schemas/ConfigureTaskPropertySchemaPayload'
             - $ref: '#/components/schemas/RegisterProjectRepositoryPayload'
             - $ref: '#/components/schemas/BindTaskGitRepositoryPayload'
             - $ref: '#/components/schemas/SetTaskGitSourcePolicyPayload'
@@ -1164,11 +1706,327 @@ components:
             - $ref: '#/components/schemas/AcceptRunRecoveryAssessmentPayload'
             - $ref: '#/components/schemas/RetryCommunicationPayload'
             - $ref: '#/components/schemas/GitIntegrationResolutionPayload'
+            - $ref: '#/components/schemas/AuthorKnowledgePagePayload'
+            - $ref: '#/components/schemas/PublishKnowledgePagePayload'
+            - $ref: '#/components/schemas/SupersedeKnowledgePagePayload'
+            - $ref: '#/components/schemas/WithdrawKnowledgePagePayload'
           description: |
             The schema must match the `{name}` path parameter. `anyOf` is used
             because empty start/stop payloads intentionally overlap; Core still
             enforces the path-to-payload pairing.
 
+    KnowledgeSourceRef:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [kind, artifact_id]
+          properties:
+            kind: {const: artifact}
+            artifact_id: {$ref: '#/components/schemas/UuidV7'}
+        - type: object
+          additionalProperties: false
+          required: [kind, event_id]
+          properties:
+            kind: {const: event}
+            event_id: {$ref: '#/components/schemas/UuidV7'}
+        - type: object
+          additionalProperties: false
+          required: [kind, handoff_id]
+          properties:
+            kind: {const: task_handoff}
+            handoff_id: {$ref: '#/components/schemas/UuidV7'}
+        - type: object
+          additionalProperties: false
+          required: [kind, page_id, revision]
+          properties:
+            kind: {const: knowledge_page}
+            page_id: {$ref: '#/components/schemas/UuidV7'}
+            revision: {type: integer, minimum: 1, format: int64}
+    KnowledgePageContent:
+      type: object
+      additionalProperties: false
+      required: [title, markdown, source_refs]
+      properties:
+        title: {type: string, minLength: 1, x-forge-max-utf8-bytes: 200}
+        markdown: {type: string, minLength: 1, x-forge-max-utf8-bytes: 65536}
+        source_refs:
+          type: array
+          maxItems: 128
+          uniqueItems: true
+          items: {$ref: '#/components/schemas/KnowledgeSourceRef'}
+    AuthorKnowledgePagePayload:
+      type: object
+      additionalProperties: false
+      required: [page_id, expected_page_revision, kind, title, markdown]
+      properties:
+        page_id: {$ref: '#/components/schemas/UuidV7'}
+        expected_page_revision: {type: integer, minimum: 0, format: int64}
+        kind: {type: string, enum: [introduction, architecture, guide, policy, decision]}
+        title: {type: string, minLength: 1, x-forge-max-utf8-bytes: 200}
+        markdown: {type: string, minLength: 1, x-forge-max-utf8-bytes: 65536}
+        source_refs:
+          type: array
+          maxItems: 128
+          uniqueItems: true
+          items: {$ref: '#/components/schemas/KnowledgeSourceRef'}
+      description: |
+        `expected_page_revision` is zero for a new page, or the current draft
+        revision to edit that draft. Only draft content of the same kind can be
+        edited; each edit creates another immutable revision. Nonblank strings
+        and size limits are checked by Core in UTF-8 bytes.
+    PublishKnowledgePagePayload:
+      type: object
+      additionalProperties: false
+      required: [page_id, expected_page_revision]
+      properties:
+        page_id: {$ref: '#/components/schemas/UuidV7'}
+        expected_page_revision: {type: integer, minimum: 1, format: int64}
+    SupersedeKnowledgePagePayload:
+      type: object
+      additionalProperties: false
+      required: [page_id, expected_page_revision, title, markdown]
+      properties:
+        page_id: {$ref: '#/components/schemas/UuidV7'}
+        expected_page_revision: {type: integer, minimum: 1, format: int64}
+        title: {type: string, minLength: 1, x-forge-max-utf8-bytes: 200}
+        markdown: {type: string, minLength: 1, x-forge-max-utf8-bytes: 65536}
+        source_refs:
+          type: array
+          maxItems: 128
+          uniqueItems: true
+          items: {$ref: '#/components/schemas/KnowledgeSourceRef'}
+      description: Replaces the content of a published page with a new immutable revision.
+    WithdrawKnowledgePagePayload:
+      type: object
+      additionalProperties: false
+      required: [page_id, expected_page_revision]
+      properties:
+        page_id: {$ref: '#/components/schemas/UuidV7'}
+        expected_page_revision: {type: integer, minimum: 1, format: int64}
+    KnowledgePage:
+      type: object
+      additionalProperties: false
+      required: [id, project_id, revision, kind, status, content, content_hash, actor, command_id, created_at, revised_at, supersedes_revision]
+      properties:
+        id: {$ref: '#/components/schemas/UuidV7'}
+        project_id: {$ref: '#/components/schemas/UuidV7'}
+        revision: {type: integer, minimum: 1, format: int64}
+        kind: {type: string, enum: [introduction, architecture, guide, policy, decision]}
+        status: {type: string, enum: [draft, published, withdrawn]}
+        content: {$ref: '#/components/schemas/KnowledgePageContent'}
+        content_hash: {type: string, pattern: '^[0-9a-f]{64}$'}
+        actor: {$ref: '#/components/schemas/ActorReference'}
+        command_id: {$ref: '#/components/schemas/UuidV7'}
+        created_at: {$ref: '#/components/schemas/Rfc3339Timestamp'}
+        revised_at: {$ref: '#/components/schemas/Rfc3339Timestamp'}
+        supersedes_revision: {type: [integer, 'null'], minimum: 1, format: int64}
+      description: Only published Policy and Decision pages carry managed authority.
+    KnowledgePageList:
+      type: object
+      additionalProperties: false
+      required: [items, next_cursor]
+      properties:
+        items: {type: array, items: {$ref: '#/components/schemas/KnowledgePage'}}
+        next_cursor: {type: [string, 'null'], format: uuid}
+    KnowledgePageHistory:
+      type: object
+      additionalProperties: false
+      required: [items, next_cursor]
+      properties:
+        items: {type: array, items: {$ref: '#/components/schemas/KnowledgePage'}}
+        next_cursor: {type: [string, 'null'], pattern: '^[0-9]+$'}
+    DerivedMemorySubject:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [kind, task_id]
+          properties:
+            kind: {const: task_summary}
+            task_id: {$ref: '#/components/schemas/UuidV7'}
+        - type: object
+          additionalProperties: false
+          required: [kind, employee_id, task_id]
+          properties:
+            kind: {const: employee_memory_entry}
+            employee_id: {$ref: '#/components/schemas/UuidV7'}
+            task_id: {type: [string, 'null'], format: uuid}
+        - type: object
+          additionalProperties: false
+          required: [kind, task_id]
+          properties:
+            kind: {const: project_knowledge_entry}
+            task_id: {type: [string, 'null'], format: uuid}
+    DerivedMemoryEntry:
+      type: object
+      additionalProperties: false
+      required: [id, project_id, revision, subject, markdown, source_refs, content_hash, coverage, created_by_job_id, created_at, withdrawn]
+      properties:
+        id: {$ref: '#/components/schemas/UuidV7'}
+        project_id: {$ref: '#/components/schemas/UuidV7'}
+        revision: {type: integer, minimum: 1, format: int64}
+        subject: {$ref: '#/components/schemas/DerivedMemorySubject'}
+        markdown: {type: string, minLength: 1, x-forge-max-utf8-bytes: 65536}
+        source_refs: {type: array, minItems: 1, maxItems: 128, uniqueItems: true, items: {$ref: '#/components/schemas/KnowledgeSourceRef'}}
+        content_hash: {type: string, pattern: '^[0-9a-f]{64}$'}
+        coverage:
+          type: [object, 'null']
+          additionalProperties: false
+          required: [first_event_sequence, last_event_sequence]
+          properties:
+            first_event_sequence: {type: integer, minimum: 1, format: int64}
+            last_event_sequence: {type: integer, minimum: 1, format: int64}
+        created_by_job_id: {$ref: '#/components/schemas/UuidV7'}
+        created_at: {$ref: '#/components/schemas/Rfc3339Timestamp'}
+        withdrawn: {type: boolean}
+      description: Evidence-backed generated content; never an authoritative Policy or Decision.
+    DerivedMemoryList:
+      type: object
+      additionalProperties: false
+      required: [items, next_cursor]
+      properties:
+        items: {type: array, items: {$ref: '#/components/schemas/DerivedMemoryEntry'}}
+        next_cursor: {type: [string, 'null'], format: uuid}
+    DerivedMemoryHistory:
+      type: object
+      additionalProperties: false
+      required: [items, next_cursor]
+      properties:
+        items: {type: array, items: {$ref: '#/components/schemas/DerivedMemoryEntry'}}
+        next_cursor: {type: [string, 'null'], pattern: '^[0-9]+$'}
+    MemorySearchDocument:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [kind, record]
+          properties:
+            kind: {const: knowledge_page}
+            record: {$ref: '#/components/schemas/KnowledgePage'}
+        - type: object
+          additionalProperties: false
+          required: [kind, record]
+          properties:
+            kind: {const: derived_memory}
+            record: {$ref: '#/components/schemas/DerivedMemoryEntry'}
+    MemorySearchResult:
+      type: object
+      additionalProperties: false
+      required: [project_id, employee_id, mode, degradation, truncated, results]
+      properties:
+        project_id: {$ref: '#/components/schemas/UuidV7'}
+        employee_id: {type: [string, 'null'], format: uuid}
+        mode: {type: string, enum: [indexed, canonical_fallback]}
+        degradation: {type: [string, 'null'], enum: [not_configured, index_unavailable, rejected_projection, null]}
+        truncated: {type: boolean}
+        results:
+          type: array
+          maxItems: 100
+          items:
+            type: object
+            additionalProperties: false
+            required: [projection_id, score, document]
+            properties:
+              projection_id: {type: [string, 'null'], format: uuid}
+              score: {type: [number, 'null']}
+              document: {$ref: '#/components/schemas/MemorySearchDocument'}
+    MemoryProjectionStatus:
+      type: object
+      additionalProperties: false
+      required: [indexed, pending, retired, failed_attempts, canonical_max_revision, configured]
+      properties:
+        indexed: {type: integer, minimum: 0}
+        pending: {type: integer, minimum: 0}
+        retired: {type: integer, minimum: 0}
+        failed_attempts: {type: integer, minimum: 0}
+        canonical_max_revision: {type: integer, minimum: 0}
+        configured: {type: boolean}
+    EmployeeOnboardingStatus:
+      type: object
+      additionalProperties: false
+      required: [employee_id, state, revision, job_id, receipt]
+      properties:
+        employee_id: {$ref: '#/components/schemas/UuidV7'}
+        state: {type: string, enum: [pending, completed, skipped, legacy_bypass]}
+        revision: {type: integer, minimum: 1, format: int64}
+        job_id: {type: [string, 'null'], format: uuid}
+        receipt: {type: [object, 'null'], additionalProperties: true}
+    SystemJobPolicyView:
+      type: object
+      additionalProperties: false
+      required: [enabled, max_concurrent, max_attempts_per_job, max_attempts_per_day, max_input_bytes, max_result_bytes, wall_seconds, coalesce_seconds]
+      properties:
+        enabled: {type: boolean}
+        max_concurrent: {type: integer, minimum: 1}
+        max_attempts_per_job: {type: integer, minimum: 1}
+        max_attempts_per_day: {type: integer, minimum: 1}
+        max_input_bytes: {type: integer, minimum: 1}
+        max_result_bytes: {type: integer, minimum: 1}
+        wall_seconds: {type: integer, minimum: 1}
+        coalesce_seconds: {type: integer, minimum: 0}
+    SystemJobView:
+      type: object
+      additionalProperties: false
+      required: [id, project_id, kind, source_task_id, target_employee_id, generation, covered_sequence, state, reason_code]
+      properties:
+        id: {$ref: '#/components/schemas/UuidV7'}
+        project_id: {$ref: '#/components/schemas/UuidV7'}
+        kind: {type: string, enum: [onboarding, summarization]}
+        source_task_id: {type: [string, 'null'], format: uuid}
+        target_employee_id: {type: [string, 'null'], format: uuid}
+        generation: {type: integer, minimum: 1}
+        covered_sequence: {type: integer, minimum: 0}
+        state: {type: string, enum: [pending, running, completed, held, cancelled]}
+        reason_code: {type: [string, 'null']}
+    SystemJobStatusView:
+      type: object
+      additionalProperties: false
+      required: [policy, settings_revision, jobs, usage, onboarding]
+      properties:
+        policy:
+          oneOf:
+            - {$ref: '#/components/schemas/SystemJobPolicyView'}
+            - {type: 'null'}
+        settings_revision: {type: [integer, 'null'], minimum: 1}
+        jobs: {type: array, maxItems: 256, items: {$ref: '#/components/schemas/SystemJobView'}}
+        usage:
+          type: object
+          additionalProperties: false
+          required: [attempts_last_24h, running, usage_status]
+          properties:
+            attempts_last_24h: {type: integer, minimum: 0}
+            running: {type: integer, minimum: 0}
+            usage_status: {type: string}
+        onboarding: {type: array, items: {$ref: '#/components/schemas/EmployeeOnboardingStatus'}}
+    SystemJobAttemptView:
+      type: object
+      additionalProperties: false
+      required: [id, job_id, generation, run_id, state, result_accepted, result_message_id, created_at, completed_at, materialized_entries]
+      properties:
+        id: {$ref: '#/components/schemas/UuidV7'}
+        job_id: {$ref: '#/components/schemas/UuidV7'}
+        generation: {type: integer, minimum: 1}
+        run_id: {$ref: '#/components/schemas/UuidV7'}
+        state: {type: string, enum: [running, completed, stopped, failed, superseded]}
+        result_accepted: {type: boolean}
+        result_message_id: {type: [string, 'null'], format: uuid}
+        created_at: {$ref: '#/components/schemas/Rfc3339Timestamp'}
+        completed_at: {type: [string, 'null'], format: date-time}
+        materialized_entries:
+          type: array
+          maxItems: 18
+          items:
+            type: object
+            additionalProperties: false
+            required: [id, revision]
+            properties:
+              id: {$ref: '#/components/schemas/UuidV7'}
+              revision: {type: integer, minimum: 1}
+    SystemJobAttemptPage:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items: {type: array, maxItems: 50, items: {$ref: '#/components/schemas/SystemJobAttemptView'}}
+        next_cursor: {$ref: '#/components/schemas/UuidV7'}
     GitCommitId:
       type: string
       pattern: '^(?!0+$)([a-fA-F0-9]{40}|[a-fA-F0-9]{64})$'
@@ -1292,13 +2150,13 @@ components:
     SnapshotFile:
       type: object
       additionalProperties: false
-      required: [path, size_bytes, executable, sha256, object_key]
+      required: [path, size_bytes, executable, sha256]
       properties:
         path: {type: string, minLength: 1, maxLength: 1024}
         size_bytes: {type: integer, minimum: 0, maximum: 16777216}
         executable: {type: boolean}
         sha256: {type: string, pattern: '^[0-9a-f]{64}$'}
-        object_key: {type: string, description: Immutable file-snapshots/Project/Artifact/digest object key, not a host path.}
+      description: Safe HTTP projection; internal object-storage keys are omitted.
 
     FileSnapshotManifest:
       type: object
@@ -1377,6 +2235,25 @@ components:
         applicable_task_kinds: {$ref: '#/components/schemas/ConfigureProjectHookPayload/properties/applicable_task_kinds'}
         required: {type: boolean}
         created_at: {type: string, format: date-time}
+    ProjectHookInvocationView:
+      type: object
+      additionalProperties: false
+      required: [id, task_id, pipeline_version_id, stage_id, stage_visit, hook_version_id, candidate_proposal_id, run_id, state, verdict, mapped_outcome, artifact_id, created_at, updated_at]
+      properties:
+        id: {$ref: '#/components/schemas/UuidV7'}
+        task_id: {$ref: '#/components/schemas/UuidV7'}
+        pipeline_version_id: {$ref: '#/components/schemas/UuidV7'}
+        stage_id: {type: string, minLength: 1, maxLength: 128}
+        stage_visit: {type: integer, minimum: 1}
+        hook_version_id: {$ref: '#/components/schemas/UuidV7'}
+        candidate_proposal_id: {type: [string, 'null'], format: uuid}
+        run_id: {type: [string, 'null'], format: uuid}
+        state: {type: string, enum: [running, completed, held]}
+        verdict: {type: [string, 'null'], enum: [passed, failed, timed_out, skipped, null]}
+        mapped_outcome: {type: [string, 'null'], maxLength: 128}
+        artifact_id: {type: [string, 'null'], format: uuid}
+        created_at: {$ref: '#/components/schemas/Rfc3339Timestamp'}
+        updated_at: {$ref: '#/components/schemas/Rfc3339Timestamp'}
 
     ConfigureEmployeeRuntimePayload:
       type: object
@@ -1611,6 +2488,18 @@ components:
           minLength: 1
           maxLength: 240
       x-forge-command: create_project
+
+    ConfigureTaskPropertySchemaPayload:
+      type: object
+      additionalProperties: false
+      required: [schema]
+      properties:
+        schema:
+          $ref: '#/components/schemas/TaskPropertySchema'
+      description: >
+        Replace the complete Project schema at its expected Project revision.
+        Core rejects configuration once any Task exists in the Project.
+      x-forge-command: configure_task_property_schema
 
     CreatePipelinePayload:
       type: object
@@ -2157,6 +3046,94 @@ components:
           type: [string, 'null']
           description: Exclusive sequence passed as after to the next request.
 
+    EmployeeMessageDeliveryList:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/EmployeeMessageDelivery'
+        next_cursor:
+          type: string
+          pattern: '^[1-9][0-9]*$'
+          description: >
+            Present only when another page exists. Pass this exclusive message
+            sequence as after; Core returns at most 100 items (default 50).
+
+    EmployeeMessageDelivery:
+      type: object
+      additionalProperties: false
+      required: [message_id, sequence, assignment, runtime_accepted_at, acknowledged_at, answered_at, answered_reply_id, waiver]
+      properties:
+        message_id:
+          $ref: '#/components/schemas/UuidV7'
+        sequence:
+          type: integer
+          minimum: 1
+        assignment:
+          oneOf:
+            - type: 'null'
+            - type: object
+              additionalProperties: false
+              required: [state, attempt_number, run_id, retry_ready]
+              properties:
+                state:
+                  type: string
+                  enum: [queued, leased, completed, held]
+                attempt_number:
+                  type: integer
+                  minimum: 0
+                run_id:
+                  oneOf:
+                    - $ref: '#/components/schemas/UuidV7'
+                    - type: 'null'
+                retry_ready:
+                  type: boolean
+                  description: >
+                    Core has verified the current held assignment can be retried
+                    after physical quiescence and related barriers are clear.
+        runtime_accepted_at:
+          oneOf:
+            - $ref: '#/components/schemas/Rfc3339Timestamp'
+            - type: 'null'
+        acknowledged_at:
+          oneOf:
+            - $ref: '#/components/schemas/Rfc3339Timestamp'
+            - type: 'null'
+        answered_at:
+          oneOf:
+            - $ref: '#/components/schemas/Rfc3339Timestamp'
+            - type: 'null'
+        answered_reply_id:
+          oneOf:
+            - $ref: '#/components/schemas/UuidV7'
+            - type: 'null'
+        waiver:
+          oneOf:
+            - type: 'null'
+            - $ref: '#/components/schemas/MessageRequirementWaiver'
+
+    MessageRequirementWaiver:
+      type: object
+      additionalProperties: false
+      required: [message_id, project_id, actor, reason, created_at]
+      properties:
+        message_id:
+          $ref: '#/components/schemas/UuidV7'
+        project_id:
+          $ref: '#/components/schemas/UuidV7'
+        actor:
+          $ref: '#/components/schemas/ActorReference'
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 4096
+        created_at:
+          $ref: '#/components/schemas/Rfc3339Timestamp'
+
     MessageTarget:
       oneOf:
         - type: object
@@ -2595,6 +3572,54 @@ components:
         created_at: {$ref: '#/components/schemas/Rfc3339Timestamp'}
         updated_at: {$ref: '#/components/schemas/Rfc3339Timestamp'}
 
+    EmployeeRuntimeMetadata:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [availability, employee_id]
+          properties:
+            availability: {type: string, const: unavailable}
+            employee_id: {$ref: '#/components/schemas/UuidV7'}
+        - type: object
+          additionalProperties: false
+          required: [availability, employee_id, binding_revision, updated_at, profile_id, profile_revision, adapter_id, adapter_version, provider_id, model, credential_binding_id, credential_delivery, image_digest, surface_kind, access, limits, budget, prompts_available]
+          properties:
+            availability: {type: string, const: available}
+            employee_id: {$ref: '#/components/schemas/UuidV7'}
+            binding_revision: {type: integer, minimum: 1}
+            updated_at: {$ref: '#/components/schemas/Rfc3339Timestamp'}
+            profile_id: {$ref: '#/components/schemas/UuidV7'}
+            profile_revision: {type: integer, minimum: 1}
+            adapter_id: {type: string}
+            adapter_version: {type: string}
+            provider_id: {type: string}
+            model: {type: string}
+            credential_binding_id: {$ref: '#/components/schemas/UuidV7'}
+            credential_delivery: {type: string, enum: [proxy_only, isolated_runtime_secret, trusted_host]}
+            image_digest: {type: string, pattern: '^[0-9a-f]{64}$'}
+            surface_kind: {type: string, enum: [none, filesystem_sandbox, git_worktree, git_unborn, git_unborn_candidate_snapshot, git_candidate_snapshot]}
+            access: {type: string, enum: [read_write, read_only]}
+            limits:
+              type: object
+              additionalProperties: false
+              required: [cpu_millis, memory_bytes, pids, wall_seconds, stop_grace_seconds]
+              properties:
+                cpu_millis: {type: integer, minimum: 1}
+                memory_bytes: {type: integer, minimum: 1}
+                pids: {type: integer, minimum: 1}
+                wall_seconds: {type: integer, minimum: 1}
+                stop_grace_seconds: {type: integer, minimum: 1}
+            budget:
+              type: object
+              additionalProperties: false
+              required: [max_output_bytes, requests_per_minute, tokens_per_minute, max_spend_microusd]
+              properties:
+                max_output_bytes: {type: integer, minimum: 1}
+                requests_per_minute: {type: integer, minimum: 1}
+                tokens_per_minute: {type: integer, minimum: 1}
+                max_spend_microusd: {type: [integer, 'null'], minimum: 1}
+            prompts_available: {type: boolean, const: true}
+
     StageEligibilityView:
       oneOf:
         - type: object
@@ -2744,6 +3769,7 @@ components:
         - description
         - definition_of_done
         - properties
+        - work_surface_kind
         - artifacts
         - wait_conditions
         - cancellation
@@ -2784,6 +3810,10 @@ components:
             a non-null Definition of Done.
         properties:
           $ref: '#/components/schemas/TaskProperties'
+        work_surface_kind:
+          type: string
+          enum: [none, git]
+          description: Safe Task-owned surface type; never includes a host path.
         artifacts:
           type: array
           items:
@@ -2797,10 +3827,24 @@ components:
             - $ref: '#/components/schemas/TaskCancellationView'
             - type: 'null'
 
+    TaskHandoffCoordinates:
+      type: object
+      additionalProperties: false
+      required: [id, project_id, task_id, kind, source_kind, source_id, created_at, content_availability]
+      properties:
+        id: {$ref: '#/components/schemas/UuidV7'}
+        project_id: {$ref: '#/components/schemas/UuidV7'}
+        task_id: {$ref: '#/components/schemas/UuidV7'}
+        kind: {type: string, enum: [accepted, interrupted]}
+        source_kind: {type: string, enum: [run, hook, git_integration, command]}
+        source_id: {$ref: '#/components/schemas/UuidV7'}
+        created_at: {$ref: '#/components/schemas/Rfc3339Timestamp'}
+        content_availability: {type: string, const: unavailable}
+
     ArtifactView:
       type: object
       additionalProperties: false
-      required: [id, kind, title, metadata, body, created_at]
+      required: [id, kind, title, metadata, body, created_at, producer, source_stage_id, source_stage_visit, submitted_by, submitted_at, employee_id, accepted_as_outcome]
       properties:
         id:
           $ref: '#/components/schemas/UuidV7'
@@ -2814,6 +3858,23 @@ components:
           $ref: '#/components/schemas/InlineArtifactBody'
         created_at:
           $ref: '#/components/schemas/Rfc3339Timestamp'
+        producer:
+          type: string
+          enum: [employee_run, resolution_assignment, human, system]
+        source_stage_id:
+          anyOf:
+            - $ref: '#/components/schemas/StableKey'
+            - type: 'null'
+        source_stage_visit: {type: [integer, 'null'], minimum: 1}
+        submitted_by: {$ref: '#/components/schemas/ActorReference'}
+        submitted_at: {$ref: '#/components/schemas/Rfc3339Timestamp'}
+        employee_id:
+          anyOf:
+            - $ref: '#/components/schemas/UuidV7'
+            - type: 'null'
+        accepted_as_outcome:
+          type: boolean
+          description: True only when this Artifact is named in completed Task terminal outcome; does not claim semantic validity.
 
     WaitConditionView:
       type: object
@@ -3360,6 +4421,26 @@ components:
         next_cursor:
           type: [string, 'null']
 
+    RunEvidenceReceipt:
+      type: object
+      additionalProperties: false
+      required: [id, run_id, task_id, stream, sequence, sha256, size_bytes, redaction_policy_reference, storage_state, created_at, content_availability]
+      properties:
+        id: {$ref: '#/components/schemas/UuidV7'}
+        run_id: {$ref: '#/components/schemas/UuidV7'}
+        task_id:
+          oneOf:
+            - {$ref: '#/components/schemas/UuidV7'}
+            - {type: 'null'}
+        stream: {type: string, enum: [stdout, stderr, diagnostic]}
+        sequence: {type: integer, minimum: 1}
+        sha256: {type: string, pattern: '^[0-9a-f]{64}$'}
+        size_bytes: {type: integer, minimum: 1}
+        redaction_policy_reference: {type: string, minLength: 1}
+        storage_state: {type: string, enum: [pending_upload, stored, unconfirmed]}
+        created_at: {$ref: '#/components/schemas/Rfc3339Timestamp'}
+        content_availability: {type: string, const: unavailable}
+
     RunView:
       type: object
       additionalProperties: false
@@ -3379,7 +4460,7 @@ components:
       properties:
         diagnostics:
           type: object
-          description: Present on single-Run GET only. Bounded evidence receipts, incidents, immutable handoff, provider-reported usage/exit and proxy usage; no prompts, tokens or raw exception bodies. Missing reports are null until collection completes. git_source retains the validated path-free immutable source selection for v6 Git writer Runs, or null when absent.
+          description: Present on single-Run GET only. Safe availability markers for reports, handoff, proxy usage and Git source; bounded metadata-only evidence receipts, incident coordinates and stream incomplete flags. No bodies, prompts, tokens, storage keys or raw exception text. Missing reports are null.
         id:
           $ref: '#/components/schemas/UuidV7'
         task_id:

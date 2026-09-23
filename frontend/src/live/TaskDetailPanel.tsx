@@ -18,6 +18,8 @@ import { TaskCancellationPanel } from "./TaskCancellationPanel.tsx";
 import { TaskCancellationFacts } from "./TaskCancellationFacts.tsx";
 import { canCancelTask } from "./cancellation-attempt.ts";
 import { TaskDependencies } from "./TaskDependencies.tsx";
+import { TaskSurfaces } from "./TaskSurfaces.tsx";
+import { TaskHandoffs } from "./TaskHandoffs.tsx";
 
 export function TaskDetailPanel(
   scope: ProjectReadScope & {
@@ -161,6 +163,8 @@ export function TaskDetailPanel(
           />
           <TaskWaits task={task} />
           <TaskArtifacts task={task} />
+          <TaskHandoffs scope={scope} taskId={task.id} />
+          <TaskSurfaces scope={scope} task={task} />
         </>
       )}
     </section>
@@ -289,12 +293,15 @@ function TaskWaits({ task }: { task: TaskDetailView }) {
 }
 
 function TaskArtifacts({ task }: { task: TaskDetailView }) {
+  const [previewId, setPreviewId] = useState<string | null>(null);
   const count = presentTaskDetail(task).presentation.loadedArtifactCount;
   return (
     <section aria-label="Artifacts" className="space-y-3">
       <h3 className="font-medium">Artifacts ({count} loaded)</h3>
       <p className="text-xs text-muted-foreground">
-        Bodies and metadata are not displayed; linked objects are not fetched automatically.
+        Submission and terminal outcome are separate facts. A terminal outcome marker does not
+        establish semantic quality. Previews are bounded JSON from this Task response; linked
+        objects are not fetched automatically.
       </p>
       {count === 0 ? (
         <p className="text-sm">No loaded artifacts.</p>
@@ -307,7 +314,40 @@ function TaskArtifacts({ task }: { task: TaskDetailView }) {
                 <Field label="Kind">{artifact.kind}</Field>
                 <Field label="Title">{artifact.title}</Field>
                 <Field label="Created at">{artifact.created_at}</Field>
+                <Field label="Producer">{artifact.producer}</Field>
+                <Field label="Source stage">
+                  {artifact.source_stage_id === null
+                    ? "None"
+                    : `${artifact.source_stage_id}, visit ${artifact.source_stage_visit}`}
+                </Field>
+                <Field label="Submitted by">
+                  {artifact.submitted_by.kind}: {artifact.submitted_by.id}
+                </Field>
+                <Field label="Submitted at">{artifact.submitted_at}</Field>
+                <Field label="Terminal outcome">
+                  {task.lifecycle !== "done"
+                    ? "Task not completed"
+                    : artifact.accepted_as_outcome
+                      ? "Included in completed Task outcome"
+                      : "Not included in completed Task outcome"}
+                </Field>
               </dl>
+              <Button
+                variant="outline"
+                aria-expanded={previewId === artifact.id}
+                onClick={() => setPreviewId(previewId === artifact.id ? null : artifact.id)}
+              >
+                {previewId === artifact.id ? "Hide JSON preview" : "Preview JSON"}
+              </Button>
+              {previewId === artifact.id && (
+                <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-all rounded bg-muted p-3 text-xs">
+                  {JSON.stringify(
+                    { metadata: artifact.metadata, body: artifact.body },
+                    null,
+                    2,
+                  ).slice(0, 32_768)}
+                </pre>
+              )}
             </li>
           ))}
         </ul>

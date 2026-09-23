@@ -54,7 +54,7 @@ fn parse_query(
     Ok((query.after, limit))
 }
 
-fn page_view(page: KnowledgePage) -> Result<serde_json::Value, CoreError> {
+pub(super) fn page_view(page: KnowledgePage) -> Result<serde_json::Value, CoreError> {
     let created_at = super::views::timestamp(page.created_at)?;
     let revised_at = super::views::timestamp(page.revised_at)?;
     let mut value =

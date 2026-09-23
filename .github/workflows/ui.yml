@@ -1,0 +1,58 @@
+name: UI checks
+
+on:
+  push:
+    paths:
+      - ".github/workflows/ui.yml"
+      - "frontend/**"
+      - "openapi/v1.yaml"
+      - "crates/forge-application/**"
+      - "crates/forge-protocol/**"
+      - "crates/forge-ui/**"
+      - "Justfile"
+  pull_request:
+    paths:
+      - ".github/workflows/ui.yml"
+      - "frontend/**"
+      - "openapi/v1.yaml"
+      - "crates/forge-application/**"
+      - "crates/forge-protocol/**"
+      - "crates/forge-ui/**"
+      - "Justfile"
+
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: frontend/.node-version
+          package-manager-cache: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: frontend/.bun-version
+      - name: Install frozen dependencies
+        run: bun install --frozen-lockfile
+      - name: Typecheck
+        run: bun run typecheck
+      - name: Lint
+        run: bun run lint
+      - name: Contract tests
+        run: bun run test:contracts
+      - name: Presentation tests
+        run: bun run test:presentation
+      - name: Live unit tests
+        run: bun run test:live-unit
+      - name: Component tests
+        run: bun run test:components
+      - name: Build live UI
+        run: bun run build:live
+      - name: Build static UI
+        run: bun run build:static

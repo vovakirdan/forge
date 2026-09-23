@@ -3,7 +3,10 @@
 mod support;
 
 use anyhow::{Context, Result};
-use forge_domain::{EmployeeId, ProjectId, runtime::RunScope, system_job::SystemJobKind};
+use forge_domain::{
+    EmployeeId, EvidenceLocation, EvidenceObject, EvidenceObjectInput, EvidenceScope,
+    EvidenceStream, ProjectId, Timestamp, runtime::RunScope, system_job::SystemJobKind,
+};
 use forge_storage::{EnvironmentReport, RunProjection};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -83,6 +86,32 @@ async fn accepted_onboarding_survives_stop_after_submission_and_materializes_onc
     let mut f = support::setup().await?;
     let result = input(&mut f).await?;
     let run = support::admit(&f, &f.spec).await?;
+    let receipt = EvidenceObject::new(EvidenceObjectInput {
+        id: Uuid::now_v7(),
+        scope: EvidenceScope {
+            project_id: f.project,
+            task_id: None,
+            run_id: run.id,
+        },
+        stream: EvidenceStream::Diagnostic,
+        sequence: 1,
+        sha256: "a".repeat(64),
+        size_bytes: 8,
+        redaction_policy_reference: "policy/v1".into(),
+        location: EvidenceLocation::PendingUpload,
+        created_at: Timestamp::now_utc(),
+    })?;
+    let mut evidence_tx = f.h.store.begin().await?;
+    assert!(evidence_tx.record_evidence_object(&receipt, false).await?);
+    evidence_tx.commit().await?;
+    assert_eq!(
+        f.h.store
+            .run_evidence_page(f.project, run.id, None, 2)
+            .await?
+            .len(),
+        1,
+        "ownerless SystemJob Run retains its technical evidence receipt"
+    );
     submit(&f, &run, result).await?;
     f.h.core.system_job_tick().await?;
     assert!(

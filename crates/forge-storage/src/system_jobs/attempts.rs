@@ -13,6 +13,76 @@ pub struct SystemJobAttempt {
     pub deadline_expired: bool,
 }
 
+impl PostgresStore {
+    pub async fn system_job_exists(
+        &self,
+        project: ProjectId,
+        job: Uuid,
+    ) -> Result<bool, StorageError> {
+        Ok(sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM system_jobs WHERE project_id=$1 AND id=$2)",
+        )
+        .bind(project.as_uuid())
+        .bind(job)
+        .fetch_one(&self.pool)
+        .await?)
+    }
+
+    pub async fn system_job_attempt_cursor_exists(
+        &self,
+        project: ProjectId,
+        job: Uuid,
+        cursor: Uuid,
+    ) -> Result<bool, StorageError> {
+        Ok(sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM system_job_attempts WHERE project_id=$1 AND job_id=$2 AND id=$3)",
+        )
+        .bind(project.as_uuid())
+        .bind(job)
+        .bind(cursor)
+        .fetch_one(&self.pool)
+        .await?)
+    }
+
+    /// Only canonical coordinates leave storage. Neither the pinned RunSpec nor the
+    /// accepted provider result is loaded into this browser-facing read.
+    pub async fn system_job_attempt_page(
+        &self,
+        project: ProjectId,
+        job: Uuid,
+        cursor: Option<Uuid>,
+        limit: u32,
+    ) -> Result<Vec<Value>, StorageError> {
+        if !(1..=51).contains(&limit) {
+            return Err(invalid());
+        }
+        let rows: Vec<Value> = sqlx::query_scalar(
+            r#"SELECT jsonb_build_object(
+                 'id',a.id,'job_id',a.job_id,'generation',a.generation,'run_id',a.run_id,
+                 'state',a.state,'result_accepted',a.result_message_id IS NOT NULL,
+                 'result_message_id',a.result_message_id,'created_at',a.created_at,
+                 'completed_at',a.completed_at,'materialized_entries',
+                 CASE WHEN a.state='completed' THEN coalesce((
+                   SELECT jsonb_agg(jsonb_build_object('id',entry->>'id','revision',(entry->>'revision')::bigint))
+                   FROM event_log e, jsonb_array_elements(e.payload->'system_job'->'entries') entry
+                   WHERE e.project_id=a.project_id AND e.event_type='system_job_changed'
+                     AND e.payload->'system_job'->>'attempt_id'=a.id::text
+                     AND e.payload->'system_job'->>'state'='completed'
+                 ),'[]'::jsonb) ELSE '[]'::jsonb END)
+               FROM system_job_attempts a
+               WHERE a.project_id=$1 AND a.job_id=$2 AND ($3::uuid IS NULL OR a.id>$3)
+               ORDER BY a.id LIMIT $4"#,
+        )
+        .bind(project.as_uuid())
+        .bind(job)
+        .bind(cursor)
+        .bind(i64::from(limit))
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+}
+
 impl StorageTransaction<'_> {
     pub async fn next_system_job_memory_revision(
         &mut self,

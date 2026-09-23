@@ -1,7 +1,7 @@
 # Epic UI2.3 — Management, Resolution и Recovery
 
 **Milestone:** UI2 — Наблюдение, коммуникация и вмешательство человека
-**Статус:** planned; реализация не начата
+**Статус на 23 сентября 2026:** локальные управление, human resolution и recovery workflows реализованы и проверены.
 **Источник:** [UI plan](../UI_IMPLEMENTATION_PLAN.md),
 [backend alignment](../UI_BACKEND_ALIGNMENT.md)
 **База backend:** `1439211`; Core сохраняет исключительное право изменять state.

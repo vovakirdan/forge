@@ -58,6 +58,27 @@ pub async fn handoff_is_atomic_and_replayable(kind: BackendKind) -> Result<()> {
         }
         Backend::Postgres(pool) => {
             let store = PostgresStore::from_pool(pool.clone());
+            let page = store
+                .task_handoff_page(f.project_id, task, None, 20)
+                .await?;
+            assert_eq!(page.len(), 1);
+            assert_eq!(page[0]["id"], json!(data.id));
+            assert_eq!(page[0]["source_kind"], "command");
+            assert_eq!(page[0]["source_id"], json!(receipt.command_id));
+            assert_eq!(page[0]["content_availability"], "unavailable");
+            assert!(page[0].get("body").is_none());
+            assert!(
+                store
+                    .task_handoff_page(forge_domain::ProjectId::new(), task, None, 20)
+                    .await?
+                    .is_empty()
+            );
+            assert!(
+                store
+                    .task_handoff_page(f.project_id, task, None, 22)
+                    .await
+                    .is_err()
+            );
             let mut tx = store.begin().await?;
             reject_duplicate_command(&mut tx, f.project_id).await?;
         }

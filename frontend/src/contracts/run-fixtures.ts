@@ -89,16 +89,28 @@ export const emptyRunDiagnosticsFixture = {
 };
 
 export const populatedRunDiagnosticsFixture = {
-  runtime_report: { status: "finished", provider_detail: { text: "Synthetic unverified report" } },
-  handoff: { summary: "Partial synthetic work", checkpoint: null },
-  incidents: [{ kind: "provider_unavailable", assessment: null, annotations: ["synthetic"] }],
+  runtime_report: { available: true },
+  handoff: { available: true },
+  incidents: [{ id: runIds.escalation, assessment: "unknown", created_at: "2026-01-01T00:00:00Z" }],
   evidence: [
-    { storage: "object_reference", object_key: "opaque/not-a-fetch-request", accepted: false },
+    {
+      id: runIds.candidate,
+      run_id: runIds.run,
+      task_id: ids.task,
+      stream: "stdout",
+      sequence: 1,
+      sha256: "a".repeat(64),
+      size_bytes: 32,
+      redaction_policy_reference: "redaction/v1",
+      storage_state: "stored",
+      created_at: "2026-01-01T00:00:00Z",
+      content_availability: "unavailable",
+    },
   ],
   streams: [
     { stream: "runtime.custom", incomplete: true },
     { stream: "stdout", incomplete: false },
   ],
-  proxy_usage: { input_tokens: 20, output_tokens: null },
-  git_source: { mode: "synthetic_snapshot", candidate: { label: "opaque" } },
+  proxy_usage: { available: true },
+  git_source: { available: true },
 };

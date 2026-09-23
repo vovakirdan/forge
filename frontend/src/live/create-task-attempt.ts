@@ -4,6 +4,7 @@ import type { PrioritySchemeView } from "../contracts/priority-scheme.ts";
 import { CreateTaskRequestSchema, type CreateTaskAttempt } from "../contracts/create-task.ts";
 import { IdempotencyKeySchema } from "../contracts/task-command.ts";
 import { activePriority } from "./priority-attempt.ts";
+import type { TaskProperties } from "../contracts/properties.ts";
 
 export type CreateTaskFields = {
   title: string;
@@ -23,7 +24,11 @@ export function initialCreateTaskFields(scheme: PrioritySchemeView): CreateTaskF
     pipelineVersionId: "",
   };
 }
-export function createTaskInput(scheme: PrioritySchemeView, fields: CreateTaskFields) {
+export function createTaskInput(
+  scheme: PrioritySchemeView,
+  fields: CreateTaskFields,
+  properties: TaskProperties = {},
+) {
   return {
     project_id: scheme.project_id,
     expected_revision: scheme.project_revision,
@@ -34,7 +39,7 @@ export function createTaskInput(scheme: PrioritySchemeView, fields: CreateTaskFi
       kind: fields.kind,
       priority: fields.priority,
       pipeline_version_id: fields.pipelineVersionId,
-      properties: {},
+      properties,
     },
   };
 }
@@ -55,9 +60,10 @@ export function createTaskAttempt(
   pipeline: PipelineVersionView,
   fields: CreateTaskFields,
   key: string = crypto.randomUUID(),
+  properties: TaskProperties = {},
 ): CreateTaskAttempt {
   if (!activePriority(scheme, fields.priority) || !pipelineAllowsCreation(pipeline, fields))
     throw new Error("Draft creation is unavailable");
-  const request = CreateTaskRequestSchema.parse(createTaskInput(scheme, fields));
+  const request = CreateTaskRequestSchema.parse(createTaskInput(scheme, fields, properties));
   return Object.freeze({ body: JSON.stringify(request), key: IdempotencyKeySchema.parse(key) });
 }

@@ -37,6 +37,7 @@ pub use knowledge::{
     KnowledgeContextRefreshRecord, KnowledgeProjectionKind, KnowledgeProjectionOperation,
 };
 pub use system_jobs::{SystemJobAttempt, SystemJobRecord, SystemJobSettings};
+mod management_reads;
 mod manager;
 mod model;
 mod outbox;
@@ -48,12 +49,15 @@ mod repository;
 mod required_hooks;
 mod resolution;
 mod resolution_runs;
+mod task_handoffs;
 mod task_resume;
-pub use hook_invocations::{HookSkipSpec, StoredHookInvocation};
+pub use hook_invocations::{HookInvocationView, HookSkipSpec, StoredHookInvocation};
+pub use runtime_metadata::RuntimeBindingRecord;
 mod run_control;
 mod run_evidence;
 mod run_lifecycle;
 mod runtime;
+mod runtime_metadata;
 mod scheduler;
 mod store;
 mod task_write;
@@ -62,6 +66,7 @@ mod write;
 use sqlx::{PgPool, migrate::Migrator};
 use thiserror::Error;
 
+pub use admission::AdmissionResourceSnapshot;
 pub use communication_runs::CommunicationClaim;
 pub use credentials::StoredCredential;
 pub use error::StorageError;
@@ -73,6 +78,7 @@ pub use gateway::{GatewaySubmissionRecord, GatewayWriteResult};
 pub use git_delivery::{GitInspectionRequest, StoredGitProposal};
 pub use git_integration::{IntegrationState, StoredIntegration};
 pub use health::OperationalSnapshot;
+pub use management_reads::{RecoveryAssessmentRead, RecoveryRunRead, RecoverySettingsRead};
 pub use model::{
     ArtifactLocation, IdempotencyRecord, QueueEntry, QueueEntryInput, QueueState, RunDesiredState,
     RunObservedState, RunProjection, StoredArtifact, StoredEmployee, StoredEvent, StoredTask,
@@ -80,7 +86,9 @@ pub use model::{
 };
 pub use outbox::{OutboxClaimRequest, OutboxFailureMark, OutboxLease, OutboxPublishMark};
 pub use proxy_keys::StoredProxyKey;
+pub use read::{EmployeeOperationalCounts, PipelineCatalogItem};
 pub use recovery::RunRecoveryState;
+pub use resolution::EscalationReadRow;
 pub use run_lifecycle::{ExecutorSubmissionRecord, FencedWrite, ObservedRunUpdate};
 pub use runtime::{EnvironmentReport, IncidentKind};
 pub use scheduler::{LeaseRunRequest, ProvisionedRun};

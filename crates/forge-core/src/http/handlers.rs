@@ -10,7 +10,7 @@ use axum::{
     routing::{get, post},
 };
 use forge_application::CommandEnvelope;
-use forge_domain::{EmployeeId, PipelineVersionId, ProjectId, TaskId};
+use forge_domain::{EmployeeId, PipelineId, PipelineVersionId, ProjectId, TaskId};
 use forge_protocol::wire::{CommandName, CommandRequest};
 use futures_util::stream;
 use serde::Deserialize;
@@ -21,8 +21,10 @@ use uuid::Uuid;
 use super::{
     error::HttpError,
     views::{
-        ListView, employee_profile_view, employee_summary_view, health_view, pipeline_version_view,
-        project_view, run_view, task_detail_view, task_summary_view,
+        ListView, employee_operations_view, employee_profile_view, employee_summary_view,
+        health_view, pipeline_catalog_view, pipeline_version_view, project_resources_view,
+        project_task_property_schema_view, project_view, run_view, task_detail_view,
+        task_summary_view,
     },
 };
 use crate::{CoreService, event_envelope_from_stored_event};
@@ -41,6 +43,14 @@ pub fn router(core: CoreService) -> Router {
         .route("/v1/commands/{name}", post(execute_command))
         .route("/v1/projects", get(list_projects))
         .route("/v1/projects/{project_id}", get(get_project))
+        .route(
+            "/v1/projects/{project_id}/resources",
+            get(get_project_resources),
+        )
+        .route(
+            "/v1/projects/{project_id}/task-property-schema",
+            get(get_project_task_property_schema),
+        )
         .route("/v1/projects/{project_id}/employees", get(list_employees))
         .route(
             "/v1/projects/{project_id}/employees/{employee_id}",
@@ -50,9 +60,17 @@ pub fn router(core: CoreService) -> Router {
             "/v1/projects/{project_id}/employees/{employee_id}/runs",
             get(list_employee_runs),
         )
+        .route(
+            "/v1/projects/{project_id}/employees/{employee_id}/operations",
+            get(get_employee_operations),
+        )
         .route("/v1/projects/{project_id}/tasks", get(list_tasks))
         .route("/v1/projects/{project_id}/tasks/{task_id}", get(get_task))
         .route("/v1/projects/{project_id}/pipelines", get(list_pipelines))
+        .route(
+            "/v1/projects/{project_id}/pipeline-catalog",
+            get(list_pipeline_catalog),
+        )
         .route(
             "/v1/projects/{project_id}/pipelines/{pipeline_version_id}",
             get(get_pipeline),
@@ -61,6 +79,10 @@ pub fn router(core: CoreService) -> Router {
         .route("/v1/projects/{project_id}/runs/{run_id}", get(get_run))
         .route("/v1/projects/{project_id}/events", get(stream_events))
         .merge(super::communication::routes())
+        .merge(super::management_reads::routes())
+        .merge(super::run_activity::routes())
+        .merge(super::runtime_metadata::routes())
+        .merge(super::task_handoffs::routes())
         .merge(super::candidate_review::routes())
         .merge(super::git_integration::routes())
         .merge(super::git_source_policy::routes())
@@ -119,6 +141,38 @@ async fn get_project(
     Ok(json_response(
         StatusCode::OK,
         project_view(&project),
+        &request_id,
+    ))
+}
+
+async fn get_project_resources(
+    State(core): State<CoreService>,
+    Path(path): Path<ProjectPath>,
+) -> Result<Response, HttpError> {
+    let request_id = request_id();
+    let project_id = project_id(&path.project_id, &request_id)?;
+    let snapshot = core
+        .read_project_resources(project_id)
+        .await
+        .map_err(|error| HttpError::from_core(request_id.clone(), error))?;
+    let view = project_resources_view(project_id, snapshot)
+        .map_err(|error| HttpError::from_core(request_id.clone(), error))?;
+    Ok(json_response(StatusCode::OK, view, &request_id))
+}
+
+async fn get_project_task_property_schema(
+    State(core): State<CoreService>,
+    Path(path): Path<ProjectPath>,
+) -> Result<Response, HttpError> {
+    let request_id = request_id();
+    let project_id = project_id(&path.project_id, &request_id)?;
+    let project = core
+        .read_project(project_id)
+        .await
+        .map_err(|error| HttpError::from_core(request_id.clone(), error))?;
+    Ok(json_response(
+        StatusCode::OK,
+        project_task_property_schema_view(&project),
         &request_id,
     ))
 }
@@ -215,6 +269,24 @@ async fn list_employee_runs(
     ))
 }
 
+async fn get_employee_operations(
+    State(core): State<CoreService>,
+    Path(path): Path<EmployeePath>,
+) -> Result<Response, HttpError> {
+    let request_id = request_id();
+    let project_id = project_id(&path.project_id, &request_id)?;
+    let employee_id = employee_id(&path.employee_id, &request_id)?;
+    let (employee, counts) = core
+        .read_employee_operations(project_id, employee_id)
+        .await
+        .map_err(|error| HttpError::from_core(request_id.clone(), error))?;
+    Ok(json_response(
+        StatusCode::OK,
+        employee_operations_view(&employee.employee, counts),
+        &request_id,
+    ))
+}
+
 async fn list_tasks(
     State(core): State<CoreService>,
     Path(path): Path<ProjectPath>,
@@ -270,25 +342,71 @@ async fn list_pipelines(
     let request_id = request_id();
     let project_id = project_id(&path.project_id, &request_id)?;
     let query = page_query(query, &request_id)?;
-    let versions = core
-        .read_pipeline_versions(project_id)
+    let limit = page_limit(&query, &request_id)?;
+    let after = retained_uuid_cursor(&query, &request_id)?.map(PipelineVersionId::from);
+    let mut versions = core
+        .read_pipeline_version_page(project_id, after, (limit + 1) as u32)
         .await
-        .map_err(|error| HttpError::from_core(request_id.clone(), error))?;
-    let page = paginate(versions, &query, &request_id, |version| {
-        version.version.id().to_string()
-    })?;
-    let items = page
-        .items
+        .map_err(|error| HttpError::from_core(request_id.clone(), error))?
+        .ok_or_else(|| HttpError::cursor_invalid(request_id.clone(), "cursor is not retained"))?;
+    let has_more = versions.len() > limit;
+    versions.truncate(limit);
+    let next_cursor = has_more
+        .then(|| {
+            versions
+                .last()
+                .map(|version| version.version.id().to_string())
+        })
+        .flatten();
+    let items = versions
         .into_iter()
         .map(pipeline_version_view)
         .collect::<Result<Vec<_>, _>>()
         .map_err(|error| HttpError::from_core(request_id.clone(), error))?;
     Ok(json_response(
         StatusCode::OK,
-        ListView {
-            items,
-            next_cursor: page.next_cursor,
-        },
+        ListView { items, next_cursor },
+        &request_id,
+    ))
+}
+
+async fn list_pipeline_catalog(
+    State(core): State<CoreService>,
+    Path(path): Path<ProjectPath>,
+    query: Result<Query<PageQuery>, axum::extract::rejection::QueryRejection>,
+) -> Result<Response, HttpError> {
+    let request_id = request_id();
+    let project_id = project_id(&path.project_id, &request_id)?;
+    let query = page_query(query, &request_id)?;
+    let limit = query.limit.unwrap_or(DEFAULT_PAGE_LIMIT);
+    if !(1..=MAX_PAGE_LIMIT).contains(&limit) {
+        return Err(HttpError::invalid_request(
+            request_id,
+            format!("limit must be between 1 and {MAX_PAGE_LIMIT}"),
+        ));
+    }
+    let after = query
+        .cursor
+        .as_deref()
+        .map(|cursor| uuid_id("cursor", cursor, &request_id).map(PipelineId::from))
+        .transpose()?;
+    let mut items = core
+        .read_pipeline_catalog_page(project_id, after, (limit + 1) as u32)
+        .await
+        .map_err(|error| HttpError::from_core(request_id.clone(), error))?;
+    let has_more = items.len() > limit;
+    items.truncate(limit);
+    let next_cursor = has_more
+        .then(|| items.last().map(|item| item.id.to_string()))
+        .flatten();
+    let items = items
+        .into_iter()
+        .map(pipeline_catalog_view)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| HttpError::from_core(request_id.clone(), error))?;
+    Ok(json_response(
+        StatusCode::OK,
+        ListView { items, next_cursor },
         &request_id,
     ))
 }
@@ -317,18 +435,22 @@ async fn list_runs(
     let request_id = request_id();
     let project_id = project_id(&path.project_id, &request_id)?;
     let query = page_query(query, &request_id)?;
-    let runs = core
-        .read_runs(project_id)
+    let limit = page_limit(&query, &request_id)?;
+    let after = retained_uuid_cursor(&query, &request_id)?;
+    let mut runs = core
+        .read_runs_page(project_id, after, (limit + 1) as u32)
         .await
-        .map_err(|error| HttpError::from_core(request_id.clone(), error))?;
-    let page = paginate(runs, &query, &request_id, |run| run.id.to_string())?;
-    let items = page.items.into_iter().map(run_view).collect();
+        .map_err(|error| HttpError::from_core(request_id.clone(), error))?
+        .ok_or_else(|| HttpError::cursor_invalid(request_id.clone(), "cursor is not retained"))?;
+    let has_more = runs.len() > limit;
+    runs.truncate(limit);
+    let next_cursor = has_more
+        .then(|| runs.last().map(|run| run.id.to_string()))
+        .flatten();
+    let items = runs.into_iter().map(run_view).collect();
     Ok(json_response(
         StatusCode::OK,
-        ListView {
-            items,
-            next_cursor: page.next_cursor,
-        },
+        ListView { items, next_cursor },
         &request_id,
     ))
 }
@@ -449,6 +571,32 @@ fn page_query(
     query
         .map_err(|error| HttpError::invalid_request(request_id.to_owned(), error.to_string()))
         .map(|query| query.0)
+}
+
+fn page_limit(query: &PageQuery, request_id: &str) -> Result<usize, HttpError> {
+    let limit = query.limit.unwrap_or(DEFAULT_PAGE_LIMIT);
+    if !(1..=MAX_PAGE_LIMIT).contains(&limit) {
+        return Err(HttpError::invalid_request(
+            request_id.to_owned(),
+            format!("limit must be between 1 and {MAX_PAGE_LIMIT}"),
+        ));
+    }
+    Ok(limit)
+}
+
+fn retained_uuid_cursor(query: &PageQuery, request_id: &str) -> Result<Option<Uuid>, HttpError> {
+    query
+        .cursor
+        .as_deref()
+        .map(|cursor| {
+            Uuid::from_str(cursor)
+                .ok()
+                .filter(|id| id.get_version_num() == 7)
+                .ok_or_else(|| {
+                    HttpError::cursor_invalid(request_id.to_owned(), "cursor is not retained")
+                })
+        })
+        .transpose()
 }
 
 fn paginate<T>(

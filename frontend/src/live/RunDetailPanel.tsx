@@ -7,6 +7,7 @@ import type { ProjectReadScope } from "./read-scope.ts";
 import { useReadLifetime } from "./use-read-lifetime.ts";
 import { RunFacts, RunOwner } from "./RunFacts.tsx";
 import { RunDiagnostics } from "./RunDiagnostics.tsx";
+import { RunEvidencePanel } from "./RunEvidencePanel.tsx";
 
 export function RunDetailPanel({
   api,
@@ -14,6 +15,7 @@ export function RunDetailPanel({
   generation,
   projectId,
   runId,
+  leaveGuard,
   onClose,
 }: ProjectReadScope & { runId: string; onClose: () => void }) {
   const title = useRef<HTMLHeadingElement>(null);
@@ -75,6 +77,7 @@ export function RunDetailPanel({
           <RunFacts run={run} detail />
           <RunOwner run={run} />
           <RunDiagnostics diagnostics={run.diagnostics} />
+          <RunEvidencePanel {...{ api, session, generation, projectId, runId, leaveGuard }} />
         </>
       )}
     </section>

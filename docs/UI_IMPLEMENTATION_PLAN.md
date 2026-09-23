@@ -1,9 +1,35 @@
 # Forge: Control Room implementation plan
 
 **Дата:** 11 сентября 2026
-**Статус:** UI0.1/UI0.2/UI0.3/UI1.1/UI1.2/UI1.3/UI2.1 in_progress; остальные epics planned; milestones не закрыты
+**Статус на 23 сентября 2026:** локальная реализация UI0–UI4 проверена; installer M4 остаётся отдельной работой. Подробности и ограничения — ниже.
 **Иерархия:** Milestone → Epic → будущие Task
 **Baseline:** backend `1439211`; frontend — неизменённый импорт пользовательского UI
+
+## Текущее состояние реализации
+
+Control Room подключён к настоящим Core reads и named commands через локальный
+owner gateway. В нём есть Projects, Team, Pipeline/optional hooks, Task и Board,
+Runs/Activity, Inbox, управление и recovery, Knowledge/memory, SystemJobs,
+Resources и настройки. Hook invocations и SystemJob attempts имеют отдельные
+ограниченные project-scoped чтения; приватные RunSpec, результаты процесса и
+credential material в эти DTO не входят. OpenAPI и installer handoff обновлены.
+
+Keyless browser suite прошёл 178/178 реальных Core → gateway → Chromium сценариев;
+контрактные и клиентские тесты прошли 93/93 и 142/142, gateway 129/129.
+Проверка намеренного сбоя не нашла утечек среди 598 выданных значений. Отдельный
+тест проходит 1 000 Task и 20 Employee с ограниченными страницами.
+Один согласованный isolated provider scenario с `gpt-5.6-luna` завершился тремя
+Runs, завершённым onboarding и Task, source-linked summary и подтверждённой
+остановкой. Точные результаты и ограничения записаны в
+[keyless acceptance](UI4_KEYLESS_ACCEPTANCE.md) и
+[live acceptance](UI4_LIVE_PROPOSAL.md).
+
+Содержимое произвольных stdout/stderr и frozen context не выдаётся браузеру:
+текущий Core не предоставляет проверенного безопасного body-контракта. UI
+показывает разрешённые координаты, receipt, состояние и недоступность тела,
+как допускает условная граница UI2.1. Локальная браузерная приёмка не заменяет
+отдельный M4 clean-host/systemd/reboot proof. Изменения этого workstream пока
+находятся в рабочем дереве и не опубликованы.
 
 ## 1. Рамка и источники
 
@@ -25,7 +51,9 @@ frontend. Backend расширяется там, где отсутствует �
 `UI0–UI4` — отдельные delivery milestones. `EXT1–EXT3` — design-gated расширения,
 а не автоматически принятый объём UI или обязательная зависимость установщика.
 
-Первоначально план содержал только milestones и отдельные epic-документы.
+Историческая последовательность ранних срезов ниже объясняет, как начиналась
+реализация; актуальное состояние приведено выше. Первоначально план содержал
+только milestones и отдельные epic-документы.
 17 сентября начата [FRONTEND-001](../tasks/frontend/frontend-001-local-demo-baseline.md)
 в UI0.3, затем [FRONTEND-002](../tasks/frontend/frontend-002-task-pipeline-contracts.md)
 и [FRONTEND-003](../tasks/frontend/frontend-003-run-read-contracts.md)
@@ -292,6 +320,12 @@ Core commands. Кандидат выбирается из постранично
 [FRONTEND-019](../tasks/frontend/frontend-019-project-selector.md) добавляет
 страничный safe Project list в Core и owner gateway и выбор Project в live UI.
 Ручной ввод ID больше не требуется; Team и настройка Project остаются отдельно.
+
+[FRONTEND-025](../tasks/frontend/frontend-025-live-control-room-shell.md) переносит
+визуальный каркас и навигацию Control Room в отдельный защищённый live entry.
+Четыре доступных раздела уже читают Core; mock-разделы и придуманные показатели
+не появляются в live-навигации. Это начало объединения интерфейса, а не
+закрытие остальных UI0–UI4 gates.
 
 Run-приёмка разделяет реальные Core reads с M0 fake execution и synthetic
 cases пяти purposes. Ни то ни другое не является новым provider proof. Browser

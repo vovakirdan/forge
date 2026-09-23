@@ -1,7 +1,7 @@
 # Epic UI1.4 — Work surfaces, Artifacts и provenance
 
 **Milestone:** UI1 — browser interface before M4 installer
-**Статус:** `planned`; blocked by `UI0.1`, `UI0.2`, `UI0.3`, `UI1.3`.
+**Статус на 23 сентября 2026:** локальные surfaces, snapshots, artifacts и handoff reads реализованы и проверены; raw object body не публикуется в браузере.
 **Зависимости:** UI0.1 model contracts, UI0.2 browser/API boundary, UI0.3 UI tooling
 и UI1.3 Task board/management.
 **Контракты:** ../2026-09-03-task-domain-model.md,

@@ -6,6 +6,10 @@
 mod support;
 
 use anyhow::{Context, Result};
+use axum::{
+    body::{Body, to_bytes},
+    http::{Request, StatusCode},
+};
 use forge_domain::{
     EmployeeId, ProjectId, Timestamp,
     knowledge::{DerivedMemoryEntry, DerivedMemoryKind, KnowledgeSourceRef},
@@ -15,6 +19,7 @@ use forge_provider_common::SecretBytes;
 use forge_storage::RunProjection;
 use forge_testkit::m0::{M0Harness, single_stage_pipeline};
 use serde_json::{Value, json};
+use tower::ServiceExt;
 use uuid::Uuid;
 
 async fn publish(h: &M0Harness, project: ProjectId, kind: &str, markdown: &str) -> Result<Uuid> {
@@ -222,6 +227,39 @@ async fn task_prompt_freezes_canonical_scoped_memory_and_refresh_never_mutates_i
             .0
             .is_success()
     );
+    h.execute(
+        project,
+        CommandName::WithdrawKnowledgePage,
+        json!({"page_id":policy,"expected_page_revision":3}),
+    )
+    .await?;
+    let response = forge_core::router(h.core.clone())
+        .oneshot(
+            Request::builder()
+                .uri(format!("/v1/projects/{project}/runs/{}/context", run.id))
+                .body(Body::empty())?,
+        )
+        .await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    let safe: Value = serde_json::from_slice(&to_bytes(response.into_body(), 64 * 1024).await?)?;
+    assert_eq!(safe["availability"], "available");
+    assert_eq!(
+        safe["coordinates"]["context_snapshot_id"],
+        run.context_manifest["context_snapshot_id"]
+    );
+    let serialized = serde_json::to_string(&safe)?;
+    for forbidden in [
+        "Require independent review.",
+        "derived_memory",
+        "required_pages",
+        "source_refs",
+        &policy.to_string(),
+    ] {
+        assert!(
+            !serialized.contains(forbidden),
+            "frozen withdrawn source leaked: {forbidden}"
+        );
+    }
     h.shutdown().await;
     Ok(())
 }

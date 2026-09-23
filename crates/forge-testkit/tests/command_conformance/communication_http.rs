@@ -78,6 +78,33 @@ async fn inbox_http_reads_are_scoped_bounded_and_do_not_acknowledge() -> Result<
     let (_, tail) = get(&router, &format!("{message_path}?after=1&limit=1")).await?;
     assert_eq!(tail["items"][0]["sequence"], 2);
     assert!(tail["next_cursor"].is_null());
+    let delivery_path = format!("{prefix}/threads/{}/delivery", threads[0]);
+    let (_, first_delivery) = get(&router, &format!("{delivery_path}?limit=1")).await?;
+    assert_eq!(
+        first_delivery["items"][0]["message_id"],
+        messages["items"][0]["id"]
+    );
+    assert_eq!(first_delivery["items"][0]["assignment"]["state"], "queued");
+    assert_eq!(
+        first_delivery["items"][0]["assignment"]["retry_ready"],
+        false
+    );
+    assert!(first_delivery["items"][0]["runtime_accepted_at"].is_null());
+    assert!(first_delivery["items"][0]["acknowledged_at"].is_null());
+    assert!(first_delivery["items"][0]["answered_at"].is_null());
+    assert_eq!(first_delivery["next_cursor"], "1");
+    let (_, tail_delivery) = get(&router, &format!("{delivery_path}?after=1&limit=1")).await?;
+    assert_eq!(tail_delivery["items"][0]["sequence"], 2);
+    assert!(tail_delivery["next_cursor"].is_null());
+    fixture
+        .execute(
+            CommandName::WaiveMessageRequirement,
+            json!({"message_id":messages["items"][0]["id"],"reason":"operator decision"}),
+        )
+        .await?;
+    let (_, waived) = get(&router, &format!("{delivery_path}?limit=1")).await?;
+    assert_eq!(waived["items"][0]["waiver"]["reason"], "operator decision");
+    assert!(waived["items"][0]["answered_at"].is_null());
     for suffix in [
         "limit=0",
         "limit=101",
@@ -96,6 +123,19 @@ async fn inbox_http_reads_are_scoped_bounded_and_do_not_acknowledge() -> Result<
         threads[0]
     );
     assert_eq!(get(&router, &foreign).await?.0, StatusCode::NOT_FOUND);
+    assert_eq!(
+        get(
+            &router,
+            &format!(
+                "/v1/projects/{}/threads/{}/delivery",
+                Uuid::now_v7(),
+                threads[0]
+            )
+        )
+        .await?
+        .0,
+        StatusCode::NOT_FOUND
+    );
     let foreign = format!(
         "/v1/projects/{}/employees/{employee}/threads",
         Uuid::now_v7()

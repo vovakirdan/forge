@@ -1,6 +1,36 @@
 import { test, expect } from "./fixtures";
 import { loadProject } from "./task-helpers";
 
+test("live Control Room navigation uses only Core-backed sections at narrow width", async ({
+  live,
+  page,
+}) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await live.login(page);
+  await expect(page.getByRole("heading", { name: "Control Room" })).toBeVisible();
+  const sections = page.getByRole("navigation", { name: "Project sections" });
+  await expect(sections.getByRole("button", { name: "Activity" })).toBeDisabled();
+  await expect(sections.getByRole("button", { name: "Tasks" })).toBeDisabled();
+  await expect(sections.getByRole("button", { name: "Goals" })).toHaveCount(0);
+  await loadProject(page, live.core.project_id);
+  await sections.getByRole("button", { name: "Activity" }).click();
+  await expect(
+    page.getByRole("region", { name: "Activity" }).filter({ hasText: "Event history current" }),
+  ).toBeVisible();
+  await sections.getByRole("button", { name: "Team" }).click();
+  await expect(sections.getByRole("button", { name: "Team" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect(page.getByRole("region", { name: "Team", exact: true })).toBeVisible();
+  await sections.getByRole("button", { name: "Tasks" }).click();
+  await expect(page.getByRole("region", { name: "Tasks", exact: true })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Activity", exact: true })).toHaveCount(1);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
+});
+
 test("owner terminal login reads the canonical Project under production CSP", async ({
   live,
   page,

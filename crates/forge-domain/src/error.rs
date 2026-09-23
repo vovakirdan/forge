@@ -73,6 +73,10 @@ pub enum DomainError {
         reason: String,
     },
 
+    /// Existing Tasks must not be reinterpreted under a new Project schema.
+    #[error("task property schema can only be configured before the first task exists")]
+    TaskPropertySchemaLocked,
+
     /// A conditional wait cannot be resolved with the requested operation.
     #[error("invalid task wait operation: {reason}")]
     InvalidWait {

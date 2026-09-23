@@ -1,7 +1,7 @@
 # Epic UI2.2 — Inbox и Communication
 
 **Milestone:** UI2 — Наблюдение, коммуникация и вмешательство человека
-**Статус:** planned; реализация не начата
+**Статус на 23 сентября 2026:** локальные Inbox, threads/messages и delivery/answer receipts реализованы и проверены.
 **Источник:** [UI plan](../UI_IMPLEMENTATION_PLAN.md),
 [backend alignment](../UI_BACKEND_ALIGNMENT.md)
 **База backend:** `1439211`; операторский доступ наследует границу UI0.

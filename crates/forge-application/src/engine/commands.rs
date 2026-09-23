@@ -61,6 +61,38 @@ impl Engine<'_> {
         now: Timestamp,
     ) -> Result<CommandReceipt, CommandError> {
         match &envelope.payload {
+            CommandPayload::ConfigureTaskPropertySchema(schema) => {
+                if transaction.project_has_tasks(project.id()).await? {
+                    return Err(forge_domain::DomainError::TaskPropertySchemaLocked.into());
+                }
+                let original_revision = project.revision();
+                project.configure_property_schema(schema.clone(), now)?;
+                transaction
+                    .update_project(&project, original_revision)
+                    .await?;
+                let audit = event(
+                    project.id(),
+                    AggregateRef::Project(project.id()),
+                    project.revision(),
+                    DomainEventKind::TaskPropertySchemaConfigured,
+                    self.actors.human,
+                    command_id,
+                    None,
+                    event_payload([("schema", json!(schema))]),
+                    now,
+                )?;
+                finish_command(
+                    transaction,
+                    &project,
+                    envelope,
+                    request_hash,
+                    command_id,
+                    self.actors.human,
+                    vec![audit],
+                    Some(resource("project", project.id().as_uuid())),
+                )
+                .await
+            }
             CommandPayload::ConfigureResolverRoute(_)
             | CommandPayload::RaiseEscalation(_)
             | CommandPayload::SubmitHumanResolution(_)

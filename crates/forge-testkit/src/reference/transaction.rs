@@ -510,6 +510,14 @@ impl CommandTransaction for MemoryTransaction {
         Ok(())
     }
 
+    async fn project_has_tasks(&mut self, project_id: ProjectId) -> Result<bool, RepositoryError> {
+        Ok(self
+            .staged
+            .tasks
+            .values()
+            .any(|stored| stored.task.project_id() == project_id))
+    }
+
     async fn lock_pipeline(&mut self, id: PipelineId) -> Result<Option<Pipeline>, RepositoryError> {
         Ok(self.staged.pipelines.get(&id).cloned())
     }

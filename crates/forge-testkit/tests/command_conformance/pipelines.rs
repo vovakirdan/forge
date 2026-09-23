@@ -4,11 +4,17 @@ use super::{
     fixture::{Backend, BackendKind, Fixture},
 };
 use anyhow::{Context, Result};
+use axum::{
+    Router,
+    body::{Body, to_bytes},
+    http::{Request, StatusCode},
+};
 use forge_application::{CommandError, CommandTransaction, RepositoryError};
-use forge_domain::{LifecycleStatus, Pipeline, PipelineId, PipelineVersionId, TaskId};
+use forge_domain::{LifecycleStatus, Pipeline, PipelineId, PipelineVersionId, ProjectId, TaskId};
 use forge_protocol::wire::{CommandName, CommandStatus};
 use forge_storage::PostgresStore;
 use serde_json::{Value, json};
+use tower::ServiceExt;
 
 fn definition(instructions: &str) -> Value {
     json!({"task_kinds":["delivery"],"entry_stage_id":"work",
@@ -53,6 +59,98 @@ async fn new_task(fixture: &Fixture, pipeline: PipelineId, title: &str) -> Resul
         .context("task")?
         .id
         .parse()?)
+}
+
+async fn read_catalog(
+    router: &Router,
+    project: ProjectId,
+    query: &str,
+) -> Result<(StatusCode, Value)> {
+    let response = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/v1/projects/{project}/pipeline-catalog{query}"))
+                .body(Body::empty())?,
+        )
+        .await?;
+    let status = response.status();
+    let body = serde_json::from_slice(&to_bytes(response.into_body(), 64 * 1024).await?)?;
+    Ok((status, body))
+}
+
+#[tokio::test]
+#[ignore = "requires explicit local PostgreSQL; validates paged Pipeline catalog"]
+async fn pipeline_catalog_preserves_default_pinned_usage_and_deleted_history() -> Result<()> {
+    let fixture = Fixture::create(BackendKind::Postgres).await?;
+    let (pipeline, first) = create(&fixture, "Versioned pipeline").await?;
+    new_task(&fixture, pipeline, "Pinned to first version").await?;
+    let second: PipelineVersionId = fixture
+        .execute(
+            CommandName::PublishPipelineVersion,
+            json!({"pipeline_id":pipeline,"expected_pipeline_revision":1,
+                "definition":definition("Second graph")}),
+        )
+        .await?
+        .resource
+        .context("second version")?
+        .id
+        .parse()?;
+    let (other, _) = create(&fixture, "Other pipeline").await?;
+    fixture
+        .execute(
+            CommandName::DeletePipeline,
+            json!({"pipeline_id":pipeline,"expected_pipeline_revision":2}),
+        )
+        .await?;
+
+    let Backend::Postgres(pool) = &fixture.backend else {
+        unreachable!("PostgreSQL test")
+    };
+    let router = forge_core::router(fixture.core(pool));
+    let (status, first_page) = read_catalog(&router, fixture.project_id, "?limit=1").await?;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        first_page["items"].as_array().context("first items")?.len(),
+        1
+    );
+    let cursor = first_page["next_cursor"].as_str().context("next cursor")?;
+    let (status, second_page) = read_catalog(
+        &router,
+        fixture.project_id,
+        &format!("?limit=1&cursor={cursor}"),
+    )
+    .await?;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        second_page["items"]
+            .as_array()
+            .context("second items")?
+            .len(),
+        1
+    );
+    assert!(second_page["next_cursor"].is_null());
+    let items = [&first_page["items"][0], &second_page["items"][0]];
+    let versioned = items
+        .iter()
+        .find(|item| item["id"] == json!(pipeline))
+        .context("versioned pipeline")?;
+    assert_eq!(versioned["default_version_id"], json!(first));
+    assert_eq!(versioned["latest_version_id"], json!(second));
+    assert_eq!(versioned["latest_version"], 2);
+    assert_eq!(versioned["revision"], 3);
+    assert_eq!(versioned["pinned_task_count"], 1);
+    assert!(versioned["deleted_at"].as_str().is_some());
+    let other_item = items
+        .iter()
+        .find(|item| item["id"] == json!(other))
+        .context("other pipeline")?;
+    assert_eq!(other_item["pinned_task_count"], 0);
+    let (foreign_status, _) = read_catalog(&router, ProjectId::new(), "").await?;
+    assert_eq!(foreign_status, StatusCode::NOT_FOUND);
+    let serialized = serde_json::to_string(&first_page)?;
+    assert!(!serialized.contains("Second graph"));
+    Ok(())
 }
 
 pub async fn versioning_preserves_existing_tasks(kind: BackendKind) -> Result<()> {

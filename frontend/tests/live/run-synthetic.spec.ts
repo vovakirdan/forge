@@ -6,17 +6,10 @@ import { presentRun } from "../../src/presentation/run";
 import { test, expect } from "./fixtures";
 import { loadProject } from "./task-helpers";
 import { runCard, runList } from "./run-helpers";
+import { populatedRunDiagnosticsFixture } from "../../src/contracts/run-fixtures";
 
 const id = (value: number) => `01900000-0000-7000-8000-${value.toString().padStart(12, "0")}`;
-const BODY_CANARY = "DIAGNOSTIC_BODY_CANARY_<img src=x onerror=window.forgeInjected=true>";
-const LINK_CANARY = "https://diagnostic.invalid/never-fetch";
-const opaque = {
-  body: BODY_CANARY,
-  url: LINK_CANARY,
-  path: "/private/diagnostic-path",
-  object_key: "objects/diagnostic-canary",
-  object_ref: "object-ref-canary",
-};
+const streamCanary = "stdout <img src=x onerror=window.forgeInjected=true>";
 const assignments: ExecutionAssignment[] = [
   { purpose: "task_stage", owner: { task_id: id(101), queue_entry_id: id(102), stage_id: "work" } },
   {
@@ -66,19 +59,18 @@ function detail(assignment: ExecutionAssignment, index: number): RunDetailView {
     diagnostics:
       index === 0
         ? {
-            runtime_report: opaque,
-            handoff: opaque,
-            proxy_usage: opaque,
-            git_source: opaque,
-            incidents: [opaque],
-            evidence: [opaque, opaque],
+            ...populatedRunDiagnosticsFixture,
+            evidence: [
+              populatedRunDiagnosticsFixture.evidence[0],
+              { ...populatedRunDiagnosticsFixture.evidence[0], id: id(300) },
+            ],
             streams: [
-              { stream: "stdout <img src=x onerror=window.forgeInjected=true>", incomplete: true },
+              { stream: streamCanary, incomplete: true },
               { stream: "stderr", incomplete: false },
             ],
           }
         : {
-            runtime_report: index === 1 ? {} : null,
+            runtime_report: index === 1 ? { available: true } : null,
             handoff: null,
             proxy_usage: null,
             git_source: null,
@@ -109,6 +101,14 @@ test("synthetic Run purposes keep nullable context, independent states and opaqu
   );
   for (const run of samples)
     await page.route(`${prefix}/${run.id}`, (route) => route.fulfill({ json: run }));
+  for (const run of samples) {
+    await page.route(`${prefix}/${run.id}/context`, (route) =>
+      route.fulfill({ json: { availability: "unavailable", run_id: run.id, coordinates: null } }),
+    );
+    await page.route(`${prefix}/${run.id}/evidence?limit=20`, (route) =>
+      route.fulfill({ json: { items: [] } }),
+    );
+  }
   await live.login(page);
   await expect(page.getByText("Connected to Forge", { exact: true })).toBeVisible();
   await loadProject(page, live.core.runs_project.id);
@@ -152,23 +152,13 @@ test("synthetic Run purposes keep nullable context, independent states and opaqu
     await fact(diagnostics, "Loaded evidence", index === 0 ? "2" : "0");
     await fact(diagnostics, "Loaded incomplete streams", index === 0 ? "1" : "0");
     if (index === 0) {
-      await expect(diagnostics).toContainText(
-        "stdout <img src=x onerror=window.forgeInjected=true>",
-      );
+      await expect(diagnostics).toContainText(streamCanary);
       await expect(diagnostics.getByText("Yes", { exact: true })).toHaveCount(1);
       await expect(diagnostics.getByText("No", { exact: true })).toHaveCount(1);
     }
-    for (const canary of Object.values(opaque)) await expect(card).not.toContainText(canary);
     await expect(card.getByRole("link")).toHaveCount(0);
   }
   expect(await page.evaluate(() => "forgeInjected" in window)).toBe(false);
   expect(requests.every((url) => new URL(url).origin === live.origin)).toBe(true);
-  expect(
-    requests.some(
-      (url) =>
-        url.includes("diagnostic-canary") ||
-        url.includes("diagnostic-path") ||
-        url.includes("never-fetch"),
-    ),
-  ).toBe(false);
+  expect(requests.some((url) => url.includes("diagnostic.invalid"))).toBe(false);
 });

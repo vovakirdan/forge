@@ -18,6 +18,7 @@ const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 
 #[derive(Clone, Copy)]
 pub(crate) enum CommandTarget {
+    ConfigureTaskPropertySchema,
     CreateEmployee,
     AmendEmployee,
     EnableEmployee,
@@ -30,11 +31,50 @@ pub(crate) enum CommandTarget {
     SetTaskPriority,
     CreateDependency,
     RemoveDependency,
+    AuthorKnowledgePage,
+    PublishKnowledgePage,
+    SupersedeKnowledgePage,
+    WithdrawKnowledgePage,
+    PublishPipelineVersion,
+    SetPipelineDefaultVersion,
+    DeletePipeline,
+    CreateProject,
+    CreatePipeline,
+    ConfigureProjectHook,
+    ConfigureEmployeeRuntime,
+    ConfigureSystemJobs,
+    RequestTaskSummary,
+    RequestEmployeeOnboarding,
+    RetrySystemJob,
+    SkipEmployeeOnboarding,
+    OpenEmployeeThread,
+    SendEmployeeMessage,
+    WaiveMessageRequirement,
+    RetryCommunication,
+    RetryGitIntegration,
+    AcceptGitIntegrationResult,
+    StartProjectExecution,
+    StopProjectExecution,
+    PauseTask,
+    ResumeTask,
+    StopEmployee,
+    SubmitHumanResolution,
+    RerouteEscalation,
+    AcceptRunRecoveryAssessment,
+    SetNextRunEmployee,
+    ClearNextRunEmployee,
+    ScheduleTaskResume,
+    CancelTaskResume,
+    ConfigureResolverRoute,
+    RaiseEscalation,
 }
 
 impl CommandTarget {
     pub(crate) fn from_browser_path(path: &str) -> Option<Self> {
         match path {
+            "/api/commands/configure_task_property_schema" => {
+                Some(Self::ConfigureTaskPropertySchema)
+            }
             "/api/commands/create_employee" => Some(Self::CreateEmployee),
             "/api/commands/amend_employee" => Some(Self::AmendEmployee),
             "/api/commands/enable_employee" => Some(Self::EnableEmployee),
@@ -47,12 +87,51 @@ impl CommandTarget {
             "/api/commands/set_task_priority" => Some(Self::SetTaskPriority),
             "/api/commands/create_dependency" => Some(Self::CreateDependency),
             "/api/commands/remove_dependency" => Some(Self::RemoveDependency),
+            "/api/commands/author_knowledge_page" => Some(Self::AuthorKnowledgePage),
+            "/api/commands/publish_knowledge_page" => Some(Self::PublishKnowledgePage),
+            "/api/commands/supersede_knowledge_page" => Some(Self::SupersedeKnowledgePage),
+            "/api/commands/withdraw_knowledge_page" => Some(Self::WithdrawKnowledgePage),
+            "/api/commands/publish_pipeline_version" => Some(Self::PublishPipelineVersion),
+            "/api/commands/set_pipeline_default_version" => Some(Self::SetPipelineDefaultVersion),
+            "/api/commands/delete_pipeline" => Some(Self::DeletePipeline),
+            "/api/commands/create_project" => Some(Self::CreateProject),
+            "/api/commands/create_pipeline" => Some(Self::CreatePipeline),
+            "/api/commands/configure_project_hook" => Some(Self::ConfigureProjectHook),
+            "/api/commands/configure_employee_runtime" => Some(Self::ConfigureEmployeeRuntime),
+            "/api/commands/configure_system_jobs" => Some(Self::ConfigureSystemJobs),
+            "/api/commands/request_task_summary" => Some(Self::RequestTaskSummary),
+            "/api/commands/request_employee_onboarding" => Some(Self::RequestEmployeeOnboarding),
+            "/api/commands/retry_system_job" => Some(Self::RetrySystemJob),
+            "/api/commands/skip_employee_onboarding" => Some(Self::SkipEmployeeOnboarding),
+            "/api/commands/open_employee_thread" => Some(Self::OpenEmployeeThread),
+            "/api/commands/send_employee_message" => Some(Self::SendEmployeeMessage),
+            "/api/commands/waive_message_requirement" => Some(Self::WaiveMessageRequirement),
+            "/api/commands/retry_communication" => Some(Self::RetryCommunication),
+            "/api/commands/retry_git_integration" => Some(Self::RetryGitIntegration),
+            "/api/commands/accept_git_integration_result" => Some(Self::AcceptGitIntegrationResult),
+            "/api/commands/start_project_execution" => Some(Self::StartProjectExecution),
+            "/api/commands/stop_project_execution" => Some(Self::StopProjectExecution),
+            "/api/commands/pause_task" => Some(Self::PauseTask),
+            "/api/commands/resume_task" => Some(Self::ResumeTask),
+            "/api/commands/stop_employee" => Some(Self::StopEmployee),
+            "/api/commands/submit_human_resolution" => Some(Self::SubmitHumanResolution),
+            "/api/commands/reroute_escalation" => Some(Self::RerouteEscalation),
+            "/api/commands/accept_run_recovery_assessment" => {
+                Some(Self::AcceptRunRecoveryAssessment)
+            }
+            "/api/commands/set_next_run_employee" => Some(Self::SetNextRunEmployee),
+            "/api/commands/clear_next_run_employee" => Some(Self::ClearNextRunEmployee),
+            "/api/commands/schedule_task_resume" => Some(Self::ScheduleTaskResume),
+            "/api/commands/cancel_task_resume" => Some(Self::CancelTaskResume),
+            "/api/commands/configure_resolver_route" => Some(Self::ConfigureResolverRoute),
+            "/api/commands/raise_escalation" => Some(Self::RaiseEscalation),
             _ => None,
         }
     }
 
     fn core_path(self) -> &'static str {
         match self {
+            Self::ConfigureTaskPropertySchema => "/v1/commands/configure_task_property_schema",
             Self::CreateEmployee => "/v1/commands/create_employee",
             Self::AmendEmployee => "/v1/commands/amend_employee",
             Self::EnableEmployee => "/v1/commands/enable_employee",
@@ -65,6 +144,42 @@ impl CommandTarget {
             Self::SetTaskPriority => "/v1/commands/set_task_priority",
             Self::CreateDependency => "/v1/commands/create_dependency",
             Self::RemoveDependency => "/v1/commands/remove_dependency",
+            Self::AuthorKnowledgePage => "/v1/commands/author_knowledge_page",
+            Self::PublishKnowledgePage => "/v1/commands/publish_knowledge_page",
+            Self::SupersedeKnowledgePage => "/v1/commands/supersede_knowledge_page",
+            Self::WithdrawKnowledgePage => "/v1/commands/withdraw_knowledge_page",
+            Self::PublishPipelineVersion => "/v1/commands/publish_pipeline_version",
+            Self::SetPipelineDefaultVersion => "/v1/commands/set_pipeline_default_version",
+            Self::DeletePipeline => "/v1/commands/delete_pipeline",
+            Self::CreateProject => "/v1/commands/create_project",
+            Self::CreatePipeline => "/v1/commands/create_pipeline",
+            Self::ConfigureProjectHook => "/v1/commands/configure_project_hook",
+            Self::ConfigureEmployeeRuntime => "/v1/commands/configure_employee_runtime",
+            Self::ConfigureSystemJobs => "/v1/commands/configure_system_jobs",
+            Self::RequestTaskSummary => "/v1/commands/request_task_summary",
+            Self::RequestEmployeeOnboarding => "/v1/commands/request_employee_onboarding",
+            Self::RetrySystemJob => "/v1/commands/retry_system_job",
+            Self::SkipEmployeeOnboarding => "/v1/commands/skip_employee_onboarding",
+            Self::OpenEmployeeThread => "/v1/commands/open_employee_thread",
+            Self::SendEmployeeMessage => "/v1/commands/send_employee_message",
+            Self::WaiveMessageRequirement => "/v1/commands/waive_message_requirement",
+            Self::RetryCommunication => "/v1/commands/retry_communication",
+            Self::RetryGitIntegration => "/v1/commands/retry_git_integration",
+            Self::AcceptGitIntegrationResult => "/v1/commands/accept_git_integration_result",
+            Self::StartProjectExecution => "/v1/commands/start_project_execution",
+            Self::StopProjectExecution => "/v1/commands/stop_project_execution",
+            Self::PauseTask => "/v1/commands/pause_task",
+            Self::ResumeTask => "/v1/commands/resume_task",
+            Self::StopEmployee => "/v1/commands/stop_employee",
+            Self::SubmitHumanResolution => "/v1/commands/submit_human_resolution",
+            Self::RerouteEscalation => "/v1/commands/reroute_escalation",
+            Self::AcceptRunRecoveryAssessment => "/v1/commands/accept_run_recovery_assessment",
+            Self::SetNextRunEmployee => "/v1/commands/set_next_run_employee",
+            Self::ClearNextRunEmployee => "/v1/commands/clear_next_run_employee",
+            Self::ScheduleTaskResume => "/v1/commands/schedule_task_resume",
+            Self::CancelTaskResume => "/v1/commands/cancel_task_resume",
+            Self::ConfigureResolverRoute => "/v1/commands/configure_resolver_route",
+            Self::RaiseEscalation => "/v1/commands/raise_escalation",
         }
     }
 }
@@ -263,6 +378,12 @@ pub(crate) async fn execute(
         .await
         .map_err(|_| ApiError::TooLarge)?;
     let response = match target {
+        CommandTarget::ConfigureTaskPropertySchema => {
+            let command = crate::property_schema_command::PropertySchemaCommand::parse(&body)?;
+            let response = state.core.command(target, &key, body).await?;
+            command.validate_receipt(&response)?;
+            response
+        }
         CommandTarget::CreateEmployee => {
             let command = crate::create_employee::CreateEmployee::parse(&body)?;
             let response = state.core.command(target, &key, body).await?;
@@ -324,6 +445,103 @@ pub(crate) async fn execute(
             command.validate_receipt(&response)?;
             response
         }
+        CommandTarget::AuthorKnowledgePage
+        | CommandTarget::PublishKnowledgePage
+        | CommandTarget::SupersedeKnowledgePage
+        | CommandTarget::WithdrawKnowledgePage => {
+            let command = crate::knowledge_command::KnowledgeCommand::parse(&body, target)?;
+            let response = state.core.command(target, &key, body).await?;
+            command.validate_receipt(&response)?;
+            response
+        }
+        CommandTarget::PublishPipelineVersion
+        | CommandTarget::SetPipelineDefaultVersion
+        | CommandTarget::DeletePipeline => {
+            let command = crate::pipeline_management_command::PipelineManagementCommand::parse(
+                &body, target,
+            )?;
+            let response = state.core.command(target, &key, body).await?;
+            command.validate_receipt(&response)?;
+            response
+        }
+        CommandTarget::CreateProject => {
+            let command = crate::create_project::CreateProject::parse(&body)?;
+            let response = state.core.command(target, &key, body).await?;
+            command.validate_receipt(&response)?;
+            response
+        }
+        CommandTarget::CreatePipeline => {
+            let command = crate::create_pipeline::CreatePipeline::parse(&body)?;
+            let response = state.core.command(target, &key, body).await?;
+            command.validate_receipt(&response)?;
+            response
+        }
+        CommandTarget::ConfigureProjectHook => {
+            let command = crate::project_hook_command::ConfigureProjectHook::parse(&body)?;
+            let response = state.core.command(target, &key, body).await?;
+            command.validate_receipt(&response)?;
+            response
+        }
+        CommandTarget::ConfigureEmployeeRuntime => {
+            let command = crate::employee_runtime_command::ConfigureEmployeeRuntime::parse(&body)?;
+            let response = state.core.command(target, &key, body).await?;
+            command.validate_receipt(&response)?;
+            response
+        }
+        CommandTarget::ConfigureSystemJobs
+        | CommandTarget::RequestTaskSummary
+        | CommandTarget::RequestEmployeeOnboarding
+        | CommandTarget::RetrySystemJob
+        | CommandTarget::SkipEmployeeOnboarding => {
+            let command = crate::system_job_command::SystemJobCommand::parse(&body, target)?;
+            let response = state.core.command(target, &key, body).await?;
+            command.validate_receipt(&response)?;
+            response
+        }
+        CommandTarget::OpenEmployeeThread
+        | CommandTarget::SendEmployeeMessage
+        | CommandTarget::WaiveMessageRequirement
+        | CommandTarget::RetryCommunication => {
+            let command = crate::inbox_command::InboxCommand::parse(&body, target)?;
+            let response = state.core.command(target, &key, body).await?;
+            command.validate_receipt(&response)?;
+            response
+        }
+        CommandTarget::RetryGitIntegration | CommandTarget::AcceptGitIntegrationResult => {
+            let command = crate::git_recovery_command::GitRecoveryCommand::parse(&body, target)?;
+            let response = state.core.command(target, &key, body).await?;
+            command.validate_receipt(&response)?;
+            response
+        }
+        CommandTarget::StartProjectExecution
+        | CommandTarget::StopProjectExecution
+        | CommandTarget::PauseTask
+        | CommandTarget::ResumeTask
+        | CommandTarget::StopEmployee
+        | CommandTarget::SubmitHumanResolution
+        | CommandTarget::RerouteEscalation
+        | CommandTarget::AcceptRunRecoveryAssessment => {
+            let command = crate::management_command::ManagementCommand::parse(&body, target)?;
+            let response = state.core.command(target, &key, body).await?;
+            command.validate_receipt(&response)?;
+            response
+        }
+        CommandTarget::SetNextRunEmployee
+        | CommandTarget::ClearNextRunEmployee
+        | CommandTarget::ScheduleTaskResume
+        | CommandTarget::CancelTaskResume => {
+            let command =
+                crate::manager_planning_command::ManagerPlanningCommand::parse(&body, target)?;
+            let response = state.core.command(target, &key, body).await?;
+            command.validate_receipt(&response)?;
+            response
+        }
+        CommandTarget::ConfigureResolverRoute | CommandTarget::RaiseEscalation => {
+            let command = crate::resolver_command::ResolverCommand::parse(&body, target)?;
+            let response = state.core.command(target, &key, body).await?;
+            command.validate_receipt(&response)?;
+            response
+        }
     };
     Ok(([(header::CONTENT_TYPE, "application/json")], response).into_response())
 }
@@ -368,7 +586,7 @@ impl crate::core_client::CoreClient {
             .header("idempotency-key", key)
             .body(Full::new(body))
             .map_err(|_| ApiError::BadRequest)?;
-        let (status, json, bytes) = self.exchange(request, RECEIPT_LIMIT).await?;
+        let (status, json, _, bytes) = self.exchange(request, RECEIPT_LIMIT).await?;
         if !json {
             return Err(ApiError::BadGateway);
         }
@@ -382,6 +600,7 @@ impl crate::core_client::CoreClient {
         Err(match (status, error.error.code) {
             (StatusCode::BAD_REQUEST, ApiErrorCode::InvalidRequest) => ApiError::BadRequest,
             (StatusCode::CONFLICT, ApiErrorCode::StaleRevision) => ApiError::StaleRevision,
+            (StatusCode::CONFLICT, ApiErrorCode::Conflict) => ApiError::Conflict,
             (StatusCode::CONFLICT, ApiErrorCode::IdempotencyConflict) => {
                 ApiError::IdempotencyConflict
             }

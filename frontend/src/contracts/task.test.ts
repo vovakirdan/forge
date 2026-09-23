@@ -158,7 +158,7 @@ test("artifacts preserve arbitrary JSON without interpreting object-reference lo
   ];
   for (const value of values) {
     const artifact = {
-      id: ids.artifact,
+      ...taskDetailFixture.artifacts[0],
       kind: "report",
       title: "Synthetic result",
       metadata: { nested: value },

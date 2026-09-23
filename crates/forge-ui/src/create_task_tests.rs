@@ -22,6 +22,9 @@ fn create_accepts_only_supported_draft_shape_and_canonical_text_bounds() {
         assert!(CreateTask::parse(&serde_json::to_vec(&value).unwrap()).is_ok());
     }
     assert!(CreateTask::parse(&serde_json::to_vec(&create_request()).unwrap()).is_ok());
+    let mut typed = create_request();
+    typed["payload"]["properties"] = json!({"risk":{"type":"text","value":"high"}});
+    assert!(CreateTask::parse(&serde_json::to_vec(&typed).unwrap()).is_ok());
     for (pointer, replacement) in [
         ("/actor", json!("human")),
         ("/expected_revision", json!(0)),
@@ -38,10 +41,7 @@ fn create_accepts_only_supported_draft_shape_and_canonical_text_bounds() {
         ("/payload/definition_of_done", json!("x".repeat(20_001))),
         ("/payload/kind", json!("bug")),
         ("/payload/priority", json!("HIGH")),
-        (
-            "/payload/properties",
-            json!({"risk":{"type":"text","value":"x"}}),
-        ),
+        ("/payload/properties", json!({"risk":{"type":"text"}})),
         ("/payload/properties", Value::Null),
         ("/payload/properties", json!([])),
     ] {

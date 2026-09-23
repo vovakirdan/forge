@@ -1,6 +1,10 @@
 //! Canonical PostgreSQL commands with byte-exact isolated object storage; no inference.
 
 use anyhow::{Context, Result};
+use axum::{
+    body::{Body, to_bytes},
+    http::{Request, StatusCode},
+};
 use forge_application::CommandEnvelope;
 use forge_domain::{
     ArtifactId, LifecycleStatus,
@@ -11,6 +15,7 @@ use forge_storage::evidence::ObjectEvidenceStore;
 use forge_testkit::m0::{M0Harness, single_stage_pipeline};
 use serde_json::{Value, json};
 use std::{fs, os::unix::fs::PermissionsExt, sync::Arc};
+use tower::ServiceExt;
 
 #[tokio::test]
 #[ignore = "requires explicitly configured local PostgreSQL and NATS"]
@@ -102,6 +107,59 @@ async fn selected_files_are_immutable_task_artifacts_and_future_inputs_without_g
     assert_eq!(inputs.len(), 1);
     assert_eq!(inputs[0].manifest, manifest);
     tx.commit().await?;
+    let router = forge_core::router(harness.core.clone());
+    let snapshots_response = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!(
+                    "/v1/projects/{project}/tasks/{source_task}/file-snapshots"
+                ))
+                .body(Body::empty())?,
+        )
+        .await?;
+    assert_eq!(snapshots_response.status(), StatusCode::OK);
+    let snapshots: Value =
+        serde_json::from_slice(&to_bytes(snapshots_response.into_body(), 64 * 1024).await?)?;
+    assert_eq!(
+        snapshots["items"][0]["manifest"]["files"][0]["sha256"],
+        manifest.files[0].sha256
+    );
+    assert!(
+        snapshots["items"][0]["manifest"]["files"][0]
+            .get("object_key")
+            .is_none()
+    );
+    let inputs_response = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!(
+                    "/v1/projects/{project}/tasks/{receiver}/file-inputs"
+                ))
+                .body(Body::empty())?,
+        )
+        .await?;
+    assert_eq!(inputs_response.status(), StatusCode::OK);
+    let input_read: Value =
+        serde_json::from_slice(&to_bytes(inputs_response.into_body(), 64 * 1024).await?)?;
+    assert_eq!(input_read["items"][0]["artifact_id"], json!(artifact_id));
+    assert_eq!(
+        input_read["items"][0]["manifest"],
+        snapshots["items"][0]["manifest"]
+    );
+    assert!(!serde_json::to_string(&input_read)?.contains("object_key"));
+    let foreign_response = router
+        .oneshot(
+            Request::builder()
+                .uri(format!(
+                    "/v1/projects/{project}/tasks/{}/file-snapshots",
+                    forge_domain::TaskId::new()
+                ))
+                .body(Body::empty())?,
+        )
+        .await?;
+    assert_eq!(foreign_response.status(), StatusCode::NOT_FOUND);
     assert_eq!(
         harness.required_task(receiver).await?.task.revision().get(),
         1

@@ -35,12 +35,16 @@ mod employees;
 mod findings;
 #[path = "command_conformance/fixture.rs"]
 mod fixture;
+#[path = "command_conformance/management_read_views.rs"]
+mod management_read_views;
 #[path = "command_conformance/manager.rs"]
 mod manager;
 #[path = "command_conformance/manager_constraints.rs"]
 mod manager_constraints;
 #[path = "command_conformance/manager_resume.rs"]
 mod manager_resume;
+#[path = "command_conformance/paged_project_reads.rs"]
+mod paged_project_reads;
 #[path = "command_conformance/pipelines.rs"]
 mod pipelines;
 #[path = "command_conformance/priorities.rs"]
@@ -49,12 +53,18 @@ mod priorities;
 mod priority_scheme_http;
 #[path = "command_conformance/production.rs"]
 mod production;
+#[path = "command_conformance/property_schema_command.rs"]
+mod property_schema_command;
+#[path = "command_conformance/property_schema_http.rs"]
+mod property_schema_http;
 #[path = "command_conformance/repositories.rs"]
 mod repositories;
 #[path = "command_conformance/resolution.rs"]
 mod resolution;
 #[path = "command_conformance/resolution_guards.rs"]
 mod resolution_guards;
+#[path = "command_conformance/run_activity_reads.rs"]
+mod run_activity_reads;
 #[path = "command_conformance/scopes.rs"]
 mod scopes;
 #[path = "command_conformance/snapshot.rs"]
@@ -186,6 +196,10 @@ conformance_case!(
 conformance_case!(
     pipeline_versioning,
     crate::pipelines::versioning_preserves_existing_tasks
+);
+conformance_case!(
+    task_property_schema_configuration,
+    crate::property_schema_command::configure_initial_schema_without_reinterpreting_tasks
 );
 conformance_case!(
     pipeline_refusals,

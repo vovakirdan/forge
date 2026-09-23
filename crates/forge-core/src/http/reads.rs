@@ -1,7 +1,13 @@
 //! Core-owned read paths; HTTP handlers never access canonical storage directly.
 
-use forge_domain::{EmployeeId, Pipeline, PipelineVersion, Project, ProjectId, TaskId};
-use forge_storage::{RunProjection, StoredArtifact, StoredEmployee, StoredEvent, StoredTask};
+use forge_domain::{
+    EmployeeId, Pipeline, PipelineId, PipelineVersion, PipelineVersionId, Project, ProjectId,
+    TaskId,
+};
+use forge_storage::{
+    AdmissionResourceSnapshot, EmployeeOperationalCounts, PipelineCatalogItem, RunProjection,
+    StoredArtifact, StoredEmployee, StoredEvent, StoredTask,
+};
 use uuid::Uuid;
 
 use crate::{CoreError, CoreService};
@@ -17,6 +23,27 @@ pub(crate) struct PipelineVersionRead {
 }
 
 impl CoreService {
+    pub(crate) async fn read_pipeline_catalog_page(
+        &self,
+        project_id: ProjectId,
+        after: Option<PipelineId>,
+        limit: u32,
+    ) -> Result<Vec<PipelineCatalogItem>, CoreError> {
+        self.read_project(project_id).await?;
+        Ok(self
+            .store()
+            .list_pipeline_catalog_page(project_id, after, limit)
+            .await?)
+    }
+
+    pub(crate) async fn read_project_resources(
+        &self,
+        project_id: ProjectId,
+    ) -> Result<AdmissionResourceSnapshot, CoreError> {
+        self.read_project(project_id).await?;
+        Ok(self.store().admission_resource_snapshot(project_id).await?)
+    }
+
     pub(crate) async fn read_projects(&self) -> Result<Vec<Project>, CoreError> {
         Ok(self.store().list_projects().await?)
     }
@@ -55,6 +82,19 @@ impl CoreService {
             .await?)
     }
 
+    pub(crate) async fn read_employee_operations(
+        &self,
+        project_id: ProjectId,
+        employee_id: EmployeeId,
+    ) -> Result<(StoredEmployee, EmployeeOperationalCounts), CoreError> {
+        let employee = self.read_employee(project_id, employee_id).await?;
+        let counts = self
+            .store()
+            .employee_operational_counts(project_id, employee_id)
+            .await?;
+        Ok((employee, counts))
+    }
+
     pub(crate) async fn read_employee_threads(
         &self,
         project_id: ProjectId,
@@ -88,13 +128,32 @@ impl CoreService {
             .await?)
     }
 
+    pub(crate) async fn read_message_delivery(
+        &self,
+        project_id: ProjectId,
+        thread_id: Uuid,
+        after: u64,
+        limit: u32,
+    ) -> Result<Vec<serde_json::Value>, CoreError> {
+        self.store()
+            .load_employee_thread(project_id, thread_id)
+            .await?
+            .ok_or(CoreError::NotFound {
+                aggregate: "employee thread",
+            })?;
+        Ok(self
+            .store()
+            .list_message_delivery(project_id, thread_id, after, limit)
+            .await?)
+    }
+
     pub(crate) async fn read_run_diagnostics(
         &self,
         project_id: ProjectId,
         run_id: Uuid,
     ) -> Result<serde_json::Value, CoreError> {
         self.read_run(project_id, run_id).await?;
-        Ok(self.store.run_diagnostics(run_id).await?)
+        super::run_activity::safe_diagnostics(self.store.run_diagnostics(run_id).await?)
     }
     pub(crate) async fn read_project(&self, project_id: ProjectId) -> Result<Project, CoreError> {
         self.store()
@@ -139,17 +198,22 @@ impl CoreService {
         Ok(TaskRead { task, artifacts })
     }
 
-    pub(crate) async fn read_pipeline_versions(
+    pub(crate) async fn read_pipeline_version_page(
         &self,
         project_id: ProjectId,
-    ) -> Result<Vec<PipelineVersionRead>, CoreError> {
+        after: Option<PipelineVersionId>,
+        limit: u32,
+    ) -> Result<Option<Vec<PipelineVersionRead>>, CoreError> {
         self.read_project(project_id).await?;
-        let versions = self.store().list_pipeline_versions(project_id).await?;
-        let mut result = Vec::with_capacity(versions.len());
-        for version in versions {
-            result.push(self.read_pipeline_version(project_id, version.id()).await?);
-        }
-        Ok(result)
+        Ok(self
+            .store()
+            .list_pipeline_version_page(project_id, after, limit)
+            .await?
+            .map(|rows| {
+                rows.into_iter()
+                    .map(|(pipeline, version)| PipelineVersionRead { pipeline, version })
+                    .collect()
+            }))
     }
 
     pub(crate) async fn read_pipeline_version(
@@ -184,12 +248,17 @@ impl CoreService {
         Ok(PipelineVersionRead { pipeline, version })
     }
 
-    pub(crate) async fn read_runs(
+    pub(crate) async fn read_runs_page(
         &self,
         project_id: ProjectId,
-    ) -> Result<Vec<RunProjection>, CoreError> {
+        after: Option<Uuid>,
+        limit: u32,
+    ) -> Result<Option<Vec<RunProjection>>, CoreError> {
         self.read_project(project_id).await?;
-        Ok(self.store().list_runs_for_project(project_id).await?)
+        Ok(self
+            .store()
+            .list_runs_for_project_page(project_id, after, limit)
+            .await?)
     }
 
     pub(crate) async fn read_run(

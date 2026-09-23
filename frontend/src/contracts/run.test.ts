@@ -183,22 +183,23 @@ test("Run detail flattens Run fields and requires its diagnostics envelope", () 
     false,
   );
   assert.equal(RunDetailViewSchema.safeParse({ ...raw, diagnostics: null }).success, false);
+  assert.equal(
+    RunDetailViewSchema.safeParse({ ...raw, object_key: "private/object" }).success,
+    false,
+  );
 });
 
-test("Run pagination retains opaque cursors, additive JSON keys and input values", () => {
+test("Run pagination retains opaque cursors and rejects unexpected fields", () => {
   const extra: Record<string, unknown> = JSON.parse(
     '{"__proto__":{"data":true},"constructor":null}',
   );
   const item = { ...runViewFixture, ...extra };
-  for (const raw of [
-    { items: [item], next_cursor: "opaque/+cursor=", ...extra },
-    { items: [], ...extra },
-  ]) {
-    const before = structuredClone(raw);
-    Object.freeze(raw);
-    assert.deepEqual(RunListResponseSchema.parse(raw), before);
-    assert.deepEqual(raw, before);
-  }
+  assert.equal(RunListResponseSchema.safeParse({ items: [item] }).success, false);
+  assert.equal(RunListResponseSchema.safeParse({ items: [], ...extra }).success, false);
+  assert.deepEqual(RunListResponseSchema.parse({ items: [], next_cursor: "opaque/+cursor=" }), {
+    items: [],
+    next_cursor: "opaque/+cursor=",
+  });
   assert.equal(Object.hasOwn(RunListResponseSchema.parse({ items: [] }), "next_cursor"), false);
   for (const invalid of [
     {},

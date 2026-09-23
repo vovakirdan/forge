@@ -1,7 +1,7 @@
 # Epic UI4.2 — Control Room handoff для backend M4
 
 **Milestone:** UI4 — UI-приёмка и передача установщику
-**Статус:** planned; blocked by UI4.1
+**Статус на 23 сентября 2026:** handoff подготовлен в [UI_INSTALLER_HANDOFF.md](../UI_INSTALLER_HANDOFF.md); M4 clean-host/systemd/reboot proof остаётся отдельной работой.
 **Тип / приоритет:** integration / P1
 **Источники:** [UI-план](../UI_IMPLEMENTATION_PLAN.md),
 [M4 installer epic](m4-e1-installer-operator-acceptance.md)

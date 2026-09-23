@@ -16,6 +16,16 @@ use crate::{
 };
 
 impl StorageTransaction<'_> {
+    /// Must be called under the Project lock, which also serializes Task creation.
+    pub async fn project_has_tasks(&mut self, project_id: ProjectId) -> Result<bool, StorageError> {
+        Ok(
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM tasks WHERE project_id=$1)")
+                .bind(project_id.as_uuid())
+                .fetch_one(&mut *self.transaction)
+                .await?,
+        )
+    }
+
     /// Inserts a new Project snapshot and its scheduler-facing columns.
     pub async fn insert_project(&mut self, project: &Project) -> Result<(), StorageError> {
         let next = project.task_sequence().checked_add(1).ok_or_else(|| {

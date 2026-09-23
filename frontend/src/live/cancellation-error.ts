@@ -7,6 +7,8 @@ export function describeCancellationError(error: unknown) {
       return "Cancellation outcome unknown. Core may have cancelled the Task. Retry the same cancellation to obtain its receipt; do not submit a new cancellation.";
     case "stale_revision":
       return "Not cancelled. The Project or Task changed. Refresh the cancellation baseline and confirm again.";
+    case "conflict":
+      return "Not cancelled. Core refused cancellation in the current Task state. Refresh before trying again.";
     case "idempotency_conflict":
       return "Cancellation refused: its key belongs to another request. Refresh the cancellation baseline.";
     case "not_found":

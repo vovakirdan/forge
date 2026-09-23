@@ -100,6 +100,7 @@ async fn only_known_status_code_pairs_are_definite_safe_refusals() {
     for (status, code) in [
         (400, "invalid_request"),
         (409, "stale_revision"),
+        (409, "conflict"),
         (409, "idempotency_conflict"),
         (422, "validation_failed"),
         (404, "not_found"),

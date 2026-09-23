@@ -406,8 +406,6 @@ async fn run_routes_reject_unscoped_reads_commands_queries_and_body_before_core(
             StatusCode::NOT_FOUND,
         ),
         ("GET", format!("runs/{run}?limit=20"), StatusCode::NOT_FOUND),
-        ("GET", format!("runs/{run}/evidence"), StatusCode::NOT_FOUND),
-        ("GET", format!("runs/{run}/context"), StatusCode::NOT_FOUND),
         ("POST", format!("runs/{run}/stop"), StatusCode::NOT_FOUND),
         ("POST", "runs".into(), StatusCode::NOT_FOUND),
         ("DELETE", format!("runs/{run}"), StatusCode::NOT_FOUND),

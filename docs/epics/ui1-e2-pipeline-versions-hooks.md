@@ -1,7 +1,7 @@
 # Epic UI1.2 — PipelineVersion, stages и optional hooks
 
 **Milestone:** UI1 — browser interface before M4 installer
-**Статус:** `in_progress` — ранний read-only срез FRONTEND-010; полный объём зависит от gates `UI0.1`, `UI0.2`, `UI0.3`.
+**Статус на 23 сентября 2026:** локальная реализация catalog/version management и optional hooks готова; bounded история hook invocations показывает skip/held/verdict без приватного результата процесса. Итоговый keyless browser gate пройден.
 **Зависимости:** UI0.1 model contracts, UI0.2 browser/API boundary, UI0.3 UI tooling.
 **Контракты:** ../2026-09-03-pipeline-domain-model.md,
 ../2026-09-03-task-domain-model.md и ../M2_PROJECT_HOOKS.md.

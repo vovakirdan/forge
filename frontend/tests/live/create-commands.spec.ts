@@ -186,7 +186,7 @@ test("create gateway rejects hostile headers and fields; key reuse cannot change
     { task_id: live.core.tasks.draft_id },
     { lifecycle: "ready" },
     { pipeline_id: live.core.create_commands_project.pipeline_id },
-    { properties: { risk: { type: "text", value: "x" } } },
+    { properties: { risk: { type: "text" } } },
   ])
     expect(
       (await client.post({ ...request, payload: { ...request.payload, ...patch } })).status,

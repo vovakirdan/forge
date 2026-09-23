@@ -97,7 +97,7 @@ async fn rejected_mutations_never_connect_to_core() {
         );
     }
     for (method, path) in [
-        ("POST", "/api/commands/resume_task"),
+        ("POST", "/api/commands/cancel_task_resume_unknown"),
         ("POST", "/v1/commands/amend_draft"),
         ("GET", "/api/commands/amend_draft"),
         ("PUT", "/api/commands/amend_draft"),
@@ -111,7 +111,8 @@ async fn rejected_mutations_never_connect_to_core() {
             .unwrap();
         assert_eq!(
             handle(State(state.clone()), request).await.status(),
-            StatusCode::NOT_FOUND
+            StatusCode::NOT_FOUND,
+            "{method} {path}"
         );
     }
     for bytes in [b"not json".to_vec(),b"{}".to_vec(),serde_json::to_vec(&serde_json::json!({

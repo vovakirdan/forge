@@ -1,7 +1,7 @@
 # Epic UI1.1 — Projects, команда и профили Employee
 
 **Milestone:** UI1 — browser interface before M4 installer
-**Статус:** `in_progress`; priority read FRONTEND-012, Project selector
+**Статус на 23 сентября 2026:** локальные Project selector/create и Team/profile/lifecycle workflows реализованы и проверены; описание ранних срезов ниже сохранено как история.
 FRONTEND-019, Team read FRONTEND-020/021 и команды FRONTEND-022/023 завершены как отдельные срезы,
 полные зависимости UI0.1/UI0.2/UI0.3 и exit gate сохраняются.
 **Зависимости:** UI0.1 model contracts, UI0.2 browser/API boundary, UI0.3 UI tooling.

@@ -48,6 +48,8 @@ function refusal(error: LiveCommandError) {
   switch (error.kind) {
     case "stale_revision":
       return "Project or Employee changed. Refresh both before choosing an action again.";
+    case "conflict":
+      return "Core refused this action in the current Employee state. Refresh before trying again.";
     case "idempotency_conflict":
       return "This request key belongs to another command. Refresh before trying again.";
     case "validation_failed":

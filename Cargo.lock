@@ -1347,6 +1347,7 @@ dependencies = [
  "axum",
  "bytes",
  "clap",
+ "forge-domain",
  "forge-protocol",
  "getrandom 0.4.3",
  "http-body-util",

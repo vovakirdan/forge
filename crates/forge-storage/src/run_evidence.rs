@@ -1,12 +1,78 @@
 //! Technical evidence receipts stay separate from accepted Task artifacts.
 
 use crate::{PostgresStore, StorageError, StorageTransaction, encode_object};
-use forge_domain::EvidenceObject;
+use forge_domain::{EvidenceObject, ProjectId};
 use serde_json::Value;
 use sqlx::Row;
 use uuid::Uuid;
 
 impl PostgresStore {
+    /// Selects only allowlisted scalar coordinates from a TaskStage context.
+    /// Raw TaskSpec, prompts, handoffs and knowledge never leave PostgreSQL.
+    pub async fn run_context_coordinates(
+        &self,
+        project: ProjectId,
+        run_id: Uuid,
+    ) -> Result<Option<Value>, StorageError> {
+        Ok(sqlx::query_scalar("SELECT CASE WHEN r.purpose='task_stage' \
+            AND r.context_manifest->>'project_id'=r.project_id::text \
+            AND r.context_manifest->>'run_id'=r.id::text \
+            AND r.context_manifest->>'task_id'=r.task_id::text \
+            AND r.context_manifest->>'employee_id'=r.employee_id::text \
+            AND r.context_manifest ? 'context_snapshot_id' \
+            THEN jsonb_build_object( \
+              'context_snapshot_id',r.context_manifest->'context_snapshot_id', \
+              'run_id',r.id,'project_id',r.project_id,'task_id',r.task_id, \
+              'employee_id',r.employee_id,'pipeline_version_id',r.context_manifest->'pipeline_version_id', \
+              'stage_id',r.stage_id,'stage_visit',r.context_manifest->'stage_visit', \
+              'task_revision_before_dispatch',r.context_manifest->'task_revision_before_dispatch', \
+              'run_spec_id',r.context_manifest->'run_spec_id') ELSE NULL END \
+            FROM runs r WHERE r.project_id=$1 AND r.id=$2")
+            .bind(project.as_uuid()).bind(run_id).fetch_optional(&self.pool).await?.flatten())
+    }
+
+    /// One bounded Project/Run evidence receipt page; object-store bytes are not read.
+    pub async fn run_evidence_page(
+        &self,
+        project: ProjectId,
+        run_id: Uuid,
+        after: Option<Uuid>,
+        limit: u32,
+    ) -> Result<Vec<(EvidenceObject, bool)>, StorageError> {
+        if !(1..=51).contains(&limit) {
+            return Err(StorageError::InvalidInput {
+                reason: "evidence page limit must be 1..51".into(),
+            });
+        }
+        let rows: Vec<(String, bool)> = sqlx::query_as(
+            "SELECT e.receipt::text,e.stored FROM run_evidence_objects e \
+            JOIN runs r ON r.id=e.run_id WHERE r.project_id=$1 AND r.id=$2 \
+            AND ($3::uuid IS NULL OR e.id>$3) ORDER BY e.id LIMIT $4",
+        )
+        .bind(project.as_uuid())
+        .bind(run_id)
+        .bind(after)
+        .bind(i64::from(limit))
+        .fetch_all(&self.pool)
+        .await?;
+        rows.into_iter()
+            .map(|(value, stored)| {
+                let receipt: EvidenceObject =
+                    serde_json::from_str(&value).map_err(|source| StorageError::Snapshot {
+                        aggregate: "evidence",
+                        source,
+                    })?;
+                if receipt.data().scope.project_id != project
+                    || receipt.data().scope.run_id != run_id
+                {
+                    return Err(StorageError::InvalidInput {
+                        reason: "evidence scope mismatch".into(),
+                    });
+                }
+                Ok((receipt, stored))
+            })
+            .collect()
+    }
     /// Bounded operator diagnostics. Auth records, proxy keys and prompts never
     /// participate in this projection; absent measurements remain JSON null.
     pub async fn run_diagnostics(&self, run_id: Uuid) -> Result<Value, StorageError> {
@@ -87,7 +153,7 @@ impl StorageTransaction<'_> {
             source,
         })?;
         let scope = receipt.data().scope;
-        let owns:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM runs WHERE id=$1 AND project_id=$2 AND ((purpose='task_stage' AND task_id=$3) OR (purpose IN ('communication','resolution','hook') AND $3::uuid IS NULL)))")
+        let owns:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM runs WHERE id=$1 AND project_id=$2 AND ((purpose='task_stage' AND task_id=$3) OR (purpose IN ('communication','resolution','hook','system_job') AND $3::uuid IS NULL)))")
             .bind(scope.run_id).bind(scope.project_id.as_uuid()).bind(scope.task_id.map(|id|id.as_uuid())).fetch_one(&mut *self.transaction).await?;
         if !owns {
             return Err(StorageError::InvalidInput {

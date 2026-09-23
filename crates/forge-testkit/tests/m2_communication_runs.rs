@@ -59,6 +59,13 @@ async fn taskless_conversation_shares_capacity_without_acquiring_task_authority(
         .await?
         .context("conversation Run")?;
     assert!(conversation.require_task_id().is_err());
+    let recovery = harness.store.recovery_run_page(project, None, 20).await?;
+    assert!(
+        recovery
+            .iter()
+            .any(|row| row.run_id == conversation.id && row.task_id.is_none()),
+        "taskless Communication Runs remain readable in Project recovery history"
+    );
     assert_eq!(
         conversation
             .assignment

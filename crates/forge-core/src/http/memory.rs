@@ -6,7 +6,7 @@ use axum::{
     response::Response,
     routing::get,
 };
-use forge_domain::{EmployeeId, ProjectId};
+use forge_domain::{EmployeeId, ProjectId, knowledge::DerivedMemoryEntry};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use uuid::Uuid;
@@ -16,7 +16,33 @@ use super::{
     handlers::{json_response, project_id, request_id, uuid_id},
     views::ListView,
 };
-use crate::{CoreError, CoreService};
+use crate::{CoreError, CoreService, MemorySearchDocument, MemorySearchResult};
+
+fn memory_view(entry: DerivedMemoryEntry) -> Result<Value, CoreError> {
+    let created_at = super::views::timestamp(entry.created_at)?;
+    let mut value =
+        serde_json::to_value(entry).map_err(|source| forge_storage::StorageError::Snapshot {
+            aggregate: "memory_entry",
+            source,
+        })?;
+    value["created_at"] = created_at.into();
+    Ok(value)
+}
+
+fn search_view(result: MemorySearchResult) -> Result<Value, CoreError> {
+    let mut value =
+        serde_json::to_value(&result).map_err(|source| forge_storage::StorageError::Snapshot {
+            aggregate: "memory_search",
+            source,
+        })?;
+    for (index, hit) in result.results.into_iter().enumerate() {
+        value["results"][index]["document"]["record"] = match hit.document {
+            MemorySearchDocument::KnowledgePage(page) => super::knowledge::page_view(page)?,
+            MemorySearchDocument::DerivedMemory(entry) => memory_view(entry)?,
+        };
+    }
+    Ok(value)
+}
 
 pub(super) fn routes() -> Router<CoreService> {
     Router::new()
@@ -83,7 +109,11 @@ async fn search(
         )
         .await
         .map_err(|error| HttpError::from_core(request.clone(), error))?;
-    Ok(json_response(StatusCode::OK, result, &request))
+    Ok(json_response(
+        StatusCode::OK,
+        search_view(result).map_err(|error| HttpError::from_core(request.clone(), error))?,
+        &request,
+    ))
 }
 async fn list(
     State(core): State<CoreService>,
@@ -105,7 +135,20 @@ async fn list(
         .read_memory_entries(project, employee, after, limit)
         .await
         .map_err(|error| HttpError::from_core(request.clone(), error))?;
-    Ok(json_response(StatusCode::OK, result, &request))
+    let items = result
+        .items
+        .into_iter()
+        .map(memory_view)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| HttpError::from_core(request.clone(), error))?;
+    Ok(json_response(
+        StatusCode::OK,
+        ListView {
+            items,
+            next_cursor: result.next_cursor,
+        },
+        &request,
+    ))
 }
 async fn entry(
     State(core): State<CoreService>,
@@ -118,7 +161,11 @@ async fn entry(
         .read_memory_entry(project, id)
         .await
         .map_err(|error| HttpError::from_core(request.clone(), error))?;
-    Ok(json_response(StatusCode::OK, result, &request))
+    Ok(json_response(
+        StatusCode::OK,
+        memory_view(result).map_err(|error| HttpError::from_core(request.clone(), error))?,
+        &request,
+    ))
 }
 async fn history(
     State(core): State<CoreService>,
@@ -156,7 +203,20 @@ async fn history(
         .read_memory_history(project, id, after, limit)
         .await
         .map_err(|error| HttpError::from_core(request.clone(), error))?;
-    Ok(json_response(StatusCode::OK, result, &request))
+    let items = result
+        .items
+        .into_iter()
+        .map(memory_view)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| HttpError::from_core(request.clone(), error))?;
+    Ok(json_response(
+        StatusCode::OK,
+        ListView {
+            items,
+            next_cursor: result.next_cursor,
+        },
+        &request,
+    ))
 }
 async fn status(
     State(core): State<CoreService>,

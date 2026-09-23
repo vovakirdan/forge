@@ -1,7 +1,7 @@
 # Epic UI0.3 — Frontend toolchain и test harness
 
 **Milestone:** UI0 — Модель интерфейса и локальная API-граница
-**Статус:** in_progress; local demo baseline и browser smoke — отдельные срезы, epic не закрыт
+**Статус на 23 сентября 2026:** live build, contracts и browser harness реализованы; итоговый keyless gate прошёл 178/178 сценариев.
 **Тип / приоритет:** foundation / P0
 **Источники:** [UI-план](../UI_IMPLEMENTATION_PLAN.md),
 [матрица соответствия](../UI_BACKEND_ALIGNMENT.md)
@@ -18,6 +18,11 @@ error collector, отказ на занятом порте и cleanup после
 [FRONTEND-006](../../tasks/frontend/frontend-006-static-hosting-boundary.md) в UI0.2
 переиспользует эти сценарии для отдельного static build и file server на 4174.
 Он не заменяет dev-suite на 4173 и не закрывает component/CI/live API gates.
+
+[FRONTEND-025](../../tasks/frontend/frontend-025-live-control-room-shell.md)
+переносит каркас Control Room в live entry без импорта mock services. Четыре
+реальных раздела используют общую навигацию; demo сохраняется отдельно.
+Component harness, CI и остальные состояния остаются частью exit gate.
 
 ## Цель
 

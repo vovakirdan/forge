@@ -38,6 +38,8 @@ function refusalMessage(error: LiveCommandError) {
   switch (error.kind) {
     case "stale_revision":
       return "Project or Employee changed. Refresh both edit baselines before saving again.";
+    case "conflict":
+      return "Core refused these changes in the current Employee state. Refresh both baselines.";
     case "validation_failed":
       return "Core refused these Employee changes. Check the fields and refresh the baselines.";
     case "idempotency_conflict":

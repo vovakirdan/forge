@@ -10,6 +10,9 @@ import type { ProjectReadScope } from "./read-scope.ts";
 import { useReadLifetime } from "./use-read-lifetime.ts";
 import { EmployeeEditPanel } from "./EmployeeEditPanel.tsx";
 import { EmployeeLifecyclePanel } from "./EmployeeLifecyclePanel.tsx";
+import { EmployeeInbox } from "./EmployeeInbox.tsx";
+import { EmployeeOnboardingPanel } from "./EmployeeOnboardingPanel.tsx";
+import { EmployeeRuntimePanel } from "./EmployeeRuntimePanel.tsx";
 
 export function EmployeeProfilePanel({
   scope,
@@ -39,6 +42,10 @@ export function EmployeeProfilePanel({
     () => readKeys.employeeRuns(generation, projectId, employeeId, navigation.cursor),
     [generation, projectId, employeeId, navigation.cursor],
   );
+  const operationsKey = useMemo(
+    () => readKeys.employeeOperations(generation, projectId, employeeId),
+    [generation, projectId, employeeId],
+  );
   const profile = useQuery({
     queryKey: profileKey,
     queryFn: ({ signal }) =>
@@ -54,8 +61,18 @@ export function EmployeeProfilePanel({
     enabled: profile.data !== undefined,
     retry: false,
   });
+  const operations = useQuery({
+    queryKey: operationsKey,
+    queryFn: ({ signal }) =>
+      session.request(generation, (token) =>
+        api.employeeOperations(projectId, employeeId, token, signal),
+      ),
+    enabled: profile.data !== undefined,
+    retry: false,
+  });
   useReadLifetime(profileKey);
   useReadLifetime(historyKey);
+  useReadLifetime(operationsKey);
   useEffect(() => title.current?.focus(), []);
 
   function navigate(cursor: string | null, previous: (string | null)[]) {
@@ -165,6 +182,53 @@ export function EmployeeProfilePanel({
                 </ul>
               )}
             </section>
+            <section
+              aria-label="Employee operations"
+              className="space-y-3 border-t border-border pt-4"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h3 className="font-medium">Operations</h3>
+                <Button
+                  variant="outline"
+                  disabled={operations.isFetching}
+                  onClick={() => void operations.refetch()}
+                >
+                  Refresh operations
+                </Button>
+              </div>
+              {operations.isPending && <p role="status">Loading operational evidence…</p>}
+              {operations.isError && (
+                <p role="alert">
+                  {operations.data ? "Showing stale operational evidence. " : ""}
+                  {describeApiError(operations.error, "Employee")}
+                </p>
+              )}
+              {operations.data && (
+                <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm">
+                  <Field label="Occupied slots">
+                    {operations.data.occupied_slots} / {operations.data.max_concurrent_runs}
+                  </Field>
+                  <Field label="Observed running Runs">
+                    {operations.data.observed_running_runs}
+                  </Field>
+                  <Field label="Runtime binding">
+                    {operations.data.runtime_binding_configured ? "Configured" : "Unavailable"}
+                  </Field>
+                  <Field label="Availability">Unknown</Field>
+                </dl>
+              )}
+              <p className="text-xs text-muted-foreground">
+                Occupied slots and observed Runs are separate facts. Availability cannot be
+                confirmed from these records.
+              </p>
+            </section>
+            <EmployeeRuntimePanel scope={scope} employeeId={employeeId} />
+            <EmployeeOnboardingPanel
+              key={`onboarding:${employeeId}`}
+              scope={scope}
+              employeeId={employeeId}
+            />
+            <EmployeeInbox key={`inbox:${employeeId}`} scope={scope} employeeId={employeeId} />
             <section
               aria-label="Employee Run history"
               className="space-y-4 border-t border-border pt-4"

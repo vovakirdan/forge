@@ -23,6 +23,13 @@ export const ArtifactViewSchema = preserveWireValue(
       // Inline JSON may resemble an object reference; do not interpret or fetch it.
       body: JsonValueSchema,
       created_at: TimestampSchema,
+      producer: z.enum(["employee_run", "resolution_assignment", "human", "system"]),
+      source_stage_id: StableKeySchema.nullable(),
+      source_stage_visit: RevisionSchema.nullable(),
+      submitted_by: ActorReferenceSchema,
+      submitted_at: TimestampSchema,
+      employee_id: UuidV7Schema.nullable(),
+      accepted_as_outcome: z.boolean(),
     })
     .passthrough(),
 );
@@ -71,6 +78,7 @@ export const TaskDetailViewSchema = preserveWireValue(
       .passthrough()
       .nullable(),
     properties: TaskPropertiesSchema,
+    work_surface_kind: z.enum(["none", "git"]),
     artifacts: z.array(ArtifactViewSchema),
     wait_conditions: z.array(WaitConditionViewSchema),
   }),

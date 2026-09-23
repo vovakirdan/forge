@@ -1,6 +1,6 @@
 import type { PipelineStageView, PipelineVersionView } from "../contracts/pipeline.ts";
 import type { SystemStageAction } from "../contracts/stage-policy.ts";
-import { pipelineStageLabel } from "../presentation/pipeline.ts";
+import { pipelineStageLabel, pipelineTargetLabel } from "../presentation/pipeline.ts";
 import { Field } from "./Field.tsx";
 
 export function PipelineStageInspector({
@@ -12,6 +12,10 @@ export function PipelineStageInspector({
 }) {
   const workspace = stage.workspace;
   const acceptance = stage.acceptance_policy;
+  const outgoing = pipeline.transitions.filter((route) => route.from_stage_id === stage.id);
+  const incoming = pipeline.transitions.filter(
+    (route) => route.target.kind === "stage" && route.target.stage_id === stage.id,
+  );
   return (
     <>
       <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm">
@@ -22,6 +26,52 @@ export function PipelineStageInspector({
           {stage.outcomes.length ? stage.outcomes.join(", ") : "None listed"}
         </Field>
       </dl>
+      <section aria-label="Stage routes" className="space-y-3">
+        <h4 className="font-medium">Routes</h4>
+        <div className="grid gap-4 md:grid-cols-2">
+          <div>
+            <h5 className="text-sm font-medium">Outgoing</h5>
+            {outgoing.length ? (
+              <ul className="mt-2 space-y-2 text-sm [overflow-wrap:anywhere]">
+                {outgoing.map((route, index) => (
+                  <li
+                    key={`${route.outcome}:${index}`}
+                    className="rounded border border-border p-2"
+                  >
+                    <span className="font-medium">{route.outcome}</span> →{" "}
+                    {pipelineTargetLabel(pipeline, route.target)}
+                    {route.artifact_requirements?.length ? (
+                      <ul className="mt-1 list-inside list-disc text-xs text-muted-foreground">
+                        {route.artifact_requirements.map((artifact, artifactIndex) => (
+                          <li key={`${artifact.kind}:${artifact.scope}:${artifactIndex}`}>
+                            {artifact.kind}: at least {artifact.minimum_count} from {artifact.scope}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-2 text-sm">No outgoing routes listed.</p>
+            )}
+          </div>
+          <div>
+            <h5 className="text-sm font-medium">Incoming</h5>
+            {incoming.length ? (
+              <ul className="mt-2 space-y-2 text-sm [overflow-wrap:anywhere]">
+                {incoming.map((route, index) => (
+                  <li key={`${route.from_stage_id}:${route.outcome}:${index}`}>
+                    {pipelineStageLabel(pipeline, route.from_stage_id)} → {route.outcome}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-2 text-sm">No incoming routes listed.</p>
+            )}
+          </div>
+        </div>
+      </section>
       <section aria-label="Stage instructions" className="space-y-2">
         <h4 className="font-medium">Instructions</h4>
         <p className="whitespace-pre-wrap text-sm [overflow-wrap:anywhere]">
@@ -113,14 +163,20 @@ function SystemAction({
       );
     case "project_hook":
       return (
-        <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm">
-          <Field label="Action kind">{action.kind}</Field>
-          <Field label="Hook version ID">{action.hook_version_id}</Field>
-          <Field label="Passed outcome">{action.outcomes.passed}</Field>
-          <Field label="Failed outcome">{action.outcomes.failed}</Field>
-          <Field label="Timed out outcome">{action.outcomes.timed_out}</Field>
-          <Field label="Skipped outcome">{action.outcomes.skipped}</Field>
-        </dl>
+        <div className="space-y-2">
+          <p className="text-xs text-muted-foreground">
+            This stage references an optional hook version. Invocation, applicability and actual
+            results are not reported by this version definition.
+          </p>
+          <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm">
+            <Field label="Action kind">{action.kind}</Field>
+            <Field label="Hook version ID">{action.hook_version_id}</Field>
+            <Field label="Passed outcome">{action.outcomes.passed}</Field>
+            <Field label="Failed outcome">{action.outcomes.failed}</Field>
+            <Field label="Timed out outcome">{action.outcomes.timed_out}</Field>
+            <Field label="Skipped outcome">{action.outcomes.skipped}</Field>
+          </dl>
+        </div>
       );
   }
 }

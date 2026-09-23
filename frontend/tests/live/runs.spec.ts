@@ -1,4 +1,8 @@
 import { RunDetailViewSchema, RunListResponseSchema } from "../../src/contracts/run";
+import {
+  RunContextCoordinatesSchema,
+  RunEvidencePageSchema,
+} from "../../src/contracts/run-context-evidence";
 import { presentRun } from "../../src/presentation/run";
 import { test, expect } from "./fixtures";
 import { loadProject } from "./task-helpers";
@@ -54,6 +58,25 @@ test("real Run list pages by 20 in server order and detail exposes only the read
     await expect(card.getByText(label, { exact: true })).toBeVisible();
   }
   await expect(card.getByRole("region", { name: "Diagnostics", exact: true })).toBeVisible();
+  const context = RunContextCoordinatesSchema.parse(
+    await get(`runs/${project.featured_id}/context`),
+  );
+  expect(context.availability).toBe("available");
+  if (context.availability === "available") {
+    expect(context.coordinates.run_id).toBe(project.featured_id);
+    expect(context.coordinates.task_id).toBe(project.featured_task_id);
+    expect(context.coordinates.employee_id).toBe(project.employee_id);
+  }
+  const evidence = RunEvidencePageSchema.parse(
+    await get(`runs/${project.featured_id}/evidence?limit=20`),
+  );
+  expect(evidence.items.every((item) => item.run_id === project.featured_id)).toBe(true);
+  await expect(card.getByRole("region", { name: "Run context and evidence" })).toBeVisible();
+  if (context.availability === "available")
+    await expect(card).toContainText(context.coordinates.stage_id);
+  if (evidence.items.length === 0)
+    await expect(card).toContainText("No evidence receipts on this page.");
+  else await expect(card).toContainText(evidence.items[0]!.id);
   await expect(card.getByRole("link")).toHaveCount(0);
   await expect(card).not.toContainText("deterministic_m0_simulator");
   await list.getByRole("button", { name: "Next page", exact: true }).click();

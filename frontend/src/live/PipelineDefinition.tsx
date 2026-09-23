@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { PipelineVersionView } from "../contracts/pipeline.ts";
 import { pipelineStageLabel, pipelineTargetLabel } from "../presentation/pipeline.ts";
 import { Field } from "./Field.tsx";
+import { PipelineGraph } from "./PipelineGraph.tsx";
 import { PipelineStageInspector } from "./PipelineStageInspector.tsx";
 
 export function PipelineDefinition({ pipeline }: { pipeline: PipelineVersionView }) {
@@ -20,6 +21,7 @@ export function PipelineDefinition({ pipeline }: { pipeline: PipelineVersionView
             "Not configured; this does not promise unlimited execution."}
         </Field>
       </dl>
+      <PipelineGraph pipeline={pipeline} selectedStageId={stageId} onSelectStage={setStageId} />
       <div className="min-w-0 overflow-x-auto rounded border border-border">
         <table
           aria-label="Stages"

@@ -5,6 +5,7 @@ import {
   DraftTitleSchema,
   DraftDefinitionOfDoneSchema,
 } from "./amend-draft.ts";
+import { TaskPropertiesSchema } from "./properties.ts";
 export { DraftDefinitionOfDoneSchema } from "./amend-draft.ts";
 export const CreateTaskRequestSchema = z
   .object({
@@ -18,7 +19,10 @@ export const CreateTaskRequestSchema = z
         kind: TaskKindSchema,
         priority: StableKeySchema,
         pipeline_version_id: UuidV7Schema,
-        properties: z.object({}).strict(),
+        properties: TaskPropertiesSchema.refine(
+          (properties) => Object.keys(properties).length <= 64,
+          "A Task can set at most 64 configured properties",
+        ),
       })
       .strict(),
   })

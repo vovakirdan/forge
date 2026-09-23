@@ -241,6 +241,7 @@ impl TaskProperties {
 
 /// One typed property definition belonging to a Project.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TaskPropertyDefinition {
     key: PropertyKey,
     display_name: String,
@@ -353,11 +354,41 @@ impl TaskPropertyDefinition {
 
 /// Project-owned schema used to validate Task properties at approval time.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TaskPropertySchema {
     definitions: BTreeMap<PropertyKey, TaskPropertyDefinition>,
 }
 
+/// Bound on new Project schema configuration, independent of old snapshots.
+pub const MAX_CONFIGURED_TASK_PROPERTIES: usize = 64;
+/// Bound on the serialized schema in one management command and audit Event.
+pub const MAX_CONFIGURED_TASK_PROPERTY_SCHEMA_BYTES: usize = 64 * 1024;
+
 impl TaskPropertySchema {
+    /// Validates a newly configured full schema without changing property semantics.
+    pub fn validate_for_configuration(&self) -> Result<(), DomainError> {
+        self.validate_snapshot()?;
+        if self.definitions.len() > MAX_CONFIGURED_TASK_PROPERTIES {
+            return Err(DomainError::InvalidProperty {
+                key: "schema".to_owned(),
+                reason: format!("may define at most {MAX_CONFIGURED_TASK_PROPERTIES} properties"),
+            });
+        }
+        let bytes = serde_json::to_vec(self).map_err(|_| DomainError::InvalidProperty {
+            key: "schema".to_owned(),
+            reason: "cannot serialize schema".to_owned(),
+        })?;
+        if bytes.len() > MAX_CONFIGURED_TASK_PROPERTY_SCHEMA_BYTES {
+            return Err(DomainError::InvalidProperty {
+                key: "schema".to_owned(),
+                reason: format!(
+                    "must be at most {MAX_CONFIGURED_TASK_PROPERTY_SCHEMA_BYTES} bytes"
+                ),
+            });
+        }
+        Ok(())
+    }
+
     /// Creates a schema and rejects duplicate stable keys.
     ///
     /// # Errors
@@ -423,7 +454,13 @@ impl TaskPropertySchema {
     }
 
     pub(crate) fn validate_snapshot(&self) -> Result<(), DomainError> {
-        for definition in self.definitions.values() {
+        for (key, definition) in &self.definitions {
+            if key != definition.key() {
+                return Err(DomainError::InvalidProperty {
+                    key: key.as_str().to_owned(),
+                    reason: "definition key does not match schema map key".to_owned(),
+                });
+            }
             definition.validate_snapshot()?;
         }
         Self::new(self.definitions.values().cloned()).map(|_| ())

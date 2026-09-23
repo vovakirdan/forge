@@ -93,3 +93,29 @@ export type ArtifactRequirementView = z.infer<typeof ArtifactRequirementViewSche
 export type PipelineTransitionView = z.infer<typeof PipelineTransitionViewSchema>;
 export type PipelineVersionView = z.infer<typeof PipelineVersionViewSchema>;
 export type PipelineVersionListResponse = z.infer<typeof PipelineVersionListResponseSchema>;
+
+export const PipelineCatalogItemSchema = preserveWireValue(
+  z
+    .object({
+      id: UuidV7Schema,
+      name: z.string().min(1),
+      revision: RevisionSchema,
+      default_version_id: UuidV7Schema.nullable(),
+      latest_version_id: UuidV7Schema.nullable(),
+      latest_version: z.number().int().positive().max(4_294_967_295).nullable(),
+      deleted_at: TimestampSchema.nullable(),
+      pinned_task_count: z.number().int().nonnegative().safe(),
+    })
+    .passthrough(),
+);
+
+export const PipelineCatalogListSchema = preserveWireValue(
+  z
+    .object({
+      items: z.array(PipelineCatalogItemSchema).max(20),
+      next_cursor: UuidV7Schema.optional(),
+    })
+    .passthrough(),
+);
+
+export type PipelineCatalogItem = z.infer<typeof PipelineCatalogItemSchema>;

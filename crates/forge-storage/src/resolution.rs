@@ -1,5 +1,8 @@
 //! Canonical management queue; callers retain the Project lock through commit.
-use crate::{StorageError, StorageTransaction, database_timestamp, encode_snapshot, u64_to_i64};
+use crate::{
+    PostgresStore, StorageError, StorageTransaction, database_timestamp, encode_snapshot,
+    u64_to_i64,
+};
 use forge_domain::{
     ProjectId,
     resolution::{
@@ -7,6 +10,115 @@ use forge_domain::{
     },
 };
 use uuid::Uuid;
+
+/// Canonical escalation with its latest retained resolution assignment receipt.
+#[derive(Clone, Debug)]
+pub struct EscalationReadRow {
+    pub escalation: Escalation,
+    pub latest_assignment: Option<ResolutionAssignment>,
+}
+
+impl PostgresStore {
+    /// One escalation with the latest retained assignment, scoped before decoding.
+    pub async fn escalation_detail(
+        &self,
+        project_id: ProjectId,
+        id: Uuid,
+    ) -> Result<Option<EscalationReadRow>, StorageError> {
+        let row: Option<(String, Option<String>)> = sqlx::query_as(
+            "SELECT e.canonical_snapshot::text,a.canonical_snapshot::text FROM escalations e \
+             LEFT JOIN LATERAL (SELECT canonical_snapshot FROM resolution_assignments \
+               WHERE project_id=$1 AND escalation_id=e.id ORDER BY generation DESC LIMIT 1) a ON TRUE \
+             WHERE e.project_id=$1 AND e.id=$2",
+        )
+        .bind(project_id.as_uuid())
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await?;
+        row.map(|(escalation, assignment)| {
+            let escalation: Escalation =
+                decode(&escalation, "escalation", Escalation::validate_snapshot)?;
+            if escalation.project_id != project_id || escalation.id != id {
+                return Err(invalid());
+            }
+            let latest_assignment = assignment
+                .map(|value| {
+                    decode::<ResolutionAssignment>(
+                        &value,
+                        "resolution_assignment",
+                        ResolutionAssignment::validate_snapshot,
+                    )
+                })
+                .transpose()?;
+            if latest_assignment
+                .as_ref()
+                .is_some_and(|value| value.project_id != project_id || value.escalation_id != id)
+            {
+                return Err(invalid());
+            }
+            Ok(EscalationReadRow {
+                escalation,
+                latest_assignment,
+            })
+        })
+        .transpose()
+    }
+
+    /// Reads a bounded Project queue/history page without exposing Run specs.
+    pub async fn escalation_page(
+        &self,
+        project_id: ProjectId,
+        after: Option<Uuid>,
+        limit: u32,
+    ) -> Result<Vec<EscalationReadRow>, StorageError> {
+        if !(1..=21).contains(&limit) {
+            return Err(invalid());
+        }
+        let rows: Vec<(String, Option<String>)> = sqlx::query_as(
+            "WITH page AS MATERIALIZED ( \
+               SELECT id,canonical_snapshot FROM escalations \
+               WHERE project_id=$1 AND ($2::uuid IS NULL OR id>$2) ORDER BY id LIMIT $3 \
+             ) \
+             SELECT p.canonical_snapshot::text,a.canonical_snapshot::text FROM page p \
+             LEFT JOIN LATERAL ( \
+               SELECT canonical_snapshot FROM resolution_assignments \
+               WHERE project_id=$1 AND escalation_id=p.id ORDER BY generation DESC LIMIT 1 \
+             ) a ON TRUE ORDER BY p.id",
+        )
+        .bind(project_id.as_uuid())
+        .bind(after)
+        .bind(i64::from(limit))
+        .fetch_all(&self.pool)
+        .await?;
+        rows.into_iter()
+            .map(|(escalation, assignment)| {
+                let escalation: Escalation =
+                    decode(&escalation, "escalation", Escalation::validate_snapshot)?;
+                if escalation.project_id != project_id {
+                    return Err(invalid());
+                }
+                let latest_assignment = assignment
+                    .map(|value| {
+                        decode::<ResolutionAssignment>(
+                            &value,
+                            "resolution_assignment",
+                            ResolutionAssignment::validate_snapshot,
+                        )
+                    })
+                    .transpose()?;
+                if latest_assignment.as_ref().is_some_and(|assignment| {
+                    assignment.project_id != project_id || assignment.escalation_id != escalation.id
+                }) {
+                    return Err(invalid());
+                }
+                Ok(EscalationReadRow {
+                    escalation,
+                    latest_assignment,
+                })
+            })
+            .collect()
+    }
+}
 
 impl StorageTransaction<'_> {
     pub async fn communication_escalation_is_current(

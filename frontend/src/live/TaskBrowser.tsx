@@ -9,6 +9,9 @@ import { TaskFacts } from "./TaskFacts.tsx";
 import { TaskDetailPanel } from "./TaskDetailPanel.tsx";
 import type { PriorityCatalog } from "../presentation/priority.ts";
 import { TaskCreateEditor } from "./TaskCreateEditor.tsx";
+import { TaskPropertySchemaPanel } from "./TaskPropertySchemaPanel.tsx";
+import { TaskBoard } from "./TaskBoard.tsx";
+import type { TaskSummaryView } from "../contracts/task.ts";
 
 export function TaskBrowser(scope: ProjectReadScope) {
   const { api, session, generation, projectId } = scope;
@@ -20,6 +23,7 @@ export function TaskBrowser(scope: ProjectReadScope) {
   const [taskId, setTaskId] = useState<string | null>(null);
   const [taskHistory, setTaskHistory] = useState<string[]>([]);
   const [creating, setCreating] = useState(false);
+  const [view, setView] = useState<"list" | "board">("list");
   const opener = useRef<HTMLButtonElement | null>(null);
   const key = useMemo(
     () => readKeys.tasks(generation, projectId, navigation.cursor),
@@ -62,9 +66,27 @@ export function TaskBrowser(scope: ProjectReadScope) {
     prepareReadChange(queries, key);
     setNavigation({ cursor, previous });
   }
+  function openTask(task: TaskSummaryView, button: HTMLButtonElement) {
+    if (taskId === task.id) {
+      document.getElementById("task-detail-title")?.focus();
+    } else if (scope.leaveGuard.canLeave()) {
+      opener.current = button;
+      setCreating(false);
+      setTaskHistory([]);
+      setTaskId(task.id);
+    }
+  }
+  function changeView(next: "list" | "board") {
+    if (view === next || !scope.leaveGuard.canLeave()) return;
+    setTaskId(null);
+    setTaskHistory([]);
+    opener.current = null;
+    setView(next);
+  }
   const items = tasks.data?.items;
   return (
     <>
+      <TaskPropertySchemaPanel {...scope} />
       <section aria-label="Tasks" className="space-y-4 rounded-xl border border-border bg-card p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-lg font-semibold">Tasks</h2>
@@ -99,8 +121,27 @@ export function TaskBrowser(scope: ProjectReadScope) {
           </div>
         </div>
         <p className="text-xs text-muted-foreground">
-          Up to 20 Tasks per page; draft titles and descriptions can be edited in Task detail.
+          Up to 20 Tasks per page in server order. List and Board show only this page, not the
+          entire Project. Stage columns use the exact pinned Pipeline version and raw stage ID;
+          lifecycle is separate. Run activity is not included in Task summaries. Draft titles and
+          descriptions can be edited in Task detail.
         </p>
+        <div role="group" aria-label="Task view" className="flex gap-2">
+          <Button
+            variant={view === "list" ? "default" : "outline"}
+            aria-pressed={view === "list"}
+            onClick={() => changeView("list")}
+          >
+            List
+          </Button>
+          <Button
+            variant={view === "board" ? "default" : "outline"}
+            aria-pressed={view === "board"}
+            onClick={() => changeView("board")}
+          >
+            Board
+          </Button>
+        </div>
         {priorities.isPending && <p role="status">Loading priorities…</p>}
         {priorities.isFetching && priorities.data && (
           <p role="status">Refreshing priorities… Previous catalog remains visible.</p>
@@ -137,7 +178,7 @@ export function TaskBrowser(scope: ProjectReadScope) {
             {navigation.cursor === null ? "No tasks in this project." : "No tasks on this page."}
           </p>
         )}
-        {items && items.length > 0 && (
+        {view === "list" && items && items.length > 0 && (
           <ul className="space-y-3" aria-label="Task list">
             {items.map((task) => (
               <li key={task.id} className="space-y-3 rounded-lg border border-border p-4">
@@ -145,15 +186,7 @@ export function TaskBrowser(scope: ProjectReadScope) {
                   type="button"
                   aria-label={`Open ${task.key}`}
                   aria-controls="task-detail"
-                  onClick={(event) => {
-                    if (taskId === task.id) document.getElementById("task-detail-title")?.focus();
-                    else if (scope.leaveGuard.canLeave()) {
-                      opener.current = event.currentTarget;
-                      setCreating(false);
-                      setTaskHistory([]);
-                      setTaskId(task.id);
-                    }
-                  }}
+                  onClick={(event) => openTask(task, event.currentTarget)}
                   className="w-full cursor-pointer rounded text-left font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [overflow-wrap:anywhere]"
                 >
                   {task.key} — {task.title}
@@ -162,6 +195,9 @@ export function TaskBrowser(scope: ProjectReadScope) {
               </li>
             ))}
           </ul>
+        )}
+        {view === "board" && items && items.length > 0 && (
+          <TaskBoard tasks={items} priorities={priorityCatalog} onOpenTask={openTask} />
         )}
         <nav
           aria-label="Task pagination"

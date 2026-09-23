@@ -1,7 +1,7 @@
 # Epic UI3.3 — Resources и Settings существующего runtime
 
 **Milestone:** UI3 — Knowledge loop и операционная конфигурация
-**Статус:** planned; реализация не начата
+**Статус на 23 сентября 2026:** локальная реализация готова: фактические caps, usage и readiness отображаются с явным Unknown для недоступных измерений.
 **Источник:** [UI plan](../UI_IMPLEMENTATION_PLAN.md),
 [backend alignment](../UI_BACKEND_ALIGNMENT.md)
 **База backend:** `1439211`; dashboard отражает существующий admission model.

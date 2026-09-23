@@ -59,6 +59,19 @@ test("creation freezes exact intended fields with current scheme revision and no
   assert.equal(JSON.parse(afterRefresh.body).expected_revision, 13);
   assert.equal(JSON.parse(attempt.body).expected_revision, 12);
 });
+test("creation carries only typed Project properties in the frozen request", () => {
+  const attempt = createTaskAttempt(scheme, pipeline, fields, key, {
+    impact: { type: "enum", value: "high" },
+  });
+  assert.deepEqual(JSON.parse(attempt.body).payload.properties, {
+    impact: { type: "enum", value: "high" },
+  });
+  assert.throws(() =>
+    createTaskAttempt(scheme, pipeline, fields, key, {
+      impact: { type: "enum", value: "" },
+    }),
+  );
+});
 test("deleted, incompatible, mismatched or unavailable Pipeline and priority choices fail closed", () => {
   assert.equal(pipelineAllowsCreation(undefined, fields), false);
   for (const selected of [

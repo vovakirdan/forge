@@ -5,6 +5,8 @@ import { describeApiError, LiveApiError, type LiveApi } from "./api.ts";
 import type { LiveSession } from "./session.ts";
 import { prepareReadChange } from "./read-cache.ts";
 import { useReadLifetime } from "./use-read-lifetime.ts";
+import { ProjectCreatePanel } from "./ProjectCreatePanel.tsx";
+import type { LeaveGuard } from "./leave-guard.ts";
 
 export function ProjectPicker({
   api,
@@ -12,16 +14,19 @@ export function ProjectPicker({
   generation,
   selectedId,
   onSelect,
+  leaveGuard,
 }: {
   api: LiveApi;
   session: LiveSession;
   generation: number;
   selectedId: string | null;
   onSelect: (id: string) => void;
+  leaveGuard: LeaveGuard;
 }) {
   const queries = useQueryClient();
   const [cursor, setCursor] = useState<string | null>(null);
   const [previous, setPrevious] = useState<(string | null)[]>([]);
+  const [creating, setCreating] = useState(false);
   const key = useMemo(() => ["projects", generation, cursor] as const, [generation, cursor]);
   const projects = useQuery({
     queryKey: key,
@@ -31,6 +36,7 @@ export function ProjectPicker({
   });
   useReadLifetime(key);
   function navigate(next: string | null, trail: (string | null)[]) {
+    if (creating && !leaveGuard.canLeave()) return;
     prepareReadChange(queries, key);
     setCursor(next);
     setPrevious(trail);
@@ -42,14 +48,37 @@ export function ProjectPicker({
     >
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-lg font-semibold">Choose Project</h2>
-        <Button
-          variant="outline"
-          disabled={projects.isFetching}
-          onClick={() => void projects.refetch()}
-        >
-          Refresh Projects
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            onClick={() => {
+              if (!creating || leaveGuard.canLeave()) setCreating(!creating);
+            }}
+          >
+            {creating ? "Hide creation" : "Create Project"}
+          </Button>
+          <Button
+            variant="outline"
+            disabled={projects.isFetching}
+            onClick={() => void projects.refetch()}
+          >
+            Refresh Projects
+          </Button>
+        </div>
       </div>
+      {creating && (
+        <ProjectCreatePanel
+          api={api}
+          session={session}
+          generation={generation}
+          leaveGuard={leaveGuard}
+          onClose={() => setCreating(false)}
+          onSelect={(id) => {
+            onSelect(id);
+            setCreating(false);
+          }}
+        />
+      )}
       {projects.isPending && <p role="status">Loading Projects…</p>}
       {projects.isFetching && projects.data && <p role="status">Refreshing Projects…</p>}
       {projects.isError && (

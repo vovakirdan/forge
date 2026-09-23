@@ -1,7 +1,7 @@
 # Epic UI3.2 — SystemJobs и Onboarding
 
 **Milestone:** UI3 — Knowledge loop и операционная конфигурация
-**Статус:** planned; реализация не начата
+**Статус на 23 сентября 2026:** локальная реализация готова: policy, onboarding gate/skip, jobs и ограниченное чтение attempts/result/materialization; итоговый keyless browser gate пройден.
 **Источник:** [UI plan](../UI_IMPLEMENTATION_PLAN.md),
 [backend alignment](../UI_BACKEND_ALIGNMENT.md)
 **База backend:** `1439211`; semantic work выполняется ownerless Runs.

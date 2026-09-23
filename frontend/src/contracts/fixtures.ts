@@ -40,6 +40,7 @@ export const taskDetailFixture = {
   description: "Compare costs and report a recommendation; no Git workspace is needed.",
   definition_of_done: "Attach the comparison and an explicit recommendation.",
   cancellation: null,
+  work_surface_kind: "none",
   properties: {
     contains_migrations: { type: "boolean", value: true },
     notes: { type: "text", value: "" },
@@ -60,6 +61,13 @@ export const taskDetailFixture = {
       metadata: { author: "Synthetic employee", attempts: 2, checked: false },
       body: { recommendation: "Gradual migration", alternatives: ["Big bang"] },
       created_at: timestamp,
+      producer: "employee_run",
+      source_stage_id: "choose_path",
+      source_stage_visit: 1,
+      submitted_by: { kind: "employee", id: ids.actor },
+      submitted_at: timestamp,
+      employee_id: ids.actor,
+      accepted_as_outcome: false,
     },
   ],
   wait_conditions: [

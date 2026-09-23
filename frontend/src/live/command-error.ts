@@ -1,6 +1,7 @@
 export type CommandErrorKind =
   | "invalid_request"
   | "stale_revision"
+  | "conflict"
   | "idempotency_conflict"
   | "validation_failed"
   | "not_found"
@@ -21,6 +22,8 @@ export function describeCommandError(error: unknown) {
   switch (kind) {
     case "stale_revision":
       return "Not saved. The Project changed. Refresh the edit baseline before saving again.";
+    case "conflict":
+      return "Not saved. Core refused this action in the current state. Refresh and review it.";
     case "invalid_request":
       return "Not saved. The Task may have changed or this edit is no longer allowed. Refresh the edit baseline.";
     case "idempotency_conflict":

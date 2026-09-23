@@ -69,6 +69,7 @@ export async function postCommand(
     if (response.status === 400 && code === "invalid_request") throw new LiveCommandError(code);
     if (response.status === 409 && (code === "stale_revision" || code === "idempotency_conflict"))
       throw new LiveCommandError(code);
+    if (response.status === 409 && code === "conflict") throw new LiveCommandError(code);
     if (response.status === 422 && code === "validation_failed") throw new LiveCommandError(code);
     if (response.status === 404 && code === "not_found") throw new LiveCommandError(code);
     if (response.status === 403 && code === "forbidden") throw new LiveCommandError(code);

@@ -103,6 +103,7 @@ impl<T: CommandTransaction> CommandTransaction for FaultTransaction<T> {
     forward!(lock_project(id: ProjectId) -> Option<Project>, None);
     forward!(insert_project(project: &Project) -> (), Some(FaultPoint::AfterAggregateWrite));
     forward!(update_project(project: &Project, expected_revision: u64) -> (), Some(FaultPoint::AfterAggregateWrite));
+    forward!(project_has_tasks(project_id: ProjectId) -> bool, None);
     forward!(lock_pipeline(id: PipelineId) -> Option<Pipeline>, None);
     forward!(lock_pipeline_version(id: PipelineVersionId) -> Option<PipelineVersion>, None);
     forward!(insert_pipeline(pipeline: &Pipeline) -> (), Some(FaultPoint::AfterAggregateWrite));

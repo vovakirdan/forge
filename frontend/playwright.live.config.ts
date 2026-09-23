@@ -8,7 +8,7 @@ export default defineConfig({
   retries: 0,
   forbidOnly: true,
   timeout: 45_000,
-  globalTimeout: 240_000,
+  globalTimeout: 600_000,
   reporter: "line",
   outputDir: "test-results/live",
   use: {

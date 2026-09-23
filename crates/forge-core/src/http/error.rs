@@ -54,6 +54,12 @@ impl HttpError {
                 request_id,
                 message,
             ),
+            CoreError::Domain(DomainError::TaskPropertySchemaLocked) => Self::new(
+                StatusCode::CONFLICT,
+                ApiErrorCode::Conflict,
+                request_id,
+                message,
+            ),
             CoreError::Domain(_) => Self::new(
                 StatusCode::UNPROCESSABLE_ENTITY,
                 ApiErrorCode::ValidationFailed,
@@ -161,6 +167,17 @@ mod tests {
 
         assert_eq!(error.status, StatusCode::CONFLICT);
         assert_eq!(error.body.error.code, ApiErrorCode::StaleRevision);
+    }
+
+    #[test]
+    fn task_property_schema_lock_is_a_current_state_conflict() {
+        let error = HttpError::from_core(
+            "request".to_owned(),
+            CoreError::Domain(DomainError::TaskPropertySchemaLocked),
+        );
+        assert_eq!(error.status, StatusCode::CONFLICT);
+        assert_eq!(error.body.error.code, ApiErrorCode::Conflict);
+        assert!(error.body.error.message.contains("before the first task"));
     }
 
     #[test]

@@ -5,6 +5,9 @@ export const draftLeaveWarning =
 export function createLeaveGuard(confirmLeave: (message: string) => boolean = window.confirm) {
   const checks = new Set<{ check: () => boolean; message: string }>();
   return {
+    hasPending() {
+      return Array.from(checks).some((entry) => entry.check());
+    },
     register(check: () => boolean, message = draftLeaveWarning) {
       const entry = { check, message };
       checks.add(entry);

@@ -1,12 +1,15 @@
 //! Explicit public read models derived from canonical domain snapshots.
 
 use forge_domain::{
-    Actor, ActorKind as DomainActorKind, Artifact, ArtifactBody, ArtifactRequirement, Employee,
-    PipelineStage, PipelineTransition, PipelineTransitionTarget, PipelineVersion, Project, Task,
-    TaskWaitCondition, TaskWaitKind, Timestamp,
+    Actor, ActorKind as DomainActorKind, Artifact, ArtifactBody, ArtifactLink, ArtifactRequirement,
+    Employee, PipelineStage, PipelineTransition, PipelineTransitionTarget, PipelineVersion,
+    Project, Task, TaskWaitCondition, TaskWaitKind, Timestamp,
 };
 use forge_protocol::wire::{ActorKind, ActorReference};
-use forge_storage::{RunProjection, StoredArtifact};
+use forge_storage::{
+    AdmissionResourceSnapshot, EmployeeOperationalCounts, PipelineCatalogItem, RunProjection,
+    StoredArtifact,
+};
 use serde::Serialize;
 use serde_json::Value;
 use time::format_description::well_known::Rfc3339;
@@ -26,6 +29,37 @@ pub(crate) struct ProjectView {
     revision: u64,
     name: String,
     execution_gate: forge_domain::ProjectExecutionGate,
+}
+
+#[derive(Serialize)]
+pub(crate) struct ProjectTaskPropertySchemaView {
+    project_id: String,
+    project_revision: u64,
+    schema: forge_domain::TaskPropertySchema,
+}
+
+#[derive(Serialize)]
+pub(crate) struct ProjectResourcesView {
+    project_id: String,
+    policy: AdmissionPolicyView,
+    occupancy: AdmissionOccupancyView,
+    observed_at: String,
+}
+
+#[derive(Serialize)]
+struct AdmissionPolicyView {
+    revision: u64,
+    host_max_runs: u16,
+    project_max_runs: u16,
+    credential_account_max_runs: u16,
+    updated_at: String,
+}
+
+#[derive(Serialize)]
+struct AdmissionOccupancyView {
+    host_runs: u64,
+    project_runs: u64,
+    credential_account_runs: Option<u64>,
 }
 
 #[derive(Serialize)]
@@ -49,6 +83,16 @@ pub(crate) struct EmployeeProfileView {
 }
 
 #[derive(Serialize)]
+pub(crate) struct EmployeeOperationsView {
+    employee_id: String,
+    max_concurrent_runs: u16,
+    occupied_slots: u64,
+    observed_running_runs: u64,
+    runtime_binding_configured: bool,
+    availability: &'static str,
+}
+
+#[derive(Serialize)]
 pub(crate) struct TaskSummaryView {
     id: String,
     key: String,
@@ -69,6 +113,7 @@ pub(crate) struct TaskDetailView {
     description: String,
     definition_of_done: Option<String>,
     properties: Value,
+    work_surface_kind: &'static str,
     artifacts: Vec<ArtifactView>,
     wait_conditions: Vec<WaitConditionView>,
     cancellation: Option<CancellationView>,
@@ -90,6 +135,13 @@ pub(crate) struct ArtifactView {
     metadata: Value,
     body: Value,
     created_at: String,
+    producer: forge_domain::ArtifactProducer,
+    source_stage_id: Option<String>,
+    source_stage_visit: Option<u64>,
+    submitted_by: ActorReference,
+    submitted_at: String,
+    employee_id: Option<String>,
+    accepted_as_outcome: bool,
 }
 
 #[derive(Serialize)]
@@ -117,6 +169,18 @@ pub(crate) struct PipelineVersionView {
     max_stage_visits: Option<u32>,
     stages: Vec<PipelineStageView>,
     transitions: Vec<PipelineTransitionView>,
+}
+
+#[derive(Serialize)]
+pub(crate) struct PipelineCatalogView {
+    id: String,
+    name: String,
+    revision: u64,
+    default_version_id: Option<String>,
+    latest_version_id: Option<String>,
+    latest_version: Option<u32>,
+    deleted_at: Option<String>,
+    pinned_task_count: u64,
 }
 
 #[derive(Serialize)]
@@ -201,6 +265,56 @@ pub(crate) fn project_view(project: &Project) -> ProjectView {
     }
 }
 
+pub(crate) fn project_task_property_schema_view(
+    project: &Project,
+) -> ProjectTaskPropertySchemaView {
+    ProjectTaskPropertySchemaView {
+        project_id: project.id().to_string(),
+        project_revision: project.revision(),
+        schema: project.property_schema().clone(),
+    }
+}
+
+pub(crate) fn project_resources_view(
+    project_id: forge_domain::ProjectId,
+    snapshot: AdmissionResourceSnapshot,
+) -> Result<ProjectResourcesView, CoreError> {
+    Ok(ProjectResourcesView {
+        project_id: project_id.to_string(),
+        policy: AdmissionPolicyView {
+            revision: snapshot.policy_revision,
+            host_max_runs: snapshot.limits.host_max_runs,
+            project_max_runs: snapshot.limits.project_max_runs,
+            credential_account_max_runs: snapshot.limits.credential_account_max_runs,
+            updated_at: timestamp(Timestamp::from_offset_date_time(snapshot.policy_updated_at))?,
+        },
+        occupancy: AdmissionOccupancyView {
+            host_runs: snapshot.host_occupied_runs,
+            project_runs: snapshot.project_occupied_runs,
+            credential_account_runs: None,
+        },
+        observed_at: timestamp(Timestamp::from_offset_date_time(snapshot.observed_at))?,
+    })
+}
+
+pub(crate) fn pipeline_catalog_view(
+    item: PipelineCatalogItem,
+) -> Result<PipelineCatalogView, CoreError> {
+    Ok(PipelineCatalogView {
+        id: item.id.to_string(),
+        name: item.name,
+        revision: item.revision,
+        default_version_id: item.default_version_id.map(|id| id.to_string()),
+        latest_version_id: item.latest_version_id.map(|id| id.to_string()),
+        latest_version: item.latest_version,
+        deleted_at: item
+            .deleted_at
+            .map(|value| timestamp(Timestamp::from_offset_date_time(value)))
+            .transpose()?,
+        pinned_task_count: item.pinned_task_count,
+    })
+}
+
 pub(crate) fn employee_summary_view(employee: &Employee) -> EmployeeSummaryView {
     EmployeeSummaryView {
         id: employee.id().to_string(),
@@ -222,6 +336,20 @@ pub(crate) fn employee_profile_view(employee: &Employee) -> Result<EmployeeProfi
     })
 }
 
+pub(crate) fn employee_operations_view(
+    employee: &Employee,
+    counts: EmployeeOperationalCounts,
+) -> EmployeeOperationsView {
+    EmployeeOperationsView {
+        employee_id: employee.id().to_string(),
+        max_concurrent_runs: employee.max_concurrent_runs(),
+        occupied_slots: counts.occupied_slots,
+        observed_running_runs: counts.observed_running_runs,
+        runtime_binding_configured: counts.runtime_binding_configured,
+        availability: "unknown",
+    }
+}
+
 pub(crate) fn task_summary_view(task: &Task) -> Result<TaskSummaryView, CoreError> {
     Ok(TaskSummaryView {
         id: task.id().to_string(),
@@ -239,10 +367,31 @@ pub(crate) fn task_summary_view(task: &Task) -> Result<TaskSummaryView, CoreErro
 
 pub(crate) fn task_detail_view(read: TaskRead) -> Result<TaskDetailView, CoreError> {
     let task = &read.task.task;
+    let accepted_outcomes = match task.terminal_data() {
+        Some(forge_domain::TerminalData::Completed(data)) => {
+            data.outcome_artifact_ids()
+                .collect::<std::collections::HashSet<_>>()
+        }
+        _ => std::collections::HashSet::new(),
+    };
     let artifacts = read
         .artifacts
         .iter()
-        .map(artifact_view)
+        .map(|stored| {
+            let link = task
+                .artifact_links()
+                .iter()
+                .find(|link| link.artifact_id() == stored.artifact.id())
+                .ok_or(CoreError::InvalidTransport {
+                    field: "task.artifact_links",
+                    reason: "stored artifact has no Task link".into(),
+                })?;
+            artifact_view(
+                stored,
+                link,
+                accepted_outcomes.contains(&stored.artifact.id()),
+            )
+        })
         .collect::<Result<Vec<_>, _>>()?;
     let wait_conditions = task
         .wait_conditions()
@@ -259,6 +408,10 @@ pub(crate) fn task_detail_view(read: TaskRead) -> Result<TaskDetailView, CoreErr
         description: task.spec().description().to_owned(),
         definition_of_done: task.spec().definition_of_done().map(ToOwned::to_owned),
         properties,
+        work_surface_kind: match task.work_surface() {
+            forge_domain::TaskWorkSurface::None => "none",
+            forge_domain::TaskWorkSurface::Git(_) => "git",
+        },
         artifacts,
         wait_conditions,
         cancellation: match task.terminal_data() {
@@ -327,7 +480,11 @@ pub(crate) fn run_view(run: RunProjection) -> RunView {
     }
 }
 
-fn artifact_view(stored: &StoredArtifact) -> Result<ArtifactView, CoreError> {
+fn artifact_view(
+    stored: &StoredArtifact,
+    link: &ArtifactLink,
+    accepted_as_outcome: bool,
+) -> Result<ArtifactView, CoreError> {
     let artifact = &stored.artifact;
     Ok(ArtifactView {
         id: artifact.id().to_string(),
@@ -336,6 +493,13 @@ fn artifact_view(stored: &StoredArtifact) -> Result<ArtifactView, CoreError> {
         metadata: artifact.metadata().clone(),
         body: artifact_body(artifact),
         created_at: timestamp(artifact.created_at())?,
+        producer: link.producer(),
+        source_stage_id: link.source_stage_id().map(ToString::to_string),
+        source_stage_visit: link.source_stage_visit().map(|visit| visit.get()),
+        submitted_by: actor_reference(link.submitted_by()),
+        submitted_at: timestamp(link.submitted_at())?,
+        employee_id: link.employee_id().map(|id| id.to_string()),
+        accepted_as_outcome,
     })
 }
 
@@ -343,12 +507,11 @@ fn artifact_body(artifact: &Artifact) -> Value {
     match artifact.body() {
         ArtifactBody::InlineJson { value } => value.clone(),
         ArtifactBody::ObjectReference {
-            object_key,
             media_type,
             content_digest,
+            ..
         } => serde_json::json!({
             "storage": "object_reference",
-            "object_key": object_key,
             "media_type": media_type,
             "content_digest": content_digest,
         }),
@@ -468,7 +631,11 @@ mod run_tests;
 
 #[cfg(test)]
 mod tests {
-    use forge_domain::{Project, ProjectId, Timestamp};
+    use forge_domain::{
+        Actor, ActorId, Artifact, ArtifactBody, ArtifactId, ArtifactKind, EmployeeId, NewArtifact,
+        Project, ProjectId, Timestamp,
+    };
+    use forge_storage::EmployeeOperationalCounts;
 
     use super::project_view;
 
@@ -479,6 +646,90 @@ mod tests {
         let actual = serde_json::to_value(project_view(&project)).expect("view serializes");
 
         assert_eq!(actual["execution_gate"], "stopped");
+    }
+
+    #[test]
+    fn artifact_read_omits_object_storage_key() {
+        let artifact = Artifact::new(
+            ArtifactId::new(),
+            NewArtifact {
+                project_id: ProjectId::new(),
+                kind: ArtifactKind::new(ArtifactKind::PLAN).expect("kind"),
+                title: "Stored plan".to_owned(),
+                body: ArtifactBody::ObjectReference {
+                    object_key: "private/storage/key".to_owned(),
+                    media_type: Some("application/json".to_owned()),
+                    content_digest: Some("sha256:abc".to_owned()),
+                },
+                metadata: serde_json::json!({}),
+                created_by: Actor::human(ActorId::new()),
+                created_at: Timestamp::now_utc(),
+            },
+        )
+        .expect("artifact");
+        let body = super::artifact_body(&artifact);
+        assert_eq!(body["storage"], "object_reference");
+        assert_eq!(body["media_type"], "application/json");
+        assert!(body.get("object_key").is_none());
+    }
+
+    #[test]
+    fn task_property_schema_view_preserves_typed_definitions() {
+        let project =
+            Project::new(ProjectId::new(), "Schema", Timestamp::now_utc()).expect("project");
+        let mut snapshot = serde_json::to_value(project).expect("project snapshot");
+        snapshot["property_schema"] = serde_json::json!({
+            "definitions": {
+                "impact": {
+                    "key": "impact", "display_name": "Impact", "property_type": "enum",
+                    "required": true, "default_value": {"type":"enum","value":"medium"},
+                    "allowed_choices": ["high", "medium"]
+                }
+            }
+        });
+        let project: Project = serde_json::from_value(snapshot).expect("typed schema snapshot");
+        let actual = serde_json::to_value(super::project_task_property_schema_view(&project))
+            .expect("view serializes");
+        assert_eq!(actual["project_revision"], 1);
+        assert_eq!(
+            actual["schema"]["definitions"]["impact"],
+            serde_json::json!({
+                "key":"impact", "display_name":"Impact", "property_type":"enum",
+                "required":true, "default_value":{"type":"enum","value":"medium"},
+                "allowed_choices":["high","medium"]
+            })
+        );
+    }
+
+    #[test]
+    fn employee_operations_view_keeps_observation_distinct_from_availability() {
+        let input: forge_application::CreateEmployeeCommand =
+            serde_json::from_value(serde_json::json!({
+                "name": "Bob", "role": "developer", "stage_eligibility": {"mode": "any"}
+            }))
+            .expect("valid fixture");
+        let employee = input
+            .build(
+                EmployeeId::new(),
+                ProjectId::new(),
+                Actor::human(ActorId::new()),
+                Timestamp::now_utc(),
+            )
+            .expect("employee");
+        let actual = serde_json::to_value(super::employee_operations_view(
+            &employee,
+            EmployeeOperationalCounts {
+                occupied_slots: 1,
+                observed_running_runs: 0,
+                runtime_binding_configured: true,
+            },
+        ))
+        .expect("view serializes");
+        assert_eq!(actual["occupied_slots"], 1);
+        assert_eq!(actual["observed_running_runs"], 0);
+        assert_eq!(actual["runtime_binding_configured"], true);
+        assert_eq!(actual["availability"], "unknown");
+        assert_eq!(actual.as_object().expect("object").len(), 6);
     }
 
     #[test]

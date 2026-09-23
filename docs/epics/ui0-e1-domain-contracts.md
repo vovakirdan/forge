@@ -1,7 +1,7 @@
 # Epic UI0.1 — Domain alignment и frontend contracts
 
 **Milestone:** UI0 — Модель интерфейса и локальная API-граница
-**Статус:** in_progress; read-contract срезы, epic не закрыт
+**Статус на 23 сентября 2026:** локальные domain/read/command contracts реализованы и проверены; описание ранних срезов ниже сохранено как история.
 **Тип / приоритет:** foundation / P0
 **Источники:** [UI-план](../UI_IMPLEMENTATION_PLAN.md),
 [матрица соответствия](../UI_BACKEND_ALIGNMENT.md)

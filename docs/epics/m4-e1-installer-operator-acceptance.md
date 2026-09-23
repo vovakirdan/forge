@@ -6,6 +6,9 @@
 **Порядок от 11 сентября 2026:** выполняется после
 [UI4.2 handoff](ui4-e2-installer-handoff.md). UI0–UI4 отвечают за адаптацию
 Control Room и его feature acceptance; M4 — за установку проверенной поставки.
+Текущий build/runtime interface для installer описан в
+[Control Room handoff](../UI_INSTALLER_HANDOFF.md); его UI4.1 evidence ещё
+проверяется отдельно.
 
 ## Цель
 

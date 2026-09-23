@@ -5,11 +5,16 @@ use super::{
     fixture::{BackendKind, Fixture},
 };
 use anyhow::{Context, Result};
+use axum::{
+    body::{Body, to_bytes},
+    http::{Request, StatusCode},
+};
 use forge_domain::{
     Actor, ActorId, ArtifactProducer, LifecycleStatus, TaskId, TaskWaitKind, resolution::*,
 };
 use forge_protocol::wire::{CommandName, CommandStatus};
 use serde_json::{Value, json};
+use tower::ServiceExt;
 use uuid::Uuid;
 
 pub(super) async fn setup(kind: BackendKind) -> Result<(Fixture, TaskId)> {
@@ -62,6 +67,132 @@ pub(super) async fn raise(fixture: &Fixture, task: TaskId, extra: Value) -> Resu
         .context("escalation ref")?
         .id
         .parse()?)
+}
+
+#[tokio::test]
+#[ignore = "requires local PostgreSQL; validates scoped escalation pages and assignment receipts"]
+async fn escalation_read_tracks_queue_assignment_and_resolution() -> Result<()> {
+    let (fixture, task) = setup(BackendKind::Postgres).await?;
+    let first = raise(&fixture, task, json!({})).await?;
+    let version = fixture.task(task).await?.pipeline().pipeline_version_id();
+    let second_task = fixture
+        .create_task(version, "Another resolution question")
+        .await?;
+    fixture
+        .task_command(CommandName::ApproveTask, second_task, json!({}))
+        .await?;
+    let bob = employees::create(&fixture, "Bob").await?;
+    fixture
+        .execute(
+            CommandName::ConfigureResolverRoute,
+            json!({"route_key":"engineering","employee_ids":[bob],"assignment_timeout_seconds":60}),
+        )
+        .await?;
+    let assigned = raise(&fixture, second_task, json!({"route_key":"engineering"})).await?;
+    let before = escalation(&fixture, assigned).await?;
+    fixture.execute(CommandName::RerouteEscalation, json!({"escalation_id":assigned,"expected_escalation_revision":before.revision,"reason":"Assign resolver"})).await?;
+
+    let super::fixture::Backend::Postgres(pool) = &fixture.backend else {
+        unreachable!()
+    };
+    let router = forge_core::router(fixture.core(pool));
+    let base = format!("/v1/projects/{}/escalations", fixture.project_id);
+    let response = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("{base}?limit=1"))
+                .body(Body::empty())?,
+        )
+        .await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    let page: Value = serde_json::from_slice(&to_bytes(response.into_body(), 64 * 1024).await?)?;
+    let cursor = page["next_cursor"].as_str().context("cursor")?;
+    let response = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("{base}?limit=1&cursor={cursor}"))
+                .body(Body::empty())?,
+        )
+        .await?;
+    let next: Value = serde_json::from_slice(&to_bytes(response.into_body(), 64 * 1024).await?)?;
+    assert!(next["next_cursor"].is_null());
+    let items = [&page["items"][0], &next["items"][0]];
+    let first_assignment = items
+        .iter()
+        .find(|item| item["id"] == json!(first))
+        .context("first escalation")?;
+    assert_eq!(first_assignment["state"]["status"], "assigned");
+    assert_eq!(
+        first_assignment["latest_assignment"]["state"]["status"],
+        "active"
+    );
+    let assignment = items
+        .iter()
+        .find(|item| item["id"] == json!(assigned))
+        .context("assigned")?;
+    assert_eq!(assignment["state"]["status"], "assigned");
+    assert_eq!(assignment["latest_assignment"]["state"]["status"], "active");
+    assert_eq!(assignment["source"]["kind"], "task");
+    assert!(assignment["created_at"].as_str().is_some());
+    assert!(
+        assignment["latest_assignment"]["issued_at"]
+            .as_str()
+            .is_some()
+    );
+    assert!(
+        serde_json::to_string(assignment)?
+            .find("fencing_token")
+            .is_none()
+    );
+
+    fixture
+        .execute(
+            CommandName::SubmitHumanResolution,
+            answer_payload(&fixture, assigned, "continue_stage").await?,
+        )
+        .await?;
+    let response = router
+        .clone()
+        .oneshot(Request::builder().uri(base.clone()).body(Body::empty())?)
+        .await?;
+    let all: Value = serde_json::from_slice(&to_bytes(response.into_body(), 64 * 1024).await?)?;
+    let resolved = all["items"]
+        .as_array()
+        .context("items")?
+        .iter()
+        .find(|item| item["id"] == json!(assigned))
+        .context("resolved")?;
+    assert_eq!(resolved["state"]["status"], "resolved");
+    assert_eq!(resolved["latest_assignment"]["state"]["status"], "answered");
+    assert_eq!(
+        router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("{base}?limit=21"))
+                    .body(Body::empty())?
+            )
+            .await?
+            .status(),
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(
+        router
+            .oneshot(
+                Request::builder()
+                    .uri(format!(
+                        "/v1/projects/{}/escalations",
+                        forge_domain::ProjectId::new()
+                    ))
+                    .body(Body::empty())?
+            )
+            .await?
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    Ok(())
 }
 
 pub async fn human_answer_is_atomic_and_only_clears_its_own_wait(kind: BackendKind) -> Result<()> {

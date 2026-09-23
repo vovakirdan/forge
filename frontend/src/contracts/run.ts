@@ -40,11 +40,11 @@ const runShape = z
     last_observed_sequence: z.number().int().nonnegative().safe(),
     run_spec_version: z.number().int().positive().max(65_535),
   })
-  .passthrough();
+  .strict();
 
 export const RunViewSchema = preserveWireValue(runShape);
 export const RunDetailViewSchema = preserveWireValue(
-  runShape.extend({ diagnostics: RunDiagnosticsSchema }),
+  runShape.extend({ diagnostics: RunDiagnosticsSchema }).strict(),
 );
 export const RunListResponseSchema = preserveWireValue(
   z
@@ -52,7 +52,7 @@ export const RunListResponseSchema = preserveWireValue(
       items: z.array(RunViewSchema),
       next_cursor: z.string().optional(),
     })
-    .passthrough(),
+    .strict(),
 );
 
 export type RunDesiredState = z.infer<typeof RunDesiredStateSchema>;

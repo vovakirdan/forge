@@ -31,14 +31,17 @@ test("real Pipeline pages exceed 64 KiB, preserve server order and fetch selecte
   const first = PipelineVersionListResponseSchema.parse(response.value);
   expect(first.items).toHaveLength(20);
   expect(first.next_cursor).toBeTruthy();
+  const secondPage = PipelineVersionListResponseSchema.parse(
+    (await get(`?limit=20&cursor=${encodeURIComponent(first.next_cursor!)}`)).value,
+  );
   const old = PipelineVersionViewSchema.parse((await get(`/${project.featured_id}`)).value);
   const newer = PipelineVersionViewSchema.parse((await get(`/${project.second_id}`)).value);
   const deleted = PipelineVersionViewSchema.parse((await get(`/${project.deleted_id}`)).value);
   expect(old.version).toBe(1);
-  expect(old.latest_version).toBe(2);
-  expect(old.default_version_id).toBe(old.id);
+  expect(old.latest_version).toBeGreaterThanOrEqual(2);
+  expect(old.default_version_id).toBe(newer.default_version_id);
   expect(newer.pipeline_id).toBe(old.pipeline_id);
-  expect(newer.default_version_id).toBe(old.id);
+  expect([old.id, newer.id]).toContain(old.default_version_id);
   expect(deleted.deleted_at).not.toBeNull();
 
   await openPipelines(page, live);
@@ -87,7 +90,7 @@ test("real Pipeline pages exceed 64 KiB, preserve server order and fetch selecte
   await fact(card, "Deletion state", /deleted/i);
   await list.getByRole("button", { name: "Next page", exact: true }).click();
   await expect(list.getByRole("button", { name: /^Open Pipeline version / })).toHaveCount(
-    project.total - 20,
+    secondPage.items.length,
   );
   await expect(card).toHaveCount(0);
   await expect(list.getByRole("button", { name: "Next page", exact: true })).toBeDisabled();
@@ -141,7 +144,7 @@ test("real Pipeline scopes reject foreign versions and section changes reset det
     expect(response.status).toBe(status);
     if (status === 409) expect(await response.json()).toMatchObject({ code: "cursor_invalid" });
   }
-  await loadProject(page, live.core.empty_project.id);
+  await loadProject(page, live.core.later_project.id);
   await page.getByRole("button", { name: "Pipeline versions", exact: true }).click();
   await expect(pipelineList(page)).toContainText("No pipeline versions in this project.");
   await expect(

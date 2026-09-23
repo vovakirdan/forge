@@ -1,7 +1,7 @@
 # Epic UI1.3 — Task board и управляемые изменения
 
 **Milestone:** UI1 — browser interface before M4 installer
-**Статус:** `in_progress`; FRONTEND-008/011–018 — согласованные Task read и management срезы.
+**Статус на 23 сентября 2026:** локальные Task, Board, property schema, priority и management workflows реализованы и проверены; описание ранних срезов ниже сохранено как история.
 Остальной объём blocked by `UI0.1`, `UI0.2`, `UI0.3`, `UI1.1`, `UI1.2`.
 **Зависимости:** UI0.1 model contracts, UI0.2 browser/API boundary, UI0.3 UI tooling,
 UI1.1 Projects/Employees и UI1.2 PipelineVersion.

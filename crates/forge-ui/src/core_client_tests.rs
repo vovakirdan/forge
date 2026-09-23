@@ -23,6 +23,27 @@ fn health() -> ReadTarget {
     ReadTarget::parse("/api/health", None).unwrap()
 }
 
+#[tokio::test]
+async fn event_read_requires_sse_media_type_and_keeps_numeric_cursor() {
+    let path = "/api/projects/01988000-0000-7000-8000-000000000001/events";
+    let target = ReadTarget::parse(path, Some("after=7")).unwrap();
+    let body = b"id: 8\nevent: forge.event\ndata: {\"project_sequence\":8}\n\n";
+    for (media, accepted) in [("text/event-stream", true), ("text/html", false)] {
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: {media}\r\nContent-Length: {}\r\n\r\n",
+            body.len()
+        )
+        .into_bytes();
+        let (_dir, client, server) =
+            fake_core([response, body.to_vec()].concat(), Duration::ZERO).await;
+        assert_eq!(client.read(&target).await.is_ok(), accepted);
+        let request = String::from_utf8(server.await.unwrap()).unwrap();
+        assert!(request.starts_with(
+            "GET /v1/projects/01988000-0000-7000-8000-000000000001/events?after=7 HTTP/1.1\r\n"
+        ));
+    }
+}
+
 async fn fake_core(
     response: Vec<u8>,
     delay: Duration,

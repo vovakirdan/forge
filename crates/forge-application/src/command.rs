@@ -157,6 +157,8 @@ pub enum CommandPayload {
     },
     /// Create the Project represented by the envelope's reserved identity.
     CreateProject(CreateProjectCommand),
+    /// Replace the Project's complete Task-property schema before Task creation.
+    ConfigureTaskPropertySchema(forge_domain::TaskPropertySchema),
     /// Create a Pipeline and initial immutable graph version.
     CreatePipeline(CreatePipelineCommand),
     /// Publish a complete immutable graph under an exact catalog revision.
@@ -557,6 +559,17 @@ impl CommandPayload {
                 parse_typed(name, value).map(|input| Self::ConfigureProjectHook(Box::new(input)))
             }
             CommandName::CreateProject => parse_typed(name, value).map(Self::CreateProject),
+            CommandName::ConfigureTaskPropertySchema => {
+                parse_typed::<ConfigureTaskPropertySchemaInput>(name, value).and_then(|input| {
+                    input.schema.validate_for_configuration().map_err(|error| {
+                        ApplicationError::InvalidPayload {
+                            command: name,
+                            reason: error.to_string(),
+                        }
+                    })?;
+                    Ok(Self::ConfigureTaskPropertySchema(input.schema))
+                })
+            }
             CommandName::CreatePipeline => parse_typed(name, value).map(Self::CreatePipeline),
             CommandName::CreateEmployee => parse_typed(name, value).map(Self::CreateEmployee),
             CommandName::AmendEmployee
@@ -826,6 +839,12 @@ struct RemoveDependencyInput {
 struct ProjectExecutionInput {
     #[serde(default)]
     reason: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ConfigureTaskPropertySchemaInput {
+    schema: forge_domain::TaskPropertySchema,
 }
 
 #[cfg(test)]
